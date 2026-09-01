@@ -1,0 +1,257 @@
+@import "tailwindcss";
+
+/* Le thème est piloté par l'attribut `data-theme` sur <html>, jamais par la
+   préférence système seule : on garde ainsi la main sur le rendu par défaut. */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+/* ==========================================================================
+   Antichaos — système de design
+   Deux thèmes (sombre par défaut), une palette d'accent unique déclinée en
+   dégradé, et des effets lumineux volontairement discrets pour rester rapides.
+   ========================================================================== */
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", monospace;
+
+  --radius-card: 14px;
+
+  /* Accent : violet -> cyan, la signature visuelle du produit. */
+  --color-brand-50: #eef2ff;
+  --color-brand-100: #e0e7ff;
+  --color-brand-200: #c7d2fe;
+  --color-brand-300: #a5b4fc;
+  --color-brand-400: #818cf8;
+  --color-brand-500: #6366f1;
+  --color-brand-600: #4f46e5;
+  --color-brand-700: #4338ca;
+  --color-brand-800: #3730a3;
+  --color-brand-900: #312e81;
+
+  --color-accent-400: #22d3ee;
+  --color-accent-500: #06b6d4;
+  --color-accent-600: #0891b2;
+
+  --animate-fade-up: fade-up 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+  --animate-fade-in: fade-in 0.3s ease both;
+  --animate-shimmer: shimmer 2.2s linear infinite;
+  --animate-pop: pop 0.22s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes shimmer {
+  from { background-position: 200% 0; }
+  to   { background-position: -200% 0; }
+}
+@keyframes pop {
+  from { opacity: 0; transform: scale(0.97); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* --- Jetons sémantiques ------------------------------------------------ */
+:root,
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --surface-base: #0a0b12;
+  --surface-raised: #10121c;
+  --surface-overlay: #151827;
+  --surface-hover: #1b1f31;
+  --surface-input: #0e1019;
+
+  --border-subtle: rgba(255, 255, 255, 0.07);
+  --border-strong: rgba(255, 255, 255, 0.14);
+
+  --text-primary: #eef0f6;
+  --text-secondary: #a3a9bd;
+  --text-muted: #6e7590;
+
+  --glow-brand: rgba(99, 102, 241, 0.35);
+  --glow-accent: rgba(34, 211, 238, 0.22);
+  --grid-line: rgba(255, 255, 255, 0.035);
+
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px -12px rgba(0, 0, 0, 0.7);
+  --shadow-pop: 0 12px 40px -12px rgba(0, 0, 0, 0.8);
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --surface-base: #f7f8fc;
+  --surface-raised: #ffffff;
+  --surface-overlay: #ffffff;
+  --surface-hover: #f1f3fa;
+  --surface-input: #ffffff;
+
+  --border-subtle: rgba(15, 23, 42, 0.09);
+  --border-strong: rgba(15, 23, 42, 0.18);
+
+  --text-primary: #131829;
+  --text-secondary: #4d5570;
+  --text-muted: #7a819a;
+
+  --glow-brand: rgba(99, 102, 241, 0.22);
+  --glow-accent: rgba(6, 182, 212, 0.16);
+  --grid-line: rgba(15, 23, 42, 0.04);
+
+  --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.05), 0 10px 30px -18px rgba(15, 23, 42, 0.35);
+  --shadow-pop: 0 16px 48px -16px rgba(15, 23, 42, 0.28);
+}
+
+@theme inline {
+  --color-base: var(--surface-base);
+  --color-raised: var(--surface-raised);
+  --color-overlay: var(--surface-overlay);
+  --color-hover: var(--surface-hover);
+  --color-input: var(--surface-input);
+  --color-line: var(--border-subtle);
+  --color-line-strong: var(--border-strong);
+  --color-ink: var(--text-primary);
+  --color-ink-2: var(--text-secondary);
+  --color-ink-3: var(--text-muted);
+}
+
+/* --- Base --------------------------------------------------------------- */
+* {
+  border-color: var(--border-subtle);
+}
+
+html {
+  background: var(--surface-base);
+}
+
+body {
+  background: var(--surface-base);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: rgba(99, 102, 241, 0.35);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-brand-400);
+  outline-offset: 2px;
+}
+
+/* Barres de défilement discrètes, cohérentes avec les deux thèmes. */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border: 3px solid transparent;
+  background-clip: content-box;
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover { background-color: var(--text-muted); background-clip: content-box; }
+
+/* --- Utilitaires visuels ------------------------------------------------ */
+@utility text-gradient {
+  background-image: linear-gradient(100deg, var(--color-brand-300), var(--color-accent-400));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* Voile lumineux placé derrière les grandes zones de contenu. */
+@utility aurora {
+  position: relative;
+  isolation: isolate;
+}
+
+.aurora::before {
+  content: "";
+  position: absolute;
+  inset: -40% -10% auto -10%;
+  height: 520px;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(50% 55% at 18% 0%, var(--glow-brand), transparent 70%),
+    radial-gradient(45% 50% at 82% 8%, var(--glow-accent), transparent 72%);
+  filter: blur(28px);
+  opacity: 0.85;
+}
+
+/* Grille technique très légère, utilisée sur les écrans d'authentification. */
+@utility grid-backdrop {
+  background-image:
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+  background-size: 44px 44px;
+  mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, #000 45%, transparent 100%);
+}
+
+/* Carte de base : surface + liseré + ombre, avec un survol qui « respire ». */
+@utility card {
+  background: var(--surface-raised);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+}
+
+@utility card-interactive {
+  transition: transform 0.18s cubic-bezier(0.22, 1, 0.36, 1),
+              border-color 0.18s ease,
+              box-shadow 0.18s ease;
+}
+
+.card-interactive:hover {
+  transform: translateY(-2px);
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-pop), 0 0 0 1px var(--glow-brand);
+}
+
+/* Liseré dégradé sur le bord supérieur — utilisé sur les cartes de synthèse. */
+@utility edge-glow {
+  position: relative;
+  overflow: hidden;
+}
+
+.edge-glow::after {
+  content: "";
+  position: absolute;
+  inset-inline: 12%;
+  top: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--color-brand-400), var(--color-accent-400), transparent);
+  opacity: 0.6;
+}
+
+@utility skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--surface-raised) 25%,
+    var(--surface-hover) 50%,
+    var(--surface-raised) 75%
+  );
+  background-size: 200% 100%;
+  animation: var(--animate-shimmer);
+  border-radius: 8px;
+}
+
+/* Décalage progressif des lignes d'un tableau ou d'une liste à l'apparition. */
+@utility stagger {
+  animation: var(--animate-fade-up);
+  animation-delay: calc(var(--i, 0) * 22ms);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
