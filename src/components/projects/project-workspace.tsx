@@ -29,6 +29,7 @@ import {
   Textarea,
   useToast,
 } from "@/components/ui";
+import { DateField } from "@/components/ui/date-field";
 import { PROJECT_HEALTH, PROJECT_STATUS, PROJECT_STATUS_ORDER } from "@/lib/constants";
 import type {
   Comment,
@@ -471,10 +472,10 @@ function EditProjectDialog({
           </Select>
         </Field>
         <Field label="Démarrage">
-          <Input type="date" value={form.start_on} onChange={(event) => set("start_on", event.target.value)} />
+          <DateField value={form.start_on || null} onChange={(value) => set("start_on", value ?? "")} className="w-full" />
         </Field>
         <Field label="Échéance">
-          <Input type="date" value={form.due_on} onChange={(event) => set("due_on", event.target.value)} />
+          <DateField value={form.due_on || null} onChange={(value) => set("due_on", value ?? "")} className="w-full" />
         </Field>
         <Field label="Budget (€)" className="sm:col-span-2">
           <Input inputMode="decimal" value={form.budget} onChange={(event) => set("budget", event.target.value)} />

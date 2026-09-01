@@ -9,15 +9,19 @@ import {
   ChevronDown,
   Copy,
   ExternalLink,
-  Filter,
+  Eye,
+  EyeOff,
   Phone,
   Plus,
+  Rocket,
   Sparkles,
+  Table2,
   Upload,
-  X,
+  UserRound,
 } from "lucide-react";
 
 import {
+  Avatar,
   Badge,
   Button,
   Card,
@@ -30,16 +34,35 @@ import {
   Textarea,
   useToast,
 } from "@/components/ui";
+import { DateField } from "@/components/ui/date-field";
 import { LEAD_STATUS, LEAD_STATUS_ORDER, TONE_CLASSES, TONE_DOT } from "@/lib/constants";
 import type { Lead, LeadStatus } from "@/lib/database.types";
 import { cn, daysUntil, formatMoney, normalize } from "@/lib/utils";
-import { convertLead, createLead, updateLead } from "@/app/(crm)/leads/actions";
+import { assignLead, convertLead, createLead, updateLead } from "@/app/(crm)/leads/actions";
 import { ImportLeadsDialog } from "@/components/crm/import-leads-dialog";
 import { LeadDrawer } from "@/components/crm/lead-drawer";
 
 const PAGE_SIZE = 40;
 
-export function LeadsWorkspace({ leads, isAdmin }: { leads: Lead[]; isAdmin: boolean }) {
+type MemberLite = { id: string; full_name: string | null; email: string; role: string };
+type ViewMode = "lecture" | "prospection";
+
+function todayIso() {
+  const now = new Date();
+  return new Date(now.getTime() - now.getTimezoneOffset() * 60_000).toISOString().slice(0, 10);
+}
+
+export function LeadsWorkspace({
+  leads,
+  members,
+  currentUserId,
+  isAdmin,
+}: {
+  leads: Lead[];
+  members: MemberLite[];
+  currentUserId: string;
+  isAdmin: boolean;
+}) {
   const router = useRouter();
   const params = useSearchParams();
   const toast = useToast();
@@ -49,7 +72,9 @@ export function LeadsWorkspace({ leads, isAdmin }: { leads: Lead[]; isAdmin: boo
   const [statuses, setStatuses] = useState<LeadStatus[]>([]);
   const [region, setRegion] = useState("toutes");
   const [segment, setSegment] = useState("tous");
-  const [onlyFollowUp, setOnlyFollowUp] = useState(false);
+  const [owner, setOwner] = useState("tous");
+  const [view, setView] = useState<ViewMode>("lecture");
+  const [showOverdue, setShowOverdue] = useState(true);
   const [visible, setVisible] = useState(PAGE_SIZE);
 
   const [selected, setSelected] = useState<Lead | null>(null);
@@ -81,28 +106,53 @@ export function LeadsWorkspace({ leads, isAdmin }: { leads: Lead[]; isAdmin: boo
     return map;
   }, [leads]);
 
+  const today = todayIso();
+
   const filtered = useMemo(() => {
     const needle = normalize(search.trim());
     const wanted = new Set(statuses);
-    return leads.filter((lead) => {
+
+    const base = leads.filter((lead) => {
       if (wanted.size > 0 && !wanted.has(lead.status)) return false;
       if (region !== "toutes" && lead.region !== region) return false;
       if (segment !== "tous" && lead.segment !== segment) return false;
-      if (onlyFollowUp && !lead.follow_up_on) return false;
+      if (owner === "moi" && lead.owner_id !== currentUserId) return false;
+      if (owner !== "tous" && owner !== "moi" && lead.owner_id !== owner) return false;
       if (!needle) return true;
-      const haystack = normalize(
+      return normalize(
         [lead.full_name, lead.company_name, lead.email, lead.phone, lead.company_activity]
           .filter(Boolean)
           .join(" "),
-      );
-      return haystack.includes(needle);
+      ).includes(needle);
     });
-  }, [leads, search, statuses, region, segment, onlyFollowUp]);
+
+    if (view === "lecture") return base;
+
+    // Mode prospection : seules les relances dues remontent, les plus en retard
+    // d'abord — c'est l'ordre dans lequel on décroche son téléphone.
+    return base
+      .filter((lead) => {
+        if (!lead.follow_up_on) return false;
+        if (lead.follow_up_on > today) return false;
+        if (!showOverdue && lead.follow_up_on < today) return false;
+        return true;
+      })
+      .sort((a, b) => (a.follow_up_on! < b.follow_up_on! ? -1 : 1));
+  }, [leads, search, statuses, region, segment, owner, currentUserId, view, showOverdue, today]);
+
+  const dueToday = useMemo(
+    () => leads.filter((lead) => lead.follow_up_on === today).length,
+    [leads, today],
+  );
+  const overdue = useMemo(
+    () => leads.filter((lead) => lead.follow_up_on && lead.follow_up_on < today).length,
+    [leads, today],
+  );
 
   const page = filtered.slice(0, visible);
 
   // Toute modification des filtres remet la pagination à zéro.
-  useEffect(() => setVisible(PAGE_SIZE), [search, statuses, region, segment, onlyFollowUp]);
+  useEffect(() => setVisible(PAGE_SIZE), [search, statuses, region, segment, owner, view, showOverdue]);
 
   async function patch(lead: Lead, field: string, value: string | null, silent = false) {
     const result = await updateLead(lead.id, { [field]: value });
@@ -180,12 +230,20 @@ export function LeadsWorkspace({ leads, isAdmin }: { leads: Lead[]; isAdmin: boo
             </Select>
           ) : null}
 
-          <Button
-            variant={onlyFollowUp ? "primary" : "secondary"}
-            onClick={() => setOnlyFollowUp((value) => !value)}
+          <Select
+            value={owner}
+            onChange={(event) => setOwner(event.target.value)}
+            className="w-auto min-w-40"
+            aria-label="Filtrer par propriétaire"
           >
-            <Filter className="size-3.5" />À relancer
-          </Button>
+            <option value="tous">Tous les propriétaires</option>
+            <option value="moi">Mes leads</option>
+            {members.map((member) => (
+              <option key={member.id} value={member.id}>
+                {member.full_name ?? member.email}
+              </option>
+            ))}
+          </Select>
 
           <span className="ml-auto flex items-center gap-2">
             {isAdmin ? (
@@ -199,6 +257,58 @@ export function LeadsWorkspace({ leads, isAdmin }: { leads: Lead[]; isAdmin: boo
               Nouveau lead
             </Button>
           </span>
+        </div>
+
+        {/* Bascule de vue : lecture pour explorer, prospection pour appeler. */}
+        <div className="mt-3 flex flex-wrap items-center gap-2.5 border-t border-[var(--border-subtle)] pt-3">
+          <div className="flex rounded-[10px] bg-[var(--surface-hover)] p-1 text-[12.5px]">
+            {(
+              [
+                { key: "lecture", label: "Lecture", icon: Table2 },
+                { key: "prospection", label: "Prospection", icon: Rocket },
+              ] as const
+            ).map(({ key, label, icon: Icon }) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setView(key)}
+                className={cn(
+                  "flex items-center gap-1.5 rounded-lg px-3 py-1.5 font-medium transition-all duration-200",
+                  view === key
+                    ? "bg-[var(--surface-overlay)] text-[var(--text-primary)] shadow-[var(--shadow-card)]"
+                    : "text-[var(--text-muted)] hover:text-[var(--text-secondary)]",
+                )}
+              >
+                <Icon className="size-3.5" />
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {view === "prospection" ? (
+            <>
+              <span className="flex items-center gap-1.5">
+                <Badge tone="orange">{dueToday} pour aujourd&apos;hui</Badge>
+                {overdue > 0 ? <Badge tone="red">{overdue} en retard</Badge> : null}
+              </span>
+              <Button
+                variant={showOverdue ? "secondary" : "subtle"}
+                size="sm"
+                onClick={() => setShowOverdue((value) => !value)}
+                title={showOverdue ? "Masquer les relances en retard" : "Afficher les relances en retard"}
+              >
+                {showOverdue ? <Eye className="size-3.5" /> : <EyeOff className="size-3.5" />}
+                {showOverdue ? "Retards affichés" : "Retards masqués"}
+              </Button>
+              <p className="text-[11.5px] text-[var(--text-muted)]">
+                Les relances dues remontent, les plus anciennes d&apos;abord.
+              </p>
+            </>
+          ) : (
+            <p className="text-[11.5px] text-[var(--text-muted)]">
+              Toute la base, dans l&apos;ordre d&apos;ajout.
+            </p>
+          )}
         </div>
       </Card>
 
@@ -222,7 +332,7 @@ export function LeadsWorkspace({ leads, isAdmin }: { leads: Lead[]; isAdmin: boo
           />
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1180px] text-left text-[13.5px]">
+            <table className="w-full min-w-[1320px] text-left text-[13.5px]">
               <thead className="text-[11.5px] tracking-wide text-[var(--text-muted)] uppercase">
                 <tr className="border-b border-[var(--border-subtle)]">
                   <th className="px-4 py-2.5 font-medium">Contact</th>
@@ -230,6 +340,7 @@ export function LeadsWorkspace({ leads, isAdmin }: { leads: Lead[]; isAdmin: boo
                   <th className="px-4 py-2.5 font-medium">Statut</th>
                   <th className="px-4 py-2.5 font-medium">Téléphone</th>
                   <th className="px-4 py-2.5 font-medium">Relance</th>
+                  <th className="px-4 py-2.5 font-medium">Assigné à</th>
                   <th className="px-4 py-2.5 font-medium">Commentaire</th>
                   <th className="px-4 py-2.5 text-right font-medium">CA</th>
                   <th className="px-3 py-2.5" />
@@ -241,7 +352,14 @@ export function LeadsWorkspace({ leads, isAdmin }: { leads: Lead[]; isAdmin: boo
                     key={lead.id}
                     onClick={() => setSelected(lead)}
                     style={{ ["--i" as string]: index % PAGE_SIZE }}
-                    className="stagger cursor-pointer transition-colors hover:bg-[var(--surface-hover)]/60"
+                    className={cn(
+                      "stagger cursor-pointer transition-colors hover:bg-[var(--surface-hover)]/60",
+                      view === "prospection" && lead.follow_up_on === today && "bg-brand-500/[0.07]",
+                      view === "prospection" &&
+                        lead.follow_up_on &&
+                        lead.follow_up_on < today &&
+                        "bg-rose-500/[0.07]",
+                    )}
                   >
                     <td className="px-4 py-2">
                       <p className="font-medium">{lead.full_name ?? "Sans nom"}</p>
@@ -268,9 +386,26 @@ export function LeadsWorkspace({ leads, isAdmin }: { leads: Lead[]; isAdmin: boo
                     </td>
 
                     <td className="px-4 py-2" onClick={(event) => event.stopPropagation()}>
-                      <InlineDate
+                      <DateField
                         value={lead.follow_up_on}
-                        onCommit={(value) => patch(lead, "follow_up_on", value)}
+                        placeholder="Planifier"
+                        className="w-36"
+                        onChange={(value) => patch(lead, "follow_up_on", value, true)}
+                      />
+                    </td>
+
+                    <td className="px-4 py-2" onClick={(event) => event.stopPropagation()}>
+                      <OwnerSelect
+                        lead={lead}
+                        members={members}
+                        onAssign={async (ownerId) => {
+                          const result = await assignLead(lead.id, ownerId);
+                          if (!result.ok) {
+                            toast(result.error, "error");
+                            return;
+                          }
+                          refresh();
+                        }}
                       />
                     </td>
 
@@ -562,62 +697,44 @@ function CopyablePhone({ phone }: { phone: string | null }) {
   );
 }
 
-/** Date de relance modifiable sans ouvrir la fiche. */
-function InlineDate({
-  value,
-  onCommit,
+/** Assignation du lead à un collaborateur, sans quitter le tableau. */
+function OwnerSelect({
+  lead,
+  members,
+  onAssign,
 }: {
-  value: string | null;
-  onCommit: (value: string | null) => Promise<boolean>;
+  lead: Lead;
+  members: MemberLite[];
+  onAssign: (ownerId: string | null) => Promise<void>;
 }) {
-  const [draft, setDraft] = useState(value ?? "");
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => setDraft(value ?? ""), [value]);
-
-  const remaining = daysUntil(draft || null);
-  const late = remaining != null && remaining < 0;
-
-  async function commit(next: string) {
-    if (next === (value ?? "")) return;
-    setSaving(true);
-    const ok = await onCommit(next || null);
-    setSaving(false);
-    if (!ok) setDraft(value ?? "");
-  }
+  const current = members.find((member) => member.id === lead.owner_id);
 
   return (
-    <span className="relative inline-flex items-center">
-      <input
-        type="date"
-        value={draft}
-        disabled={saving}
-        onChange={(event) => {
-          setDraft(event.target.value);
-          commit(event.target.value);
-        }}
-        aria-label="Date de relance"
+    <span className="flex items-center gap-1.5">
+      {current ? (
+        <Avatar name={current.full_name} email={current.email} size={22} />
+      ) : (
+        <span className="grid size-[22px] shrink-0 place-items-center rounded-full bg-[var(--surface-hover)] text-[var(--text-muted)]">
+          <UserRound className="size-3" />
+        </span>
+      )}
+      <select
+        value={lead.owner_id ?? ""}
+        onChange={(event) => onAssign(event.target.value || null)}
+        aria-label="Assigner le lead"
         className={cn(
-          "w-[8.5rem] rounded-md bg-transparent px-1.5 py-1 text-[12px] tabular-nums outline-none",
-          "ring-1 ring-transparent transition-all hover:bg-[var(--surface-hover)]",
-          "focus:bg-[var(--surface-input)] focus:ring-brand-500/60",
-          !draft && "text-[var(--text-muted)]",
-          late && "text-rose-400",
+          "cursor-pointer appearance-none rounded-md bg-transparent py-1 pr-1 pl-0.5 text-[12px]",
+          "outline-none transition-colors hover:text-brand-500 dark:hover:text-brand-300",
+          !current && "text-[var(--text-muted)]",
         )}
-      />
-      {draft ? (
-        <button
-          type="button"
-          onClick={() => {
-            setDraft("");
-            commit("");
-          }}
-          aria-label="Retirer la relance"
-          className="rounded p-0.5 text-[var(--text-muted)] opacity-0 transition-opacity hover:text-rose-400 focus:opacity-100 group-hover:opacity-100"
-        >
-          <X className="size-3" />
-        </button>
-      ) : null}
+      >
+        <option value="">Non assigné</option>
+        {members.map((member) => (
+          <option key={member.id} value={member.id} className="bg-[var(--surface-overlay)] text-[var(--text-primary)]">
+            {member.full_name ?? member.email}
+          </option>
+        ))}
+      </select>
     </span>
   );
 }

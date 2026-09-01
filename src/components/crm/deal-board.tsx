@@ -200,8 +200,8 @@ export function DealBoard({
         </Card>
       ) : (
         <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
-          <div className="-mx-4 overflow-x-auto px-4 pb-3 sm:-mx-6 sm:px-6">
-            <div className="flex min-h-[60vh] gap-3">
+          <div className="-mx-4 w-[calc(100%+2rem)] overflow-x-auto overscroll-x-contain px-4 pb-3 sm:-mx-6 sm:w-[calc(100%+3rem)] sm:px-6">
+            <div className="flex min-h-[60vh] w-max gap-3">
               {columns.map(({ stage, deals: stageDeals }) => (
                 <BoardColumn
                   key={stage}

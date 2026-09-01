@@ -16,25 +16,24 @@
 
   --radius-card: 14px;
 
-  /* Accent : violet profond -> fuchsia. Une signature chaude, volontairement
-     éloignée du bleu institutionnel. */
-  --color-brand-50: #f5f2ff;
-  --color-brand-100: #ebe4ff;
-  --color-brand-200: #d9cdff;
-  --color-brand-300: #bda6ff;
-  --color-brand-400: #9d75fb;
-  --color-brand-500: #8447f0;
-  --color-brand-600: #7028dc;
-  --color-brand-700: #5d1eb8;
-  --color-brand-800: #4d1c95;
-  --color-brand-900: #401a78;
+  /* Orange Antichaos, décliné du plus clair au plus profond. */
+  --color-brand-50: #fdf4ef;
+  --color-brand-100: #fbe6d8;
+  --color-brand-200: #f6c9ac;
+  --color-brand-300: #f0a377;
+  --color-brand-400: #e87c45;
+  --color-brand-500: #dd5a1c;
+  --color-brand-600: #c9470f;
+  --color-brand-700: #a5370e;
+  --color-brand-800: #852e12;
+  --color-brand-900: #6d2812;
 
-  --color-accent-300: #f9a8d4;
-  --color-accent-400: #f472b6;
-  --color-accent-500: #ec4899;
-  --color-accent-600: #db2777;
+  /* Ambre : le second temps du dégradé, jamais utilisé seul. */
+  --color-accent-300: #fcd34d;
+  --color-accent-400: #fbbf24;
+  --color-accent-500: #f59e0b;
+  --color-accent-600: #d97706;
 
-  /* Teinte d'appoint, pour les signaux « à faire » et les jauges tièdes. */
   --color-ember-400: #fbbf24;
   --color-ember-500: #f59e0b;
 
@@ -66,21 +65,21 @@
 :root[data-theme="dark"] {
   color-scheme: dark;
 
-  --surface-base: #0e0a15;
-  --surface-raised: #171021;
-  --surface-overlay: #1d1529;
-  --surface-hover: #251b33;
-  --surface-input: #130d1c;
+  --surface-base: #14100d;
+  --surface-raised: #1c1714;
+  --surface-overlay: #231d19;
+  --surface-hover: #2b2420;
+  --surface-input: #171310;
 
   --border-subtle: rgba(255, 255, 255, 0.08);
-  --border-strong: rgba(255, 255, 255, 0.16);
+  --border-strong: rgba(255, 255, 255, 0.17);
 
-  --text-primary: #f3eff8;
-  --text-secondary: #b0a6c0;
-  --text-muted: #7b7090;
+  --text-primary: #f6f2ee;
+  --text-secondary: #b8ada4;
+  --text-muted: #857a71;
 
-  --glow-brand: rgba(132, 71, 240, 0.4);
-  --glow-accent: rgba(236, 72, 153, 0.26);
+  --glow-brand: rgba(221, 90, 28, 0.42);
+  --glow-accent: rgba(245, 158, 11, 0.24);
   --grid-line: rgba(255, 255, 255, 0.04);
 
   --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.45), 0 8px 24px -12px rgba(0, 0, 0, 0.75);
@@ -90,25 +89,26 @@
 :root[data-theme="light"] {
   color-scheme: light;
 
-  --surface-base: #f8f5fb;
+  /* Gris chaud de la marque, jamais du blanc pur en fond. */
+  --surface-base: #f3f1ef;
   --surface-raised: #ffffff;
   --surface-overlay: #ffffff;
-  --surface-hover: #f2ecf8;
+  --surface-hover: #eceae7;
   --surface-input: #ffffff;
 
-  --border-subtle: rgba(64, 26, 120, 0.11);
-  --border-strong: rgba(64, 26, 120, 0.22);
+  --border-subtle: rgba(61, 40, 28, 0.12);
+  --border-strong: rgba(61, 40, 28, 0.24);
 
-  --text-primary: #1c1327;
-  --text-secondary: #574a67;
-  --text-muted: #857892;
+  --text-primary: #17120f;
+  --text-secondary: #574c45;
+  --text-muted: #8a7d74;
 
-  --glow-brand: rgba(132, 71, 240, 0.2);
-  --glow-accent: rgba(236, 72, 153, 0.16);
-  --grid-line: rgba(64, 26, 120, 0.05);
+  --glow-brand: rgba(221, 90, 28, 0.22);
+  --glow-accent: rgba(245, 158, 11, 0.18);
+  --grid-line: rgba(61, 40, 28, 0.05);
 
-  --shadow-card: 0 1px 2px rgba(64, 26, 120, 0.06), 0 10px 30px -18px rgba(64, 26, 120, 0.3);
-  --shadow-pop: 0 16px 48px -16px rgba(64, 26, 120, 0.26);
+  --shadow-card: 0 1px 2px rgba(61, 40, 28, 0.06), 0 10px 30px -18px rgba(61, 40, 28, 0.32);
+  --shadow-pop: 0 16px 48px -16px rgba(61, 40, 28, 0.28);
 }
 
 @theme inline {
@@ -142,7 +142,7 @@ body {
 }
 
 ::selection {
-  background: rgba(132, 71, 240, 0.38);
+  background: rgba(221, 90, 28, 0.32);
 }
 
 :focus-visible {
@@ -173,6 +173,9 @@ body {
 @utility aurora {
   position: relative;
   isolation: isolate;
+  /* Le halo déborde volontairement de 10 % : sans cette coupe il provoquait un
+     scroll horizontal sur toute la page, qui parasitait celui du Kanban. */
+  overflow-x: clip;
 }
 
 .aurora::before {

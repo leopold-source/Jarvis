@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Building2, CalendarClock, Globe, Linkedin, Mail, MapPin, Phone, Rocket } from "lucide-react";
 
 import { Badge, Button, Drawer, Field, Input, Select, Textarea, useToast } from "@/components/ui";
+import { DateField } from "@/components/ui/date-field";
 import { LEAD_STATUS, LEAD_STATUS_ORDER } from "@/lib/constants";
 import type { Lead, LeadStatus } from "@/lib/database.types";
 import { formatDate, formatMoney } from "@/lib/utils";
@@ -167,7 +168,12 @@ export function LeadDrawer({
               </Select>
             </Field>
             <Field label="Date de relance">
-              <Input type="date" value={followUp} onChange={(event) => setFollowUp(event.target.value)} />
+              <DateField
+                value={followUp || null}
+                onChange={(value) => setFollowUp(value ?? "")}
+                placeholder="Planifier une relance"
+                className="w-full"
+              />
             </Field>
           </div>
 

@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 
 import { PageHeader } from "@/components/layout/page-header";
+import { PipelineInsight } from "@/components/crm/pipeline-insight";
 import { Badge, Card, EmptyState, ProgressBar, SectionTitle } from "@/components/ui";
 import {
   DEAL_STAGE,
@@ -56,6 +57,13 @@ export default async function DashboardPage() {
         .limit(6),
       supabase.from("leads").select("id", { count: "exact", head: true }),
     ]);
+
+  const { data: insight } = await supabase
+    .from("pipeline_insights")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
 
   const allDeals = deals ?? [];
   const openDeals = allDeals.filter((deal) => OPEN_STAGES.includes(deal.stage));
@@ -113,6 +121,8 @@ export default async function DashboardPage() {
         title={`Bonjour ${profile.full_name?.split(" ")[0] ?? ""}`.trim()}
         description="Vue d'ensemble du pipeline, des relances à passer et des projets en cours."
       />
+
+      <PipelineInsight insight={insight} />
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {stats.map(({ label, value, hint, icon: Icon, href }, index) => (

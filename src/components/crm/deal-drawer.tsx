@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { Building2, ExternalLink, FolderKanban, Mail, Trash2, User } from "lucide-react";
 
 import { Badge, Button, Drawer, Field, Input, Select, Textarea, useToast } from "@/components/ui";
+import { DateField } from "@/components/ui/date-field";
 import { DEAL_STAGE, DEAL_STAGE_ORDER } from "@/lib/constants";
 import type { Deal, DealStage } from "@/lib/database.types";
 import { formatDate, formatMoney } from "@/lib/utils";
@@ -219,10 +220,10 @@ export function DealDrawer({
             </Select>
           </Field>
           <Field label="Clôture prévue">
-            <Input
-              type="date"
-              value={form.expected_close_on}
-              onChange={(event) => set("expected_close_on", event.target.value)}
+            <DateField
+              value={form.expected_close_on || null}
+              onChange={(value) => set("expected_close_on", value ?? "")}
+              className="w-full"
             />
           </Field>
           <Field label="Prochaine étape">
@@ -233,10 +234,10 @@ export function DealDrawer({
             />
           </Field>
           <Field label="Date de la prochaine étape">
-            <Input
-              type="date"
-              value={form.next_step_on}
-              onChange={(event) => set("next_step_on", event.target.value)}
+            <DateField
+              value={form.next_step_on || null}
+              onChange={(value) => set("next_step_on", value ?? "")}
+              className="w-full"
             />
           </Field>
         </div>

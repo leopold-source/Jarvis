@@ -24,6 +24,7 @@ import {
   Textarea,
   useToast,
 } from "@/components/ui";
+import { DateField } from "@/components/ui/date-field";
 import { TASK_PRIORITY, TASK_STATUS, TASK_STATUS_ORDER } from "@/lib/constants";
 import type { Project, Task, TaskKind, TaskPriority, TaskStatus } from "@/lib/database.types";
 import { cn, daysUntil, formatDate } from "@/lib/utils";
@@ -487,7 +488,7 @@ function TaskDialog({
         </Field>
 
         <Field label="Échéance">
-          <Input type="date" value={form.due_on} onChange={(event) => set("due_on", event.target.value)} />
+          <DateField value={form.due_on || null} onChange={(value) => set("due_on", value ?? "")} className="w-full" />
         </Field>
 
         <Field label="Priorité">

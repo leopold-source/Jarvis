@@ -67,6 +67,26 @@ export async function convertLead(
   return { ok: true, data: { dealId: payload.deal_id } };
 }
 
+/** Réassigne un lead à un collaborateur (ou le laisse sans propriétaire). */
+export async function assignLead(id: string, ownerId: string | null): Promise<ActionResult> {
+  await requireStaff();
+  const supabase = await createClient();
+
+  const { data: owner } = ownerId
+    ? await supabase.from("profiles").select("full_name, email").eq("id", ownerId).maybeSingle()
+    : { data: null };
+
+  const { error } = await supabase
+    .from("leads")
+    .update({ owner_id: ownerId, owner_name: owner?.full_name ?? owner?.email ?? null })
+    .eq("id", id);
+
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath("/leads");
+  return { ok: true };
+}
+
 export async function createLead(input: {
   first_name?: string | null;
   last_name?: string | null;

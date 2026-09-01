@@ -248,6 +248,17 @@ export type EmailMessage = {
   created_at: string;
 }
 
+export type PipelineInsight = {
+  id: string;
+  headline: string;
+  horizon_days: number;
+  priorities: Json;
+  reasoning: string | null;
+  snapshot: Json;
+  created_by: string | null;
+  created_at: string;
+}
+
 export type ProjectProgress = {
   project_id: string | null;
   tasks_total: number | null;
@@ -284,6 +295,7 @@ export type Database = {
       comments: TableDef<Comment, "entity_type" | "entity_id" | "body" | "author_id">;
       activities: TableDef<Activity, "entity_type" | "entity_id" | "action">;
       email_messages: TableDef<EmailMessage>;
+      pipeline_insights: TableDef<PipelineInsight, "headline">;
     };
     Views: {
       project_progress: { Row: ProjectProgress; Relationships: [] };
