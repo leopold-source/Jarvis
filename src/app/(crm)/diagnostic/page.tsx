@@ -3,7 +3,12 @@ import { AlertTriangle, CheckCircle2, GitCommitHorizontal, KeyRound, XCircle } f
 import { PageHeader } from "@/components/layout/page-header";
 import { Badge, Card, SectionTitle } from "@/components/ui";
 import { requireAdmin } from "@/lib/auth";
-import { anthropicClient, anthropicKey, describeAnthropicError } from "@/lib/anthropic";
+import {
+  anthropicClient,
+  anthropicKey,
+  anthropicWorkspaceId,
+  describeAnthropicError,
+} from "@/lib/anthropic";
 
 /**
  * Page de diagnostic.
@@ -17,10 +22,12 @@ import { anthropicClient, anthropicKey, describeAnthropicError } from "@/lib/ant
 export const dynamic = "force-dynamic";
 
 const WATCHED = [
-  { name: "NEXT_PUBLIC_SUPABASE_URL", secret: false },
-  { name: "NEXT_PUBLIC_SUPABASE_ANON_KEY", secret: true },
-  { name: "SUPABASE_SERVICE_ROLE_KEY", secret: true },
-  { name: "ANTHROPIC_API_KEY", secret: true },
+  { name: "NEXT_PUBLIC_SUPABASE_URL", secret: false, optional: false },
+  { name: "NEXT_PUBLIC_SUPABASE_ANON_KEY", secret: true, optional: false },
+  { name: "SUPABASE_SERVICE_ROLE_KEY", secret: true, optional: false },
+  { name: "ANTHROPIC_API_KEY", secret: true, optional: false },
+  // Nécessaire uniquement si la clé ci-dessus est rattachée à une identité.
+  { name: "ANTHROPIC_WORKSPACE_ID", secret: false, optional: true },
 ] as const;
 
 /** Masque une valeur sensible en n'en gardant que les extrémités. */
@@ -96,7 +103,7 @@ export default async function DiagnosticPage() {
           description="Lues à l'exécution. Une valeur absente ici n'existe pas dans ce déploiement, quel que soit l'affichage du tableau de bord Vercel."
         />
         <div className="mt-3 space-y-2">
-          {WATCHED.map(({ name, secret }) => {
+          {WATCHED.map(({ name, secret, optional }) => {
             const raw = env[name];
             const trimmed = raw?.trim() ?? "";
             const present = trimmed.length > 0;
@@ -115,7 +122,9 @@ export default async function DiagnosticPage() {
                     </p>
                   ) : (
                     <p className="mt-0.5 text-[12px] text-[var(--text-muted)]">
-                      Non définie dans ce déploiement.
+                      {optional
+                        ? "Non définie — utile seulement avec une clé rattachée à une identité."
+                        : "Non définie dans ce déploiement."}
                     </p>
                   )}
                 </div>
@@ -126,9 +135,9 @@ export default async function DiagnosticPage() {
                       Espace ou saut de ligne
                     </Badge>
                   ) : null}
-                  <Badge tone={present ? "emerald" : "red"}>
+                  <Badge tone={present ? "emerald" : optional ? "stone" : "red"}>
                     {present ? <CheckCircle2 className="size-3" /> : <XCircle className="size-3" />}
-                    {present ? "Présente" : "Absente"}
+                    {present ? "Présente" : optional ? "Optionnelle" : "Absente"}
                   </Badge>
                 </div>
               </div>
@@ -140,7 +149,11 @@ export default async function DiagnosticPage() {
       <Card className="p-5">
         <SectionTitle
           title="Test en direct de la clé Anthropic"
-          description="Un appel réel à l'API, pour séparer « clé absente » de « clé refusée »."
+          description={
+            anthropicWorkspaceId()
+              ? `Un appel réel à l'API, au nom de l'espace de travail ${anthropicWorkspaceId()}.`
+              : "Un appel réel à l'API, sans en-tête d'espace de travail."
+          }
         />
         <div
           className={`mt-3 flex items-start gap-2.5 rounded-xl border p-3.5 text-[13px] ${

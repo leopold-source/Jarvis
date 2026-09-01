@@ -82,7 +82,8 @@ npm run dev
 | `NEXT_PUBLIC_SUPABASE_URL` | URL du projet Supabase. |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Clé publique (publishable). |
 | `SUPABASE_SERVICE_ROLE_KEY` | **Serveur uniquement.** Nécessaire pour envoyer les invitations depuis « Équipe & accès ». |
-| `ANTHROPIC_API_KEY` | **Serveur uniquement.** Active le nettoyage des imports CSV par Claude. |
+| `ANTHROPIC_API_KEY` | **Serveur uniquement.** Active le nettoyage des imports CSV et l'analyse du pipeline. Préférer une clé créée **dans un espace de travail** : une clé « personnelle / tous les espaces de travail » est rejetée en 400 sans la variable ci-dessous. |
+| `ANTHROPIC_WORKSPACE_ID` | Facultative. Espace de travail à facturer, requis seulement pour une clé rattachée à une identité. |
 
 La clé `service_role` ne doit jamais être préfixée `NEXT_PUBLIC_` : elle
 contourne la RLS.
