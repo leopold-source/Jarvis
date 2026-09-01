@@ -78,7 +78,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
 /* ------------------------------------------------------------------- Badge */
 
 export function Badge({
-  tone = "slate",
+  tone = "stone",
   children,
   className,
 }: {

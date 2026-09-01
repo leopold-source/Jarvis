@@ -152,7 +152,7 @@ export function LeadDrawer({
           <div className="flex flex-wrap gap-2">
             {lead.revenue ? <Badge tone="cyan">CA {formatMoney(lead.revenue, true)}</Badge> : null}
             {lead.company_activity ? <Badge tone="indigo">{lead.company_activity}</Badge> : null}
-            {lead.segment ? <Badge tone="slate">{lead.segment}</Badge> : null}
+            {lead.segment ? <Badge tone="stone">{lead.segment}</Badge> : null}
             {lead.owner_name ? <Badge tone="violet">Owner · {lead.owner_name}</Badge> : null}
           </div>
 

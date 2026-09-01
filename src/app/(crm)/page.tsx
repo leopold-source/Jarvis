@@ -11,8 +11,13 @@ import {
 
 import { PageHeader } from "@/components/layout/page-header";
 import { Badge, Card, EmptyState, ProgressBar, SectionTitle } from "@/components/ui";
-import { DEAL_STAGE, DEAL_STAGE_ORDER, OPEN_STAGES, PROJECT_STATUS } from "@/lib/constants";
-import type { DealStage } from "@/lib/database.types";
+import {
+  DEAL_STAGE,
+  DEAL_STAGE_ORDER,
+  OPEN_STAGES,
+  PROJECT_STATUS,
+  TONE_GRADIENT,
+} from "@/lib/constants";
 import { requireStaff } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { cn, daysUntil, formatDate, formatMoney, pluralize } from "@/lib/utils";
@@ -165,7 +170,7 @@ export default async function DashboardPage() {
                       <span
                         className={cn(
                           "block h-full rounded-full bg-linear-to-r transition-[width] duration-700",
-                          stageGradient(stage),
+                          TONE_GRADIENT[DEAL_STAGE[stage].tone],
                         )}
                         style={{ width: `${(stageDeals.length / maxStageCount) * 100}%` }}
                       />
@@ -286,7 +291,7 @@ export default async function DashboardPage() {
                         )}
                         <span className="truncate text-[13.5px] group-hover:text-brand-300">{task.title}</span>
                       </span>
-                      <Badge tone={remaining != null && remaining < 0 ? "rose" : remaining! <= 3 ? "amber" : "slate"}>
+                      <Badge tone={remaining != null && remaining < 0 ? "rose" : remaining! <= 3 ? "amber" : "stone"}>
                         {formatDate(task.due_on)}
                       </Badge>
                     </Link>
@@ -312,19 +317,4 @@ export default async function DashboardPage() {
       ) : null}
     </div>
   );
-}
-
-/** Dégradé de la barre par étape, aligné sur la couleur du badge. */
-function stageGradient(stage: DealStage) {
-  const map: Record<string, string> = {
-    sky: "from-sky-500 to-sky-400",
-    indigo: "from-indigo-500 to-indigo-400",
-    violet: "from-violet-500 to-violet-400",
-    cyan: "from-cyan-500 to-cyan-400",
-    emerald: "from-emerald-500 to-emerald-400",
-    amber: "from-amber-500 to-amber-400",
-    rose: "from-rose-500 to-rose-400",
-    slate: "from-slate-500 to-slate-400",
-  };
-  return map[DEAL_STAGE[stage].tone];
 }

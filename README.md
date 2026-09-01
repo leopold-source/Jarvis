@@ -82,6 +82,7 @@ npm run dev
 | `NEXT_PUBLIC_SUPABASE_URL` | URL du projet Supabase. |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Clé publique (publishable). |
 | `SUPABASE_SERVICE_ROLE_KEY` | **Serveur uniquement.** Nécessaire pour envoyer les invitations depuis « Équipe & accès ». |
+| `ANTHROPIC_API_KEY` | **Serveur uniquement.** Active le nettoyage des imports CSV par Claude. |
 
 La clé `service_role` ne doit jamais être préfixée `NEXT_PUBLIC_` : elle
 contourne la RLS.
@@ -98,6 +99,7 @@ Les migrations sont dans `supabase/migrations/`, dans l'ordre :
 | `…000004_rls.sql` | Toutes les politiques RLS. |
 | `…000005_rpc_views_storage.sql` | `convert_lead_to_deal`, vue `project_progress`, bucket `documents`. |
 | `…000006_harden.sql` | Surface RPC minimale, extensions hors du schéma public, colonne `segment`. |
+| `…000007_import_affaires_formation_ia.sql` | Reprise des affaires « Formation IA » depuis l'export CSV du pipeline. |
 
 Avec la CLI Supabase :
 
@@ -122,6 +124,37 @@ Colonnes reconnues : `Name`, `Prénom`, `Nom`, `E-mail`, `Tél`, `Entreprise`,
 `Statut`, `Région`, `Relance`, `Valeur CA`, `Site entreprise`, `Url LinkedIn`,
 `Commentaire`, `Activité`, `Secteur`, `Adresse`, `Owner`, `fullname`.
 
+#### Anti-doublon
+
+Avant toute écriture, chaque ligne est confrontée à l'existant — leads,
+contacts, entreprises et affaires — sur trois clés tolérantes aux accents, à la
+casse et aux formes juridiques : l'e-mail, le couple nom + entreprise, et le nom
+d'entreprise seul.
+
+| Verdict | Couleur | Comportement |
+| --- | --- | --- |
+| Doublon | rose | Même e-mail, ou même personne dans la même entreprise. La ligne est **ignorée**. |
+| Entreprise connue | **vert** | L'entreprise a déjà un lead ou une affaire, mais cette personne est nouvelle. La ligne est **importée** et signalée : c'est un second interlocuteur chez un compte déjà travaillé. |
+| Nouveau | neutre | Rien de connu. |
+
+Les doublons internes au fichier sont attrapés au passage. Le contrôle est
+rejoué côté serveur au moment de l'insertion : entre l'aperçu et la validation,
+un autre import a pu passer.
+
+#### Nettoyage par l'IA
+
+Le bouton « Nettoyer » de la fenêtre d'import envoie les lignes à Claude
+(`claude-opus-5`) pour normaliser la forme des données : région ramenée à l'une
+des treize régions françaises et déduite du code postal quand elle manque
+(« IDF » → « Île-de-France », « 44100 Nantes » → « Pays de la Loire »),
+téléphones au format `+33 6 …`, casse des entreprises, sites préfixés `https://`.
+
+La consigne est stricte : corriger la forme, jamais inventer le fond. Un champ
+absent le reste, et le modèle ne peut pas vider un champ déjà rempli — le code
+n'applique que les valeurs non nulles. Chaque correction est listée dans
+l'aperçu avant validation. Un champ de consigne libre permet d'ajouter une règle
+ponctuelle pour un fichier donné.
+
 > À noter : dans l'export d'origine, la colonne `fullname` ne contient pas un
 > nom mais le libellé de campagne (« 2026-03 - DG / Bureau d'ingénierie /
 > Normandie / 20-99 »). Elle est donc importée dans `segment`, et le nom est lu
@@ -132,7 +165,9 @@ Colonnes reconnues : `Name`, `Prénom`, `Nom`, `E-mail`, `Tél`, `Entreprise`,
 ## Déploiement sur Vercel
 
 1. Importer le dépôt dans Vercel (le framework est détecté automatiquement).
-2. Renseigner les trois variables d'environnement ci-dessus.
+2. Renseigner les variables d'environnement ci-dessus. Les deux `NEXT_PUBLIC_*`
+   doivent être de type **Config** (elles finissent dans le bundle navigateur) ;
+   les deux autres de type **Secret**.
 3. Dans Supabase → Authentication → URL Configuration, ajouter l'URL de
    production comme **Site URL**, et `https://<domaine>/auth/callback` dans les
    **Redirect URLs** (ainsi que l'URL de préproduction si nécessaire).

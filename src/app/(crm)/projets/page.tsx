@@ -93,7 +93,7 @@ export default async function ProjectsPage() {
                       </div>
 
                       <div className="mt-3 flex flex-wrap items-center gap-1.5 text-[11.5px]">
-                        <Badge tone="slate">
+                        <Badge tone="stone">
                           {stats?.tasks_done ?? 0}/{stats?.tasks_total ?? 0} tâches
                         </Badge>
                         <Badge tone="violet">

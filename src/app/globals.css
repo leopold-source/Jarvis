@@ -16,21 +16,27 @@
 
   --radius-card: 14px;
 
-  /* Accent : violet -> cyan, la signature visuelle du produit. */
-  --color-brand-50: #eef2ff;
-  --color-brand-100: #e0e7ff;
-  --color-brand-200: #c7d2fe;
-  --color-brand-300: #a5b4fc;
-  --color-brand-400: #818cf8;
-  --color-brand-500: #6366f1;
-  --color-brand-600: #4f46e5;
-  --color-brand-700: #4338ca;
-  --color-brand-800: #3730a3;
-  --color-brand-900: #312e81;
+  /* Accent : violet profond -> fuchsia. Une signature chaude, volontairement
+     éloignée du bleu institutionnel. */
+  --color-brand-50: #f5f2ff;
+  --color-brand-100: #ebe4ff;
+  --color-brand-200: #d9cdff;
+  --color-brand-300: #bda6ff;
+  --color-brand-400: #9d75fb;
+  --color-brand-500: #8447f0;
+  --color-brand-600: #7028dc;
+  --color-brand-700: #5d1eb8;
+  --color-brand-800: #4d1c95;
+  --color-brand-900: #401a78;
 
-  --color-accent-400: #22d3ee;
-  --color-accent-500: #06b6d4;
-  --color-accent-600: #0891b2;
+  --color-accent-300: #f9a8d4;
+  --color-accent-400: #f472b6;
+  --color-accent-500: #ec4899;
+  --color-accent-600: #db2777;
+
+  /* Teinte d'appoint, pour les signaux « à faire » et les jauges tièdes. */
+  --color-ember-400: #fbbf24;
+  --color-ember-500: #f59e0b;
 
   --animate-fade-up: fade-up 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
   --animate-fade-in: fade-in 0.3s ease both;
@@ -60,49 +66,49 @@
 :root[data-theme="dark"] {
   color-scheme: dark;
 
-  --surface-base: #0a0b12;
-  --surface-raised: #10121c;
-  --surface-overlay: #151827;
-  --surface-hover: #1b1f31;
-  --surface-input: #0e1019;
+  --surface-base: #0e0a15;
+  --surface-raised: #171021;
+  --surface-overlay: #1d1529;
+  --surface-hover: #251b33;
+  --surface-input: #130d1c;
 
-  --border-subtle: rgba(255, 255, 255, 0.07);
-  --border-strong: rgba(255, 255, 255, 0.14);
+  --border-subtle: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.16);
 
-  --text-primary: #eef0f6;
-  --text-secondary: #a3a9bd;
-  --text-muted: #6e7590;
+  --text-primary: #f3eff8;
+  --text-secondary: #b0a6c0;
+  --text-muted: #7b7090;
 
-  --glow-brand: rgba(99, 102, 241, 0.35);
-  --glow-accent: rgba(34, 211, 238, 0.22);
-  --grid-line: rgba(255, 255, 255, 0.035);
+  --glow-brand: rgba(132, 71, 240, 0.4);
+  --glow-accent: rgba(236, 72, 153, 0.26);
+  --grid-line: rgba(255, 255, 255, 0.04);
 
-  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px -12px rgba(0, 0, 0, 0.7);
-  --shadow-pop: 0 12px 40px -12px rgba(0, 0, 0, 0.8);
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.45), 0 8px 24px -12px rgba(0, 0, 0, 0.75);
+  --shadow-pop: 0 12px 40px -12px rgba(0, 0, 0, 0.85);
 }
 
 :root[data-theme="light"] {
   color-scheme: light;
 
-  --surface-base: #f7f8fc;
+  --surface-base: #f8f5fb;
   --surface-raised: #ffffff;
   --surface-overlay: #ffffff;
-  --surface-hover: #f1f3fa;
+  --surface-hover: #f2ecf8;
   --surface-input: #ffffff;
 
-  --border-subtle: rgba(15, 23, 42, 0.09);
-  --border-strong: rgba(15, 23, 42, 0.18);
+  --border-subtle: rgba(64, 26, 120, 0.11);
+  --border-strong: rgba(64, 26, 120, 0.22);
 
-  --text-primary: #131829;
-  --text-secondary: #4d5570;
-  --text-muted: #7a819a;
+  --text-primary: #1c1327;
+  --text-secondary: #574a67;
+  --text-muted: #857892;
 
-  --glow-brand: rgba(99, 102, 241, 0.22);
-  --glow-accent: rgba(6, 182, 212, 0.16);
-  --grid-line: rgba(15, 23, 42, 0.04);
+  --glow-brand: rgba(132, 71, 240, 0.2);
+  --glow-accent: rgba(236, 72, 153, 0.16);
+  --grid-line: rgba(64, 26, 120, 0.05);
 
-  --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.05), 0 10px 30px -18px rgba(15, 23, 42, 0.35);
-  --shadow-pop: 0 16px 48px -16px rgba(15, 23, 42, 0.28);
+  --shadow-card: 0 1px 2px rgba(64, 26, 120, 0.06), 0 10px 30px -18px rgba(64, 26, 120, 0.3);
+  --shadow-pop: 0 16px 48px -16px rgba(64, 26, 120, 0.26);
 }
 
 @theme inline {
@@ -136,7 +142,7 @@ body {
 }
 
 ::selection {
-  background: rgba(99, 102, 241, 0.35);
+  background: rgba(132, 71, 240, 0.38);
 }
 
 :focus-visible {

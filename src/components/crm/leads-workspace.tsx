@@ -1,17 +1,20 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowRight,
   Building2,
+  Check,
+  ChevronDown,
+  Copy,
   ExternalLink,
   Filter,
-  Mail,
   Phone,
   Plus,
   Sparkles,
   Upload,
+  X,
 } from "lucide-react";
 
 import {
@@ -27,9 +30,9 @@ import {
   Textarea,
   useToast,
 } from "@/components/ui";
-import { LEAD_STATUS, LEAD_STATUS_ORDER } from "@/lib/constants";
+import { LEAD_STATUS, LEAD_STATUS_ORDER, TONE_CLASSES, TONE_DOT } from "@/lib/constants";
 import type { Lead, LeadStatus } from "@/lib/database.types";
-import { cn, daysUntil, formatDate, formatMoney, normalize } from "@/lib/utils";
+import { cn, daysUntil, formatMoney, normalize } from "@/lib/utils";
 import { convertLead, createLead, updateLead } from "@/app/(crm)/leads/actions";
 import { ImportLeadsDialog } from "@/components/crm/import-leads-dialog";
 import { LeadDrawer } from "@/components/crm/lead-drawer";
@@ -43,7 +46,7 @@ export function LeadsWorkspace({ leads, isAdmin }: { leads: Lead[]; isAdmin: boo
   const [, startTransition] = useTransition();
 
   const [search, setSearch] = useState("");
-  const [status, setStatus] = useState<LeadStatus | "tous">("tous");
+  const [statuses, setStatuses] = useState<LeadStatus[]>([]);
   const [region, setRegion] = useState("toutes");
   const [segment, setSegment] = useState("tous");
   const [onlyFollowUp, setOnlyFollowUp] = useState(false);
@@ -52,6 +55,8 @@ export function LeadsWorkspace({ leads, isAdmin }: { leads: Lead[]; isAdmin: boo
   const [selected, setSelected] = useState<Lead | null>(null);
   const [creating, setCreating] = useState(false);
   const [importing, setImporting] = useState(false);
+
+  const refresh = () => startTransition(() => router.refresh());
 
   // Permet d'ouvrir un lead directement depuis un lien (?lead=…).
   useEffect(() => {
@@ -70,10 +75,17 @@ export function LeadsWorkspace({ leads, isAdmin }: { leads: Lead[]; isAdmin: boo
     [leads],
   );
 
+  const counts = useMemo(() => {
+    const map = new Map<LeadStatus, number>();
+    for (const lead of leads) map.set(lead.status, (map.get(lead.status) ?? 0) + 1);
+    return map;
+  }, [leads]);
+
   const filtered = useMemo(() => {
     const needle = normalize(search.trim());
+    const wanted = new Set(statuses);
     return leads.filter((lead) => {
-      if (status !== "tous" && lead.status !== status) return false;
+      if (wanted.size > 0 && !wanted.has(lead.status)) return false;
       if (region !== "toutes" && lead.region !== region) return false;
       if (segment !== "tous" && lead.segment !== segment) return false;
       if (onlyFollowUp && !lead.follow_up_on) return false;
@@ -85,18 +97,23 @@ export function LeadsWorkspace({ leads, isAdmin }: { leads: Lead[]; isAdmin: boo
       );
       return haystack.includes(needle);
     });
-  }, [leads, search, status, region, segment, onlyFollowUp]);
+  }, [leads, search, statuses, region, segment, onlyFollowUp]);
 
   const page = filtered.slice(0, visible);
 
   // Toute modification des filtres remet la pagination à zéro.
-  useEffect(() => setVisible(PAGE_SIZE), [search, status, region, segment, onlyFollowUp]);
+  useEffect(() => setVisible(PAGE_SIZE), [search, statuses, region, segment, onlyFollowUp]);
 
-  const counts = useMemo(() => {
-    const map = new Map<LeadStatus, number>();
-    for (const lead of leads) map.set(lead.status, (map.get(lead.status) ?? 0) + 1);
-    return map;
-  }, [leads]);
+  async function patch(lead: Lead, field: string, value: string | null, silent = false) {
+    const result = await updateLead(lead.id, { [field]: value });
+    if (!result.ok) {
+      toast(result.error, "error");
+      return false;
+    }
+    if (!silent) toast("Enregistré.");
+    refresh();
+    return true;
+  }
 
   async function handleStatusChange(lead: Lead, next: LeadStatus) {
     // « Call pris » déclenche la conversion, pas un simple changement de statut.
@@ -109,8 +126,8 @@ export function LeadsWorkspace({ leads, isAdmin }: { leads: Lead[]; isAdmin: boo
       toast(result.error, "error");
       return;
     }
-    toast(`Statut mis à jour : ${LEAD_STATUS[next].label}`);
-    startTransition(() => router.refresh());
+    toast(`Statut : ${LEAD_STATUS[next].label}`);
+    refresh();
   }
 
   return (
@@ -124,19 +141,12 @@ export function LeadsWorkspace({ leads, isAdmin }: { leads: Lead[]; isAdmin: boo
             className="min-w-56 flex-1"
           />
 
-          <Select
-            value={status}
-            onChange={(event) => setStatus(event.target.value as LeadStatus | "tous")}
-            className="w-auto min-w-44"
-            aria-label="Filtrer par statut"
-          >
-            <option value="tous">Tous les statuts ({leads.length})</option>
-            {LEAD_STATUS_ORDER.map((value) => (
-              <option key={value} value={value}>
-                {LEAD_STATUS[value].label} ({counts.get(value) ?? 0})
-              </option>
-            ))}
-          </Select>
+          <StatusFilter
+            selected={statuses}
+            counts={counts}
+            total={leads.length}
+            onChange={setStatuses}
+          />
 
           {regions.length > 0 ? (
             <Select
@@ -172,7 +182,6 @@ export function LeadsWorkspace({ leads, isAdmin }: { leads: Lead[]; isAdmin: boo
 
           <Button
             variant={onlyFollowUp ? "primary" : "secondary"}
-            size="md"
             onClick={() => setOnlyFollowUp((value) => !value)}
           >
             <Filter className="size-3.5" />À relancer
@@ -200,6 +209,9 @@ export function LeadsWorkspace({ leads, isAdmin }: { leads: Lead[]; isAdmin: boo
             {filtered.length > 1 ? "s" : ""}
             {filtered.length !== leads.length ? ` sur ${leads.length}` : ""}
           </p>
+          <p className="hidden text-[11.5px] text-[var(--text-muted)] sm:block">
+            Statut, téléphone, relance et commentaire s&apos;éditent directement dans le tableau.
+          </p>
         </div>
 
         {page.length === 0 ? (
@@ -210,98 +222,81 @@ export function LeadsWorkspace({ leads, isAdmin }: { leads: Lead[]; isAdmin: boo
           />
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[860px] text-left text-[13.5px]">
+            <table className="w-full min-w-[1180px] text-left text-[13.5px]">
               <thead className="text-[11.5px] tracking-wide text-[var(--text-muted)] uppercase">
                 <tr className="border-b border-[var(--border-subtle)]">
                   <th className="px-4 py-2.5 font-medium">Contact</th>
                   <th className="px-4 py-2.5 font-medium">Entreprise</th>
                   <th className="px-4 py-2.5 font-medium">Statut</th>
-                  <th className="px-4 py-2.5 font-medium">Région</th>
-                  <th className="px-4 py-2.5 text-right font-medium">CA</th>
+                  <th className="px-4 py-2.5 font-medium">Téléphone</th>
                   <th className="px-4 py-2.5 font-medium">Relance</th>
-                  <th className="px-4 py-2.5" />
+                  <th className="px-4 py-2.5 font-medium">Commentaire</th>
+                  <th className="px-4 py-2.5 text-right font-medium">CA</th>
+                  <th className="px-3 py-2.5" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-[var(--border-subtle)]">
-                {page.map((lead, index) => {
-                  const remaining = daysUntil(lead.follow_up_on);
-                  return (
-                    <tr
-                      key={lead.id}
-                      onClick={() => setSelected(lead)}
-                      style={{ ["--i" as string]: index % PAGE_SIZE }}
-                      className="stagger cursor-pointer transition-colors hover:bg-[var(--surface-hover)]/60"
-                    >
-                      <td className="px-4 py-2.5">
-                        <p className="font-medium">{lead.full_name ?? "Sans nom"}</p>
-                        <p className="mt-0.5 flex items-center gap-2 text-[11.5px] text-[var(--text-muted)]">
-                          {lead.email ? (
-                            <span className="inline-flex items-center gap-1 truncate">
-                              <Mail className="size-3" />
-                              {lead.email}
-                            </span>
-                          ) : null}
-                          {lead.phone ? (
-                            <span className="inline-flex items-center gap-1 whitespace-nowrap">
-                              <Phone className="size-3" />
-                              {lead.phone}
-                            </span>
-                          ) : null}
+                {page.map((lead, index) => (
+                  <tr
+                    key={lead.id}
+                    onClick={() => setSelected(lead)}
+                    style={{ ["--i" as string]: index % PAGE_SIZE }}
+                    className="stagger cursor-pointer transition-colors hover:bg-[var(--surface-hover)]/60"
+                  >
+                    <td className="px-4 py-2">
+                      <p className="font-medium">{lead.full_name ?? "Sans nom"}</p>
+                      {lead.email ? (
+                        <p className="mt-0.5 truncate text-[11.5px] text-[var(--text-muted)]">{lead.email}</p>
+                      ) : null}
+                    </td>
+
+                    <td className="max-w-48 px-4 py-2">
+                      <p className="truncate">{lead.company_name ?? "—"}</p>
+                      {lead.company_activity ? (
+                        <p className="truncate text-[11.5px] text-[var(--text-muted)]">
+                          {lead.company_activity}
                         </p>
-                      </td>
-                      <td className="max-w-56 px-4 py-2.5">
-                        <p className="truncate">{lead.company_name ?? "—"}</p>
-                        {lead.company_activity ? (
-                          <p className="truncate text-[11.5px] text-[var(--text-muted)]">
-                            {lead.company_activity}
-                          </p>
-                        ) : null}
-                      </td>
-                      <td className="px-4 py-2.5" onClick={(event) => event.stopPropagation()}>
-                        <select
-                          value={lead.status}
-                          onChange={(event) => handleStatusChange(lead, event.target.value as LeadStatus)}
-                          aria-label={`Statut de ${lead.full_name ?? "ce lead"}`}
-                          className={cn(
-                            "cursor-pointer rounded-full border-0 py-0.5 pr-6 pl-2.5 text-[11.5px] font-medium",
-                            "ring-1 ring-inset outline-none transition-colors appearance-none",
-                            "bg-[image:none]",
-                            statusPillClass(lead.status),
-                          )}
-                        >
-                          {LEAD_STATUS_ORDER.map((value) => (
-                            <option key={value} value={value} className="bg-[var(--surface-overlay)] text-[var(--text-primary)]">
-                              {LEAD_STATUS[value].label}
-                            </option>
-                          ))}
-                        </select>
-                      </td>
-                      <td className="px-4 py-2.5 text-[var(--text-secondary)]">{lead.region ?? "—"}</td>
-                      <td className="px-4 py-2.5 text-right tabular-nums text-[var(--text-secondary)]">
-                        {formatMoney(lead.revenue, true)}
-                      </td>
-                      <td className="px-4 py-2.5">
-                        {lead.follow_up_on ? (
-                          <Badge tone={remaining != null && remaining < 0 ? "rose" : "amber"}>
-                            {formatDate(lead.follow_up_on)}
-                          </Badge>
-                        ) : (
-                          <span className="text-[var(--text-muted)]">—</span>
-                        )}
-                      </td>
-                      <td className="px-3 py-2.5 text-right">
-                        {lead.converted_deal_id ? (
-                          <Badge tone="emerald">
-                            <ExternalLink className="size-3" />
-                            Converti
-                          </Badge>
-                        ) : (
-                          <ArrowRight className="ml-auto size-4 text-[var(--text-muted)]" />
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
+                      ) : null}
+                    </td>
+
+                    <td className="px-4 py-2" onClick={(event) => event.stopPropagation()}>
+                      <StatusSelect lead={lead} onChange={handleStatusChange} />
+                    </td>
+
+                    <td className="px-4 py-2" onClick={(event) => event.stopPropagation()}>
+                      <CopyablePhone phone={lead.phone} />
+                    </td>
+
+                    <td className="px-4 py-2" onClick={(event) => event.stopPropagation()}>
+                      <InlineDate
+                        value={lead.follow_up_on}
+                        onCommit={(value) => patch(lead, "follow_up_on", value)}
+                      />
+                    </td>
+
+                    <td className="w-64 px-4 py-2" onClick={(event) => event.stopPropagation()}>
+                      <InlineComment
+                        value={lead.comment}
+                        onCommit={(value) => patch(lead, "comment", value)}
+                      />
+                    </td>
+
+                    <td className="px-4 py-2 text-right tabular-nums text-[var(--text-secondary)]">
+                      {formatMoney(lead.revenue, true)}
+                    </td>
+
+                    <td className="px-3 py-2 text-right">
+                      {lead.converted_deal_id ? (
+                        <Badge tone="emerald">
+                          <ExternalLink className="size-3" />
+                          Converti
+                        </Badge>
+                      ) : (
+                        <ArrowRight className="ml-auto size-4 text-[var(--text-muted)]" />
+                      )}
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
@@ -319,7 +314,7 @@ export function LeadsWorkspace({ leads, isAdmin }: { leads: Lead[]; isAdmin: boo
       <LeadDrawer
         lead={selected}
         onClose={() => setSelected(null)}
-        onSaved={() => startTransition(() => router.refresh())}
+        onSaved={refresh}
         onConvert={async (lead, dealName, amount) => {
           const result = await convertLead(lead.id, dealName, amount);
           if (!result.ok) {
@@ -338,37 +333,363 @@ export function LeadsWorkspace({ leads, isAdmin }: { leads: Lead[]; isAdmin: boo
         onCreated={() => {
           setCreating(false);
           toast("Lead ajouté.");
-          startTransition(() => router.refresh());
+          refresh();
         }}
       />
 
       <ImportLeadsDialog
         open={importing}
         onClose={() => setImporting(false)}
-        onImported={(count) => {
+        onImported={(inserted, skipped) => {
           setImporting(false);
-          toast(`${count} lead(s) importé(s).`);
-          startTransition(() => router.refresh());
+          toast(
+            skipped > 0
+              ? `${inserted} lead(s) importé(s), ${skipped} doublon(s) ignoré(s).`
+              : `${inserted} lead(s) importé(s).`,
+          );
+          refresh();
         }}
       />
     </>
   );
 }
 
-function statusPillClass(status: LeadStatus) {
-  const tone = LEAD_STATUS[status].tone;
-  const map: Record<string, string> = {
-    slate: "bg-slate-500/12 text-slate-600 ring-slate-500/25 dark:text-slate-300",
-    sky: "bg-sky-500/12 text-sky-700 ring-sky-500/25 dark:text-sky-300",
-    amber: "bg-amber-500/14 text-amber-700 ring-amber-500/25 dark:text-amber-300",
-    rose: "bg-rose-500/12 text-rose-700 ring-rose-500/25 dark:text-rose-300",
-    emerald: "bg-emerald-500/12 text-emerald-700 ring-emerald-500/25 dark:text-emerald-300",
-    indigo: "bg-indigo-500/12 text-indigo-700 ring-indigo-500/25 dark:text-indigo-300",
-    violet: "bg-violet-500/12 text-violet-700 ring-violet-500/25 dark:text-violet-300",
-    cyan: "bg-cyan-500/12 text-cyan-700 ring-cyan-500/25 dark:text-cyan-300",
-  };
-  return map[tone];
+/* ------------------------------------------------- Filtre multi-statuts */
+
+function StatusFilter({
+  selected,
+  counts,
+  total,
+  onChange,
+}: {
+  selected: LeadStatus[];
+  counts: Map<LeadStatus, number>;
+  total: number;
+  onChange: (value: LeadStatus[]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onClickOutside(event: MouseEvent) {
+      if (ref.current && !ref.current.contains(event.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", onClickOutside);
+    return () => document.removeEventListener("mousedown", onClickOutside);
+  }, [open]);
+
+  function toggle(status: LeadStatus) {
+    onChange(
+      selected.includes(status)
+        ? selected.filter((value) => value !== status)
+        : [...selected, status],
+    );
+  }
+
+  const label =
+    selected.length === 0
+      ? `Tous les statuts (${total})`
+      : selected.length === 1
+        ? LEAD_STATUS[selected[0]].label
+        : `${selected.length} statuts`;
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        className={cn(
+          "flex h-9.5 min-w-48 items-center gap-2 rounded-[10px] px-3 text-sm transition-all",
+          "bg-[var(--surface-input)] ring-1 ring-[var(--border-subtle)] hover:ring-[var(--border-strong)]",
+          selected.length > 0 && "ring-brand-500/60",
+        )}
+      >
+        {selected.length > 0 ? (
+          <span className="flex -space-x-1">
+            {selected.slice(0, 4).map((status) => (
+              <span
+                key={status}
+                className={cn(
+                  "size-2.5 rounded-full ring-2 ring-[var(--surface-input)]",
+                  TONE_DOT[LEAD_STATUS[status].tone],
+                )}
+              />
+            ))}
+          </span>
+        ) : null}
+        <span className="truncate">{label}</span>
+        <ChevronDown className="ml-auto size-4 shrink-0 text-[var(--text-muted)]" />
+      </button>
+
+      {open ? (
+        <div
+          role="listbox"
+          className={cn(
+            "absolute left-0 z-40 mt-2 w-72 animate-pop overflow-hidden rounded-xl",
+            "border border-[var(--border-strong)] bg-[var(--surface-overlay)] shadow-[var(--shadow-pop)]",
+          )}
+        >
+          <div className="flex items-center justify-between border-b border-[var(--border-subtle)] px-3 py-2">
+            <span className="text-[11.5px] text-[var(--text-muted)]">
+              {selected.length === 0 ? "Aucun filtre" : `${selected.length} sélectionné(s)`}
+            </span>
+            {selected.length > 0 ? (
+              <button
+                type="button"
+                onClick={() => onChange([])}
+                className="text-[11.5px] text-brand-400 hover:text-brand-300"
+              >
+                Tout effacer
+              </button>
+            ) : null}
+          </div>
+
+          <ul className="max-h-80 overflow-y-auto py-1">
+            {LEAD_STATUS_ORDER.map((status) => {
+              const active = selected.includes(status);
+              return (
+                <li key={status}>
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={active}
+                    onClick={() => toggle(status)}
+                    className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-[13px] transition-colors hover:bg-[var(--surface-hover)]"
+                  >
+                    <span
+                      className={cn(
+                        "grid size-4 shrink-0 place-items-center rounded-[5px] border transition-colors",
+                        active
+                          ? "border-brand-400 bg-brand-500 text-white"
+                          : "border-[var(--border-strong)]",
+                      )}
+                    >
+                      {active ? <Check className="size-3" /> : null}
+                    </span>
+                    <span className={cn("size-2 shrink-0 rounded-full", TONE_DOT[LEAD_STATUS[status].tone])} />
+                    <span className="flex-1 truncate">{LEAD_STATUS[status].label}</span>
+                    <span className="text-[11px] tabular-nums text-[var(--text-muted)]">
+                      {counts.get(status) ?? 0}
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      ) : null}
+    </div>
+  );
 }
+
+/* --------------------------------------------------- Cellules éditables */
+
+function StatusSelect({
+  lead,
+  onChange,
+}: {
+  lead: Lead;
+  onChange: (lead: Lead, status: LeadStatus) => void;
+}) {
+  return (
+    <select
+      value={lead.status}
+      onChange={(event) => onChange(lead, event.target.value as LeadStatus)}
+      aria-label={`Statut de ${lead.full_name ?? "ce lead"}`}
+      className={cn(
+        "cursor-pointer appearance-none rounded-full border-0 py-1 pr-2.5 pl-2.5 text-[11.5px] font-medium",
+        "ring-1 ring-inset outline-none transition-colors",
+        TONE_CLASSES[LEAD_STATUS[lead.status].tone],
+      )}
+    >
+      {LEAD_STATUS_ORDER.map((value) => (
+        <option
+          key={value}
+          value={value}
+          className="bg-[var(--surface-overlay)] text-[var(--text-primary)]"
+        >
+          {LEAD_STATUS[value].label}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+/** Numéro cliquable : un clic copie, un second clic sur l'icône appelle. */
+function CopyablePhone({ phone }: { phone: string | null }) {
+  const toast = useToast();
+  const [copied, setCopied] = useState(false);
+
+  if (!phone) return <span className="text-[var(--text-muted)]">—</span>;
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(phone!);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      toast("Copie impossible depuis ce navigateur.", "error");
+    }
+  }
+
+  return (
+    <span className="flex items-center gap-1">
+      <button
+        type="button"
+        onClick={copy}
+        title="Copier le numéro"
+        className={cn(
+          "group inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 font-mono text-[12px] transition-colors",
+          copied
+            ? "bg-emerald-500/15 text-emerald-500"
+            : "text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)]",
+        )}
+      >
+        {copied ? <Check className="size-3" /> : <Copy className="size-3 opacity-50 group-hover:opacity-100" />}
+        {phone}
+      </button>
+      <a
+        href={`tel:${phone.replace(/\s/g, "")}`}
+        title="Appeler"
+        className="rounded-md p-1 text-[var(--text-muted)] transition-colors hover:bg-[var(--surface-hover)] hover:text-brand-400"
+      >
+        <Phone className="size-3.5" />
+      </a>
+    </span>
+  );
+}
+
+/** Date de relance modifiable sans ouvrir la fiche. */
+function InlineDate({
+  value,
+  onCommit,
+}: {
+  value: string | null;
+  onCommit: (value: string | null) => Promise<boolean>;
+}) {
+  const [draft, setDraft] = useState(value ?? "");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => setDraft(value ?? ""), [value]);
+
+  const remaining = daysUntil(draft || null);
+  const late = remaining != null && remaining < 0;
+
+  async function commit(next: string) {
+    if (next === (value ?? "")) return;
+    setSaving(true);
+    const ok = await onCommit(next || null);
+    setSaving(false);
+    if (!ok) setDraft(value ?? "");
+  }
+
+  return (
+    <span className="relative inline-flex items-center">
+      <input
+        type="date"
+        value={draft}
+        disabled={saving}
+        onChange={(event) => {
+          setDraft(event.target.value);
+          commit(event.target.value);
+        }}
+        aria-label="Date de relance"
+        className={cn(
+          "w-[8.5rem] rounded-md bg-transparent px-1.5 py-1 text-[12px] tabular-nums outline-none",
+          "ring-1 ring-transparent transition-all hover:bg-[var(--surface-hover)]",
+          "focus:bg-[var(--surface-input)] focus:ring-brand-500/60",
+          !draft && "text-[var(--text-muted)]",
+          late && "text-rose-400",
+        )}
+      />
+      {draft ? (
+        <button
+          type="button"
+          onClick={() => {
+            setDraft("");
+            commit("");
+          }}
+          aria-label="Retirer la relance"
+          className="rounded p-0.5 text-[var(--text-muted)] opacity-0 transition-opacity hover:text-rose-400 focus:opacity-100 group-hover:opacity-100"
+        >
+          <X className="size-3" />
+        </button>
+      ) : null}
+    </span>
+  );
+}
+
+/**
+ * Commentaire éditable dans la ligne. Replié il tient sur une ligne ; au focus
+ * il s'ouvre en zone de texte, et l'enregistrement se fait à la sortie du champ.
+ */
+function InlineComment({
+  value,
+  onCommit,
+}: {
+  value: string | null;
+  onCommit: (value: string | null) => Promise<boolean>;
+}) {
+  const [draft, setDraft] = useState(value ?? "");
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => setDraft(value ?? ""), [value]);
+
+  async function commit() {
+    setEditing(false);
+    if (draft === (value ?? "")) return;
+    setSaving(true);
+    const ok = await onCommit(draft.trim() || null);
+    setSaving(false);
+    if (!ok) setDraft(value ?? "");
+  }
+
+  if (!editing) {
+    return (
+      <button
+        type="button"
+        onClick={() => setEditing(true)}
+        className={cn(
+          "w-full truncate rounded-md px-1.5 py-1 text-left text-[12.5px] transition-colors",
+          "hover:bg-[var(--surface-hover)]",
+          draft ? "text-[var(--text-secondary)]" : "text-[var(--text-muted)] italic",
+          saving && "opacity-50",
+        )}
+        title={draft || "Ajouter un commentaire"}
+      >
+        {draft || "Ajouter…"}
+      </button>
+    );
+  }
+
+  return (
+    <textarea
+      autoFocus
+      rows={3}
+      value={draft}
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={commit}
+      onKeyDown={(event) => {
+        if (event.key === "Escape") {
+          setDraft(value ?? "");
+          setEditing(false);
+        }
+        if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) commit();
+      }}
+      placeholder="Compte rendu d'appel…"
+      className={cn(
+        "w-full resize-y rounded-md bg-[var(--surface-input)] px-2 py-1.5 text-[12.5px] leading-relaxed",
+        "ring-1 ring-brand-500/60 outline-none",
+      )}
+    />
+  );
+}
+
+/* ------------------------------------------------------- Nouveau lead */
 
 function NewLeadDialog({
   open,

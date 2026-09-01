@@ -27,7 +27,7 @@ import {
   Select,
   useToast,
 } from "@/components/ui";
-import { DEAL_STAGE, DEAL_STAGE_ORDER, OPEN_STAGES } from "@/lib/constants";
+import { DEAL_STAGE, DEAL_STAGE_ORDER, OPEN_STAGES, TONE_DOT } from "@/lib/constants";
 import type { Deal, DealStage } from "@/lib/database.types";
 import { cn, daysUntil, formatMoney, normalize, positionBetween } from "@/lib/utils";
 import { createDeal, moveDeal } from "@/app/(crm)/affaires/actions";
@@ -286,7 +286,7 @@ function BoardColumn({
     >
       <header className="flex items-center justify-between gap-2 border-b border-[var(--border-subtle)] px-3 py-2.5">
         <span className="flex min-w-0 items-center gap-2">
-          <span className={cn("size-1.5 shrink-0 rounded-full", dotClass(stage))} aria-hidden />
+          <span className={cn("size-1.5 shrink-0 rounded-full", TONE_DOT[DEAL_STAGE[stage].tone])} aria-hidden />
           <span className="truncate text-[12.5px] font-medium">{meta.label}</span>
           <span className="rounded-full bg-[var(--surface-hover)] px-1.5 text-[11px] tabular-nums text-[var(--text-muted)]">
             {deals.length}
@@ -420,19 +420,6 @@ function DealCard({
   );
 }
 
-function dotClass(stage: DealStage) {
-  const map: Record<string, string> = {
-    sky: "bg-sky-400",
-    indigo: "bg-indigo-400",
-    violet: "bg-violet-400",
-    cyan: "bg-cyan-400",
-    emerald: "bg-emerald-400",
-    amber: "bg-amber-400",
-    rose: "bg-rose-400",
-    slate: "bg-slate-400",
-  };
-  return map[DEAL_STAGE[stage].tone];
-}
 
 function NewDealDialog({
   open,

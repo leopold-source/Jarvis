@@ -131,7 +131,7 @@ export function ProjectComments({
                         {comment.is_client_visible ? (
                           <Badge tone="cyan">Partagé avec le client</Badge>
                         ) : (
-                          <Badge tone="slate">Interne</Badge>
+                          <Badge tone="stone">Interne</Badge>
                         )}
                       </div>
                       <p className="mt-1.5 text-[13.5px] leading-relaxed whitespace-pre-wrap text-[var(--text-secondary)]">

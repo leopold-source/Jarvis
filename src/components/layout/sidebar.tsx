@@ -96,15 +96,6 @@ export function Sidebar({ role }: { role: AppRole }) {
         })}
       </nav>
 
-      <div className="mt-auto px-2 pt-4">
-        <div className="edge-glow rounded-xl border border-[var(--border-subtle)] bg-linear-to-br from-brand-500/8 to-accent-500/5 p-3">
-          <p className="text-[12.5px] font-medium">Un lead a dit oui&nbsp;?</p>
-          <p className="mt-0.5 text-[11.5px] leading-relaxed text-[var(--text-muted)]">
-            Passez-le en « call pris » depuis les leads : contact, entreprise et affaire sont créés
-            automatiquement.
-          </p>
-        </div>
-      </div>
     </div>
   );
 

@@ -162,7 +162,7 @@ export function CompaniesTable({
                 </div>
 
                 <div className="mt-3 flex gap-1.5">
-                  <Badge tone="slate">{stats?.contacts.length ?? 0} contact(s)</Badge>
+                  <Badge tone="stone">{stats?.contacts.length ?? 0} contact(s)</Badge>
                   <Badge tone="indigo">{stats?.deals.length ?? 0} affaire(s)</Badge>
                   {(stats?.projects.length ?? 0) > 0 ? (
                     <Badge tone="emerald">{stats!.projects.length} projet(s)</Badge>
