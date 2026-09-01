@@ -339,11 +339,15 @@ function DraggableDeal({
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: deal.id });
 
+  // La carte entière est saisissable : le seuil de 6 px du capteur distingue un
+  // clic (qui ouvre le détail) d'un glisser.
   return (
     <div
       ref={setNodeRef}
       style={{ ["--i" as string]: index }}
-      className={cn("stagger", isDragging && "opacity-40")}
+      className={cn("stagger touch-none", isDragging && "opacity-40")}
+      {...attributes}
+      {...listeners}
     >
       <DealCard
         deal={deal}
@@ -351,7 +355,6 @@ function DraggableDeal({
         owner={owner}
         hasProject={hasProject}
         onOpen={() => onOpen(deal)}
-        handleProps={{ ...attributes, ...listeners }}
       />
     </div>
   );
@@ -364,7 +367,6 @@ function DealCard({
   hasProject,
   overlay,
   onOpen,
-  handleProps,
 }: {
   deal: Deal;
   company?: CompanyLite;
@@ -372,7 +374,6 @@ function DealCard({
   hasProject?: boolean;
   overlay?: boolean;
   onOpen?: () => void;
-  handleProps?: Record<string, unknown>;
 }) {
   const daysInStage = Math.abs(daysUntil(deal.stage_changed_at) ?? 0);
 
@@ -382,20 +383,16 @@ function DealCard({
       className={cn(
         "group rounded-[11px] border border-[var(--border-subtle)] bg-[var(--surface-raised)] p-2.5",
         "shadow-[var(--shadow-card)] transition-all duration-200",
-        !overlay && "cursor-pointer hover:-translate-y-0.5 hover:border-[var(--border-strong)]",
+        !overlay && "cursor-grab hover:-translate-y-0.5 hover:border-[var(--border-strong)] active:cursor-grabbing",
         overlay && "rotate-2 scale-[1.02] shadow-[var(--shadow-pop)] ring-1 ring-brand-500/40",
       )}
     >
       <div className="flex items-start gap-1.5">
-        <button
-          type="button"
-          {...handleProps}
-          onClick={(event) => event.stopPropagation()}
-          aria-label="Déplacer l'affaire"
-          className="mt-0.5 cursor-grab touch-none rounded p-0.5 text-[var(--text-muted)] opacity-0 transition-opacity group-hover:opacity-100 active:cursor-grabbing"
-        >
-          <GripVertical className="size-3.5" />
-        </button>
+        {/* Affordance visuelle : le glisser est capté par la carte entière. */}
+        <GripVertical
+          className="mt-0.5 size-3.5 shrink-0 text-[var(--text-muted)] opacity-0 transition-opacity group-hover:opacity-100"
+          aria-hidden
+        />
         <div className="min-w-0 flex-1">
           <p className="truncate text-[13px] font-medium">{deal.name}</p>
           {company ? (

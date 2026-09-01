@@ -8,8 +8,10 @@ export const metadata: Metadata = { title: "Connexion" };
 
 export default function LoginPage() {
   return (
-    <main className="grid-backdrop relative flex min-h-dvh items-center justify-center overflow-hidden px-4 py-12">
-      {/* Halo d'ambiance : purement décoratif, sans coût de rendu notable. */}
+    <main className="relative flex min-h-dvh items-center justify-center overflow-hidden px-4 py-12">
+      {/* Décor : grille et halo, sur leur propre calque pour que le masque de la
+          grille ne rogne pas le contenu du formulaire. */}
+      <div aria-hidden className="grid-backdrop pointer-events-none absolute inset-0" />
       <div
         aria-hidden
         className="pointer-events-none absolute -top-40 left-1/2 h-[560px] w-[900px] -translate-x-1/2 rounded-full opacity-70 blur-3xl"
