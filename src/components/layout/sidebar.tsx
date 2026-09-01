@@ -8,6 +8,7 @@ import {
   FolderKanban,
   Handshake,
   LayoutDashboard,
+  Stethoscope,
   Menu,
   Sparkles,
   Users,
@@ -29,7 +30,10 @@ const NAV = [
   { href: "/projets", label: "Projets", icon: FolderKanban },
 ] as const;
 
-const ADMIN_NAV = [{ href: "/equipe", label: "Équipe & accès", icon: UsersRound }] as const;
+const ADMIN_NAV = [
+  { href: "/equipe", label: "Équipe & accès", icon: UsersRound },
+  { href: "/diagnostic", label: "Diagnostic", icon: Stethoscope },
+] as const;
 
 export function Sidebar({ role }: { role: AppRole }) {
   const pathname = usePathname();

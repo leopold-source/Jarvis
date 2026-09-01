@@ -1,11 +1,16 @@
 "use server";
 
-import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { z } from "zod";
 
 import { REGIONS } from "@/lib/constants";
 import { requireStaff } from "@/lib/auth";
+import {
+  MISSING_KEY_ERROR,
+  anthropicClient,
+  anthropicKey,
+  describeAnthropicError,
+} from "@/lib/anthropic";
 
 /**
  * Nettoyage d'un import par Claude.
@@ -88,15 +93,9 @@ export async function cleanRowsWithAi(
   if (rows.length > 400) {
     return { ok: false, error: "Le nettoyage par IA est limité à 400 lignes à la fois." };
   }
-  if (!process.env.ANTHROPIC_API_KEY) {
-    return {
-      ok: false,
-      error:
-        "Clé ANTHROPIC_API_KEY absente. Ajoutez-la dans les variables d'environnement pour activer le nettoyage par IA.",
-    };
-  }
+  if (!anthropicKey()) return { ok: false, error: MISSING_KEY_ERROR };
 
-  const client = new Anthropic();
+  const client = anthropicClient();
   const cleaned = [...rows];
   const changes: Array<{ index: number; label: string; changes: string[] }> = [];
 
@@ -167,16 +166,7 @@ export async function cleanRowsWithAi(
       }
     }
   } catch (caught) {
-    if (caught instanceof Anthropic.AuthenticationError) {
-      return { ok: false, error: "Clé API Claude invalide." };
-    }
-    if (caught instanceof Anthropic.RateLimitError) {
-      return { ok: false, error: "Limite de débit atteinte, réessayez dans un instant." };
-    }
-    if (caught instanceof Anthropic.APIError) {
-      return { ok: false, error: `Erreur API (${caught.status}) : ${caught.message}` };
-    }
-    return { ok: false, error: caught instanceof Error ? caught.message : "Nettoyage impossible." };
+    return { ok: false, error: describeAnthropicError(caught) };
   }
 
   return { ok: true, rows: cleaned, changes };

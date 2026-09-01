@@ -1,13 +1,18 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { z } from "zod";
 
 import { DEAL_STAGE, DEAL_STAGE_ORDER, LEAD_STATUS } from "@/lib/constants";
 import type { DealStage, LeadStatus } from "@/lib/database.types";
 import { requireStaff } from "@/lib/auth";
+import {
+  MISSING_KEY_ERROR,
+  anthropicClient,
+  anthropicKey,
+  describeAnthropicError,
+} from "@/lib/anthropic";
 import { createClient } from "@/lib/supabase/server";
 
 /**
@@ -116,12 +121,7 @@ async function buildSnapshot() {
 export async function analysePipeline(): Promise<InsightResult> {
   const profile = await requireStaff();
 
-  if (!process.env.ANTHROPIC_API_KEY) {
-    return {
-      ok: false,
-      error: "Clé ANTHROPIC_API_KEY absente. Ajoutez-la dans les variables d'environnement.",
-    };
-  }
+  if (!anthropicKey()) return { ok: false, error: MISSING_KEY_ERROR };
 
   const snapshot = await buildSnapshot();
   if (snapshot.affaires_total === 0) {
@@ -129,7 +129,7 @@ export async function analysePipeline(): Promise<InsightResult> {
   }
 
   try {
-    const client = new Anthropic();
+    const client = anthropicClient();
     const response = await client.messages.parse({
       model: "claude-opus-5",
       max_tokens: 16000,
@@ -159,10 +159,7 @@ export async function analysePipeline(): Promise<InsightResult> {
 
     if (error) return { ok: false, error: error.message };
   } catch (caught) {
-    if (caught instanceof Anthropic.APIError) {
-      return { ok: false, error: `Erreur API (${caught.status}) : ${caught.message}` };
-    }
-    return { ok: false, error: caught instanceof Error ? caught.message : "Analyse impossible." };
+    return { ok: false, error: describeAnthropicError(caught) };
   }
 
   revalidatePath("/");
