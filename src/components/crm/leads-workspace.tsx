@@ -10,6 +10,7 @@ import {
   Copy,
   ExternalLink,
   Eye,
+  Loader2,
   EyeOff,
   Phone,
   Plus,
@@ -42,10 +43,29 @@ import { assignLead, convertLead, createLead, updateLead } from "@/app/(crm)/lea
 import { ImportLeadsDialog } from "@/components/crm/import-leads-dialog";
 import { LeadDrawer } from "@/components/crm/lead-drawer";
 
-const PAGE_SIZE = 40;
+const PAGE_SIZE = 60;
+
+/**
+ * Statuts qui restent à relancer même sans date planifiée.
+ *
+ * Un NRP ou un « à recontacter » sans date n'est pas un lead mort : c'est un
+ * lead qu'on a oublié de replanifier. Le mode prospection les fait remonter
+ * après les relances dues, pour qu'il y ait toujours de quoi appeler.
+ */
+const RELANCE_SANS_DATE: LeadStatus[] = ["nrp", "nrp2", "nrp3", "a_recontacter"];
 
 type MemberLite = { id: string; full_name: string | null; email: string; role: string };
 type ViewMode = "lecture" | "prospection";
+
+/**
+ * Rang d'un lead dans la file d'appel : le retard passe avant le jour même,
+ * qui passe avant les relances orphelines.
+ */
+function prospectionRank(lead: Lead, today: string): number {
+  if (lead.follow_up_on && lead.follow_up_on < today) return 0;
+  if (lead.follow_up_on === today) return 1;
+  return 2;
+}
 
 function todayIso() {
   const now = new Date();
@@ -128,16 +148,26 @@ export function LeadsWorkspace({
 
     if (view === "lecture") return base;
 
-    // Mode prospection : seules les relances dues remontent, les plus en retard
-    // d'abord — c'est l'ordre dans lequel on décroche son téléphone.
+    // Mode prospection : la file d'appel. Les retards d'abord, puis le jour
+    // même, puis les leads à relancer qu'aucune date ne porte plus.
     return base
       .filter((lead) => {
-        if (!lead.follow_up_on) return false;
-        if (lead.follow_up_on > today) return false;
-        if (!showOverdue && lead.follow_up_on < today) return false;
-        return true;
+        if (lead.follow_up_on) {
+          if (lead.follow_up_on > today) return false;
+          if (!showOverdue && lead.follow_up_on < today) return false;
+          return true;
+        }
+        return RELANCE_SANS_DATE.includes(lead.status);
       })
-      .sort((a, b) => (a.follow_up_on! < b.follow_up_on! ? -1 : 1));
+      .sort((a, b) => {
+        const rankA = prospectionRank(a, today);
+        const rankB = prospectionRank(b, today);
+        if (rankA !== rankB) return rankA - rankB;
+        // À rang égal : la relance la plus ancienne, sinon le lead le plus vieux.
+        const keyA = a.follow_up_on ?? a.created_at;
+        const keyB = b.follow_up_on ?? b.created_at;
+        return keyA < keyB ? -1 : keyA > keyB ? 1 : 0;
+      });
   }, [leads, search, statuses, region, segment, owner, currentUserId, view, showOverdue, today]);
 
   const dueToday = useMemo(
@@ -148,11 +178,36 @@ export function LeadsWorkspace({
     () => leads.filter((lead) => lead.follow_up_on && lead.follow_up_on < today).length,
     [leads, today],
   );
+  const undated = useMemo(
+    () => leads.filter((lead) => !lead.follow_up_on && RELANCE_SANS_DATE.includes(lead.status)).length,
+    [leads],
+  );
 
   const page = filtered.slice(0, visible);
+  const hasMore = visible < filtered.length;
 
   // Toute modification des filtres remet la pagination à zéro.
   useEffect(() => setVisible(PAGE_SIZE), [search, statuses, region, segment, owner, view, showOverdue]);
+
+  // Défilement infini : une sentinelle en bas de la liste charge la tranche
+  // suivante avant d'être atteinte. L'effet dépend de `visible`, ce qui remet
+  // l'observateur en place après chaque chargement — sans quoi une sentinelle
+  // restée dans le champ de vision ne déclencherait plus rien.
+  const scroller = useRef<HTMLDivElement>(null);
+  const sentinel = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const node = sentinel.current;
+    if (!node || !hasMore) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) setVisible((current) => current + PAGE_SIZE);
+      },
+      { root: scroller.current, rootMargin: "300px" },
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [hasMore, visible]);
 
   async function patch(lead: Lead, field: string, value: string | null, silent = false) {
     const result = await updateLead(lead.id, { [field]: value });
@@ -290,6 +345,7 @@ export function LeadsWorkspace({
               <span className="flex items-center gap-1.5">
                 <Badge tone="orange">{dueToday} pour aujourd&apos;hui</Badge>
                 {overdue > 0 ? <Badge tone="red">{overdue} en retard</Badge> : null}
+                {undated > 0 ? <Badge tone="violet">{undated} sans date</Badge> : null}
               </span>
               <Button
                 variant={showOverdue ? "secondary" : "subtle"}
@@ -301,7 +357,7 @@ export function LeadsWorkspace({
                 {showOverdue ? "Retards affichés" : "Retards masqués"}
               </Button>
               <p className="text-[11.5px] text-[var(--text-muted)]">
-                Les relances dues remontent, les plus anciennes d&apos;abord.
+                Retards, puis relances du jour, puis les NRP et « à recontacter » sans date.
               </p>
             </>
           ) : (
@@ -324,6 +380,9 @@ export function LeadsWorkspace({
           </p>
         </div>
 
+        {/* Le tableau défile dans son propre cadre : l'en-tête reste visible et
+            la liste occupe la hauteur utile de l'écran, ce qui compte plus que
+            tout quand on enchaîne les appels. */}
         {page.length === 0 ? (
           <EmptyState
             icon={<Sparkles className="size-5" />}
@@ -331,19 +390,20 @@ export function LeadsWorkspace({
             description="Ajustez les filtres ou ajoutez un nouveau lead."
           />
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[1320px] text-left text-[13.5px]">
-              <thead className="text-[11.5px] tracking-wide text-[var(--text-muted)] uppercase">
+          <div ref={scroller} className="max-h-[calc(100vh-17rem)] min-h-64 overflow-auto">
+            <table className="w-full min-w-[1240px] text-left text-[12.5px]">
+              <thead className="sticky top-0 z-10 bg-[var(--surface-raised)] text-[10.5px] tracking-wide text-[var(--text-muted)] uppercase">
                 <tr className="border-b border-[var(--border-subtle)]">
-                  <th className="px-4 py-2.5 font-medium">Contact</th>
-                  <th className="px-4 py-2.5 font-medium">Entreprise</th>
-                  <th className="px-4 py-2.5 font-medium">Statut</th>
-                  <th className="px-4 py-2.5 font-medium">Téléphone</th>
-                  <th className="px-4 py-2.5 font-medium">Relance</th>
-                  <th className="px-4 py-2.5 font-medium">Assigné à</th>
-                  <th className="px-4 py-2.5 font-medium">Commentaire</th>
-                  <th className="px-4 py-2.5 text-right font-medium">CA</th>
-                  <th className="px-3 py-2.5" />
+                  <th className="w-12 px-2 py-1.5 text-right font-medium">#</th>
+                  <th className="px-2.5 py-1.5 font-medium">Contact</th>
+                  <th className="px-2.5 py-1.5 font-medium">Entreprise</th>
+                  <th className="px-2.5 py-1.5 font-medium">Statut</th>
+                  <th className="px-2.5 py-1.5 font-medium">Téléphone</th>
+                  <th className="px-2.5 py-1.5 font-medium">Relance</th>
+                  <th className="px-2.5 py-1.5 font-medium">Assigné</th>
+                  <th className="px-2.5 py-1.5 font-medium">Commentaire</th>
+                  <th className="px-2.5 py-1.5 text-right font-medium">CA</th>
+                  <th className="px-2 py-1.5" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-[var(--border-subtle)]">
@@ -351,9 +411,8 @@ export function LeadsWorkspace({
                   <tr
                     key={lead.id}
                     onClick={() => setSelected(lead)}
-                    style={{ ["--i" as string]: index % PAGE_SIZE }}
                     className={cn(
-                      "stagger cursor-pointer transition-colors hover:bg-[var(--surface-hover)]/60",
+                      "h-7 cursor-pointer transition-colors hover:bg-[var(--surface-hover)]/60",
                       view === "prospection" && lead.follow_up_on === today && "bg-brand-500/[0.07]",
                       view === "prospection" &&
                         lead.follow_up_on &&
@@ -361,40 +420,41 @@ export function LeadsWorkspace({
                         "bg-rose-500/[0.07]",
                     )}
                   >
-                    <td className="px-4 py-2">
-                      <p className="font-medium">{lead.full_name ?? "Sans nom"}</p>
-                      {lead.email ? (
-                        <p className="mt-0.5 truncate text-[11.5px] text-[var(--text-muted)]">{lead.email}</p>
-                      ) : null}
+                    <td className="px-2 py-0.5 text-right font-mono text-[11px] text-[var(--text-muted)] tabular-nums">
+                      {index + 1}
                     </td>
 
-                    <td className="max-w-48 px-4 py-2">
-                      <p className="truncate">{lead.company_name ?? "—"}</p>
-                      {lead.company_activity ? (
-                        <p className="truncate text-[11.5px] text-[var(--text-muted)]">
-                          {lead.company_activity}
-                        </p>
-                      ) : null}
+                    <td className="max-w-52 px-2.5 py-0.5">
+                      <p className="truncate font-medium" title={lead.email ?? undefined}>
+                        {lead.full_name ?? lead.email ?? "Sans nom"}
+                      </p>
                     </td>
 
-                    <td className="px-4 py-2" onClick={(event) => event.stopPropagation()}>
+                    <td className="max-w-52 px-2.5 py-0.5">
+                      <p className="truncate" title={lead.company_activity ?? undefined}>
+                        {lead.company_name ?? "—"}
+                      </p>
+                    </td>
+
+                    <td className="px-2.5 py-0.5" onClick={(event) => event.stopPropagation()}>
                       <StatusSelect lead={lead} onChange={handleStatusChange} />
                     </td>
 
-                    <td className="px-4 py-2" onClick={(event) => event.stopPropagation()}>
+                    <td className="px-2.5 py-0.5" onClick={(event) => event.stopPropagation()}>
                       <CopyablePhone phone={lead.phone} />
                     </td>
 
-                    <td className="px-4 py-2" onClick={(event) => event.stopPropagation()}>
+                    <td className="px-2.5 py-0.5" onClick={(event) => event.stopPropagation()}>
                       <DateField
+                        dense
                         value={lead.follow_up_on}
                         placeholder="Planifier"
-                        className="w-36"
+                        className="w-32"
                         onChange={(value) => patch(lead, "follow_up_on", value, true)}
                       />
                     </td>
 
-                    <td className="px-4 py-2" onClick={(event) => event.stopPropagation()}>
+                    <td className="px-2.5 py-0.5" onClick={(event) => event.stopPropagation()}>
                       <OwnerSelect
                         lead={lead}
                         members={members}
@@ -409,41 +469,47 @@ export function LeadsWorkspace({
                       />
                     </td>
 
-                    <td className="w-64 px-4 py-2" onClick={(event) => event.stopPropagation()}>
+                    <td className="w-56 px-2.5 py-0.5" onClick={(event) => event.stopPropagation()}>
                       <InlineComment
                         value={lead.comment}
                         onCommit={(value) => patch(lead, "comment", value)}
                       />
                     </td>
 
-                    <td className="px-4 py-2 text-right tabular-nums text-[var(--text-secondary)]">
+                    <td className="px-2.5 py-0.5 text-right tabular-nums text-[var(--text-secondary)]">
                       {formatMoney(lead.revenue, true)}
                     </td>
 
-                    <td className="px-3 py-2 text-right">
+                    <td className="px-2 py-0.5 text-right">
                       {lead.converted_deal_id ? (
                         <Badge tone="emerald">
                           <ExternalLink className="size-3" />
                           Converti
                         </Badge>
                       ) : (
-                        <ArrowRight className="ml-auto size-4 text-[var(--text-muted)]" />
+                        <ArrowRight className="ml-auto size-3.5 text-[var(--text-muted)]" />
                       )}
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
+
+            {/* Sentinelle du défilement infini. */}
+            <div ref={sentinel} aria-hidden className="h-px" />
+
+            {hasMore ? (
+              <p className="flex items-center justify-center gap-2 py-2.5 text-[11.5px] text-[var(--text-muted)]">
+                <Loader2 className="size-3.5 animate-spin" />
+                Chargement des leads suivants…
+              </p>
+            ) : (
+              <p className="py-2.5 text-center text-[11.5px] text-[var(--text-muted)]">
+                Fin de la liste — {filtered.length} lead{filtered.length > 1 ? "s" : ""}.
+              </p>
+            )}
           </div>
         )}
-
-        {visible < filtered.length ? (
-          <div className="flex justify-center border-t border-[var(--border-subtle)] py-3">
-            <Button variant="ghost" size="sm" onClick={() => setVisible((value) => value + PAGE_SIZE)}>
-              Afficher {Math.min(PAGE_SIZE, filtered.length - visible)} leads de plus
-            </Button>
-          </div>
-        ) : null}
       </Card>
 
       <LeadDrawer
@@ -635,7 +701,7 @@ function StatusSelect({
       onChange={(event) => onChange(lead, event.target.value as LeadStatus)}
       aria-label={`Statut de ${lead.full_name ?? "ce lead"}`}
       className={cn(
-        "cursor-pointer appearance-none rounded-full border-0 py-1 pr-2.5 pl-2.5 text-[11.5px] font-medium",
+        "cursor-pointer appearance-none rounded-full border-0 px-2 py-0.5 text-[11px] font-medium",
         "ring-1 ring-inset outline-none transition-colors",
         TONE_CLASSES[LEAD_STATUS[lead.status].tone],
       )}
@@ -677,7 +743,7 @@ function CopyablePhone({ phone }: { phone: string | null }) {
         onClick={copy}
         title="Copier le numéro"
         className={cn(
-          "group inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 font-mono text-[12px] transition-colors",
+          "group inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 font-mono text-[11.5px] transition-colors",
           copied
             ? "bg-emerald-500/15 text-emerald-500"
             : "text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)]",
@@ -689,7 +755,7 @@ function CopyablePhone({ phone }: { phone: string | null }) {
       <a
         href={`tel:${phone.replace(/\s/g, "")}`}
         title="Appeler"
-        className="rounded-md p-1 text-[var(--text-muted)] transition-colors hover:bg-[var(--surface-hover)] hover:text-brand-400"
+        className="rounded-md p-0.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--surface-hover)] hover:text-brand-400"
       >
         <Phone className="size-3.5" />
       </a>
@@ -712,9 +778,9 @@ function OwnerSelect({
   return (
     <span className="flex items-center gap-1.5">
       {current ? (
-        <Avatar name={current.full_name} email={current.email} size={22} />
+        <Avatar name={current.full_name} email={current.email} size={18} />
       ) : (
-        <span className="grid size-[22px] shrink-0 place-items-center rounded-full bg-[var(--surface-hover)] text-[var(--text-muted)]">
+        <span className="grid size-[18px] shrink-0 place-items-center rounded-full bg-[var(--surface-hover)] text-[var(--text-muted)]">
           <UserRound className="size-3" />
         </span>
       )}
@@ -723,7 +789,7 @@ function OwnerSelect({
         onChange={(event) => onAssign(event.target.value || null)}
         aria-label="Assigner le lead"
         className={cn(
-          "cursor-pointer appearance-none rounded-md bg-transparent py-1 pr-1 pl-0.5 text-[12px]",
+          "max-w-24 cursor-pointer appearance-none truncate rounded-md bg-transparent py-0.5 pr-1 pl-0.5 text-[11.5px]",
           "outline-none transition-colors hover:text-brand-500 dark:hover:text-brand-300",
           !current && "text-[var(--text-muted)]",
         )}
@@ -771,7 +837,7 @@ function InlineComment({
         type="button"
         onClick={() => setEditing(true)}
         className={cn(
-          "w-full truncate rounded-md px-1.5 py-1 text-left text-[12.5px] transition-colors",
+          "w-full truncate rounded-md px-1.5 py-0.5 text-left text-[12px] transition-colors",
           "hover:bg-[var(--surface-hover)]",
           draft ? "text-[var(--text-secondary)]" : "text-[var(--text-muted)] italic",
           saving && "opacity-50",

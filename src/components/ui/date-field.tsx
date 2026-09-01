@@ -45,6 +45,7 @@ export function DateField({
   className,
   align = "left",
   disabled,
+  dense,
 }: {
   value: string | null;
   onChange: (value: string | null) => void;
@@ -52,6 +53,8 @@ export function DateField({
   className?: string;
   align?: "left" | "right";
   disabled?: boolean;
+  /** Déclencheur ramassé, pour les tableaux à forte densité. */
+  dense?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -123,7 +126,8 @@ export function DateField({
         aria-haspopup="dialog"
         aria-expanded={open}
         className={cn(
-          "group inline-flex h-8 w-full items-center gap-1.5 rounded-lg px-2 text-[12.5px] transition-all",
+          "group inline-flex w-full items-center gap-1.5 rounded-lg transition-all",
+          dense ? "h-6 px-1.5 text-[12px]" : "h-8 px-2 text-[12.5px]",
           "ring-1 ring-transparent hover:bg-[var(--surface-hover)]",
           open && "bg-[var(--surface-input)] ring-brand-500/70",
           !value && "text-[var(--text-muted)]",
