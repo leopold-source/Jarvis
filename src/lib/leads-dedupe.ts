@@ -105,12 +105,15 @@ export function classifyRow(
   if (email && seen.emails.has(email)) {
     return { verdict: "doublon", reason: "En double dans ce fichier" };
   }
-  if (person && seen.people.has(pair)) {
+  // Un nom seul ne suffit pas à conclure : deux « Jean Martin » sans e-mail ni
+  // entreprise sont probablement deux personnes différentes, et écarter la
+  // seconde ferait perdre un lead réel sans que personne ne s'en aperçoive.
+  if (person && company && seen.people.has(pair)) {
     return { verdict: "doublon", reason: "En double dans ce fichier" };
   }
 
   if (email) seen.emails.add(email);
-  if (person) seen.people.add(pair);
+  if (person && company) seen.people.add(pair);
 
   if (email && lookup.emails.has(email)) {
     return { verdict: "doublon", reason: "E-mail déjà en base" };

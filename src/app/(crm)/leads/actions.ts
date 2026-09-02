@@ -128,11 +128,33 @@ export async function fetchImportIndex(): Promise<ImportIndex> {
   await requireStaff();
   const supabase = await createClient();
 
-  const [{ data: leads }, { data: companies }, { data: contacts }, { data: deals }] = await Promise.all([
-    supabase.from("leads").select("first_name, last_name, full_name, email, company_name"),
-    supabase.from("companies").select("id, name"),
-    supabase.from("contacts").select("first_name, last_name, full_name, email, company_id"),
-    supabase.from("deals").select("company_id"),
+  /**
+   * PostgREST plafonne une requête à 1000 lignes. Sans pagination, l'index
+   * serait silencieusement tronqué passé ce seuil et des doublons entreraient
+   * sans que rien ne le signale — le pire des comportements pour un garde-fou.
+   */
+  async function fetchAll<T>(table: string, columns: string): Promise<T[]> {
+    const PAGE = 1000;
+    const out: T[] = [];
+    for (let from = 0; ; from += PAGE) {
+      const { data } = await supabase.from(table as never).select(columns).range(from, from + PAGE - 1);
+      const page = (data ?? []) as T[];
+      out.push(...page);
+      if (page.length < PAGE) return out;
+    }
+  }
+
+  const [leads, companies, contacts, deals] = await Promise.all([
+    fetchAll<{
+      first_name: string | null; last_name: string | null; full_name: string | null;
+      email: string | null; company_name: string | null;
+    }>("leads", "first_name, last_name, full_name, email, company_name"),
+    fetchAll<{ id: string; name: string }>("companies", "id, name"),
+    fetchAll<{
+      first_name: string | null; last_name: string | null; full_name: string | null;
+      email: string | null; company_id: string | null;
+    }>("contacts", "first_name, last_name, full_name, email, company_id"),
+    fetchAll<{ company_id: string | null }>("deals", "company_id"),
   ]);
 
   const emails = new Set<string>();
@@ -140,9 +162,9 @@ export async function fetchImportIndex(): Promise<ImportIndex> {
   const companiesFromLeads = new Set<string>();
   const companiesInPipeline = new Set<string>();
 
-  const companyNameById = new Map((companies ?? []).map((company) => [company.id, company.name]));
+  const companyNameById = new Map(companies.map((company) => [company.id, company.name]));
 
-  for (const lead of leads ?? []) {
+  for (const lead of leads) {
     const email = emailKey(lead.email);
     if (email) emails.add(email);
     const company = companyKey(lead.company_name);
@@ -153,17 +175,17 @@ export async function fetchImportIndex(): Promise<ImportIndex> {
 
   // Une fiche entreprise n'existe que parce qu'un lead a été converti : toute
   // entreprise du CRM est donc déjà un compte travaillé.
-  for (const company of companies ?? []) {
+  for (const company of companies) {
     const key = companyKey(company.name);
     if (key) companiesInPipeline.add(key);
   }
-  for (const deal of deals ?? []) {
+  for (const deal of deals) {
     const name = deal.company_id ? companyNameById.get(deal.company_id) : null;
     const key = companyKey(name);
     if (key) companiesInPipeline.add(key);
   }
 
-  for (const contact of contacts ?? []) {
+  for (const contact of contacts) {
     const email = emailKey(contact.email);
     if (email) emails.add(email);
     const company = companyKey(contact.company_id ? companyNameById.get(contact.company_id) : null);
