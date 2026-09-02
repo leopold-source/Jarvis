@@ -188,3 +188,16 @@ alter table public.call_records add constraint call_records_cible
 
 alter table public.call_inbox
   add column if not exists resolved_project_id uuid references public.projects (id) on delete set null;
+
+-- --- Fiche structurée tirée du résumé Claap --------------------------------
+-- On ne stocke pas le transcript : Claap produit déjà un résumé dense
+-- (takeaways, actions, montants cités, objections). Une passe de lecture
+-- suffit à en extraire des champs comparables d'un call à l'autre, et c'est
+-- cette comparabilité qui rend l'analyse possible — pas le verbatim.
+alter table public.call_records
+  add column if not exists insights       jsonb,
+  add column if not exists insights_model text,
+  add column if not exists insights_at    timestamptz;
+
+create index if not exists call_records_insights_idx
+  on public.call_records (occurred_on desc) where insights is not null;

@@ -32,6 +32,7 @@ const WATCHED = [
   { name: "CRON_SECRET", secret: true, optional: false },
   // Sans lui, le webhook Claap accepte toute requete : a renseigner en prod.
   { name: "CLAAP_WEBHOOK_SECRET", secret: true, optional: false },
+  { name: "CLAAP_API_KEY", secret: true, optional: false },
 ] as const;
 
 /** Masque une valeur sensible en n'en gardant que les extrémités. */

@@ -296,7 +296,12 @@ export type CallRecord = {
   folder_title: string | null;
   has_external: boolean;
   participants: Json;
+  /** Resume produit par le fournisseur, tel quel. */
   summary: string | null;
+  /** Fiche structuree tiree du resume, pour comparer les calls entre eux. */
+  insights: Json;
+  insights_model: string | null;
+  insights_at: string | null;
   raw_payload: Json;
   synced_by: string | null;
   created_at: string;

@@ -53,10 +53,18 @@ l'intégration IA vendue à des PME industrielles et des bureaux d'études.
 On te donne un instantané chiffré : répartition des affaires par étape, âge moyen
 dans chaque étape, taux de conversion, leads par statut, relances en retard.
 
+S'y ajoute, quand elle existe, la matière tirée des rendez-vous eux-mêmes :
+objections récurrentes, freins observés, signaux d'achat, engagement constaté,
+montant médian évoqué. Ces champs disent *pourquoi* les chiffres sont ce
+qu'ils sont — croise-les systématiquement avec les compteurs plutôt que de les
+traiter à part.
+
 Tu produis trois axes d'amélioration, classés du plus urgent au moins urgent.
 
 Exigences :
 - Appuie chaque constat sur un chiffre de l'instantané. Pas de conseil générique.
+- Quand une objection ou un frein revient dans plusieurs rendez-vous, nomme-le et
+  compte-le : c'est le levier le plus actionnable dont tu disposes.
 - Un axe doit être actionnable cette semaine, pas une refonte de stratégie.
 - La cible doit être chiffrée et datée (« passer le no show de 43 % à 25 % en 3 semaines »).
 - Le titre du premier axe alimente un encart d'une ligne : sois direct
@@ -71,9 +79,18 @@ async function buildSnapshot() {
   const supabase = await createClient();
   const today = new Date();
 
-  const [{ data: deals }, { data: leads }] = await Promise.all([
+  const [{ data: deals }, { data: leads }, { data: calls }] = await Promise.all([
     supabase.from("deals").select("stage, amount, created_at, stage_changed_at, won_at, lost_at"),
     supabase.from("leads").select("status, follow_up_on, created_at"),
+    // Les fiches de call apportent le « pourquoi » que les compteurs ne
+    // donnent pas : un taux de no-show ne dit pas ce qui coince, la
+    // récurrence des objections si.
+    supabase
+      .from("call_records")
+      .select("kind, occurred_on, insights")
+      .not("insights", "is", null)
+      .order("occurred_on", { ascending: false })
+      .limit(60),
   ]);
 
   const allDeals = deals ?? [];
@@ -104,9 +121,45 @@ async function buildSnapshot() {
     nombre: allLeads.filter((lead) => lead.status === status).length,
   }));
 
+  // Agrégation des fiches : on compte les récurrences plutôt que de recopier
+  // les fiches une à une, sinon l'instantané enflerait sans rien apprendre.
+  const rows = (calls ?? []) as Array<{ kind: string | null; insights: Record<string, unknown> }>;
+  const tally = (field: string) => {
+    const counts = new Map<string, number>();
+    for (const row of rows) {
+      const values = row.insights?.[field];
+      if (!Array.isArray(values)) continue;
+      for (const value of values) {
+        const key = String(value);
+        counts.set(key, (counts.get(key) ?? 0) + 1);
+      }
+    }
+    return [...counts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 8)
+      .map(([valeur, nombre]) => ({ valeur, nombre }));
+  };
+
+  const engagements = rows.reduce<Record<string, number>>((acc, row) => {
+    const value = String(row.insights?.engagement ?? "inconnu");
+    acc[value] = (acc[value] ?? 0) + 1;
+    return acc;
+  }, {});
+
+  const montants = rows
+    .map((row) => Number(row.insights?.montant_evoque))
+    .filter((value) => Number.isFinite(value) && value > 0);
+
   return {
     date: todayIso,
     affaires_total: allDeals.length,
+    calls_depouilles: rows.length,
+    objections_recurrentes: tally("objections"),
+    blocages_recurrents: tally("blocages"),
+    signaux_achat_frequents: tally("signaux_achat"),
+    engagement_observe: engagements,
+    montant_evoque_median:
+      montants.length > 0 ? montants.sort((a, b) => a - b)[Math.floor(montants.length / 2)] : null,
     par_etape: byStage,
     taux_conversion_pct: won + lost > 0 ? Math.round((won / (won + lost)) * 100) : null,
     part_no_show_pct: allDeals.length ? Math.round((noShow / allDeals.length) * 100) : 0,

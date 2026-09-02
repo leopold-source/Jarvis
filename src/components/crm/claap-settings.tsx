@@ -2,7 +2,16 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { CheckCircle2, FolderCog, Plus, RefreshCw, Trash2, Webhook, XCircle } from "lucide-react";
+import {
+  CheckCircle2,
+  FolderCog,
+  Plus,
+  RefreshCw,
+  Sparkles,
+  Trash2,
+  Webhook,
+  XCircle,
+} from "lucide-react";
 
 import { Badge, Button, Card, Input, SectionTitle, Select, useToast } from "@/components/ui";
 import { CALL_KIND, CALL_KIND_ORDER } from "@/lib/constants";
@@ -13,6 +22,9 @@ import {
   reapplyKindRules,
   saveKindRule,
 } from "@/app/(crm)/parametres/claap-actions";
+import { runClaapProbe } from "@/app/(crm)/parametres/claap-probe-actions";
+import { extractCallInsights } from "@/app/(crm)/affaires/insight-actions";
+import type { ProbeResult } from "@/lib/claap-api";
 
 /** Un résultat de webhook n'est « bon » que s'il a abouti quelque part. */
 const GOOD_OUTCOMES = ["rattache", "en_attente"];
@@ -34,6 +46,34 @@ export function ClaapSettings({
   const [folder, setFolder] = useState("");
   const [kind, setKind] = useState<CallKind>("r1");
   const [busy, setBusy] = useState(false);
+  const [probe, setProbe] = useState<ProbeResult[] | null>(null);
+
+  async function depouiller() {
+    setBusy(true);
+    const result = await extractCallInsights();
+    setBusy(false);
+    if (!result.ok) {
+      toast(result.error, "error");
+      return;
+    }
+    toast(
+      result.done > 0
+        ? `${result.done} call(s) dépouillé(s).`
+        : "Aucun call en attente de dépouillement.",
+    );
+    startTransition(() => router.refresh());
+  }
+
+  async function sonder() {
+    setBusy(true);
+    const result = await runClaapProbe();
+    setBusy(false);
+    if (!result.ok) {
+      toast(result.error, "error");
+      return;
+    }
+    setProbe(result.results);
+  }
 
   // Un dossier rencontré sans règle est le meilleur point de départ : on le
   // propose plutôt que de laisser saisir un nom au hasard.
@@ -167,6 +207,43 @@ export function ClaapSettings({
           </div>
         ) : null}
       </Card>
+
+      {isAdmin ? (
+        <Card className="p-5">
+          <SectionTitle
+            title={
+              <span className="flex items-center gap-2">
+                <Sparkles className="size-4 text-brand-500 dark:text-brand-300" />
+                Dépouillement des calls
+              </span>
+            }
+            description="Chaque résumé Claap est réduit à une fiche comparable — objections, blocages, montant évoqué, engagement — que l'analyse du pipeline sait recouper d'un call à l'autre."
+            action={
+              <Button variant="secondary" size="sm" loading={busy} onClick={depouiller}>
+                <Sparkles className="size-3.5" />
+                Dépouiller
+              </Button>
+            }
+          />
+
+          <div className="mt-4 border-t border-[var(--border-subtle)] pt-4">
+            <p className="text-[12.5px] text-[var(--text-muted)]">
+              La récupération automatique des résumés dépend de la convention d&apos;appel de
+              l&apos;API Claap, que ce sondage établit depuis le serveur.
+            </p>
+            <Button variant="ghost" size="sm" loading={busy} onClick={sonder} className="mt-2">
+              <RefreshCw className="size-3.5" />
+              Sonder l&apos;API Claap
+            </Button>
+
+            {probe ? (
+              <pre className="mt-3 max-h-64 overflow-auto rounded-lg bg-[var(--surface-base)] p-2 text-[10.5px] leading-relaxed">
+                {JSON.stringify(probe, null, 1)}
+              </pre>
+            ) : null}
+          </div>
+        </Card>
+      ) : null}
 
       <Card className="p-5">
         <SectionTitle
