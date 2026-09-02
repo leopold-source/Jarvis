@@ -65,6 +65,12 @@ export type Company = {
   headcount: string | null;
   linkedin_url: string | null;
   notes: string | null;
+  /** Identité fiscale : requise pour créer le client chez Pennylane. */
+  siret: string | null;
+  vat_number: string | null;
+  billing_address: string | null;
+  billing_email: string | null;
+  pennylane_customer_id: string | null;
   owner_id: string | null;
   created_by: string | null;
   created_at: string;
@@ -376,6 +382,12 @@ export type DossierStatus =
 
 export type InvoiceStatus = "prevue" | "emise" | "payee" | "annulee";
 
+/**
+ * Où en est la relecture humaine, indépendamment du statut commercial.
+ * Rien ne part au client sans être passé par « brouillon_pousse ».
+ */
+export type ReviewState = "a_preparer" | "a_valider" | "brouillon_pousse" | "envoye";
+
 /** Le réel administratif, là où l'affaire est le théorique commercial. */
 export type Dossier = {
   id: string;
@@ -395,6 +407,8 @@ export type Dossier = {
   quote_url: string | null;
   quote_sent_at: string | null;
   quote_signed_at: string | null;
+  quote_review: ReviewState;
+  quote_pushed_at: string | null;
   last_sync_error: string | null;
   notes: string | null;
   created_by: string | null;
@@ -429,9 +443,25 @@ export type Invoice = {
   pennylane_invoice_id: string | null;
   invoice_number: string | null;
   invoice_url: string | null;
+  review: ReviewState;
+  pushed_at: string | null;
   position: number;
   created_at: string;
   updated_at: string;
+}
+
+export type PennylaneEvent = {
+  id: string;
+  direction: "sortant" | "entrant";
+  operation: string;
+  dossier_id: string | null;
+  invoice_id: string | null;
+  http_status: number | null;
+  ok: boolean;
+  request: Json;
+  response: Json;
+  detail: string | null;
+  created_at: string;
 }
 
 export type DossierFinance = {
@@ -463,7 +493,8 @@ export type ProjectProgress = {
 type Defaulted =
   | "id" | "created_at" | "updated_at" | "connected_at" | "synced_count"
   | "for_date" | "done_at" | "status_changed_at" | "touch_count"
-  | "amount_ttc" | "paid_amount" | "position" | "vat_rate";
+  | "amount_ttc" | "paid_amount" | "position" | "vat_rate"
+  | "quote_review" | "review" | "ok";
 
 type TableDef<Row, RequiredKeys extends keyof Row = never> = {
   Row: Row;
@@ -499,6 +530,7 @@ export type Database = {
       dossiers: TableDef<Dossier>;
       dossier_lines: TableDef<DossierLine, "dossier_id" | "label">;
       invoices: TableDef<Invoice, "dossier_id" | "label">;
+      pennylane_events: TableDef<PennylaneEvent, "direction" | "operation">;
     };
     Views: {
       project_progress: { Row: ProjectProgress; Relationships: [] };
@@ -527,6 +559,7 @@ export type Database = {
       call_kind: CallKind;
       dossier_status: DossierStatus;
       invoice_status: InvoiceStatus;
+      review_state: ReviewState;
       entity_kind: EntityKind;
     };
     CompositeTypes: Record<string, never>;

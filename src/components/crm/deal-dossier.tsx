@@ -15,7 +15,7 @@ import { fetchDossierForDeal } from "@/app/(crm)/facturation/actions";
  * Il n'apparaît que si l'affaire est gagnée — c'est à ce moment que le dossier
  * naît. Avant, la section n'aurait rien à montrer et ne ferait qu'encombrer.
  */
-export function DealDossier({ dealId }: { dealId: string }) {
+export function DealDossier({ dealId, isAdmin }: { dealId: string; isAdmin: boolean }) {
   const [state, setState] = useState<
     { status: "loading" } | { status: "none" } | { status: "ready"; dossier: Dossier }
   >({ status: "loading" });
@@ -58,7 +58,7 @@ export function DealDossier({ dealId }: { dealId: string }) {
             Chargement…
           </p>
         ) : (
-          <DossierPanel dossierId={state.dossier.id} />
+          <DossierPanel dossierId={state.dossier.id} isAdmin={isAdmin} />
         )}
       </div>
     </section>

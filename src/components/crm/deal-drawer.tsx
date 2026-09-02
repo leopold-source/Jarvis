@@ -265,7 +265,7 @@ export function DealDrawer({
           />
         </Field>
 
-        {deal ? <DealDossier dealId={deal.id} /> : null}
+        {deal ? <DealDossier dealId={deal.id} isAdmin={isAdmin} /> : null}
 
         {deal ? <DealCalls target={{ kind: "affaire", id: deal.id }} /> : null}
 

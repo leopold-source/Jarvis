@@ -18,6 +18,6 @@ export const config = {
      * l'appelant recevait une redirection qu'il interprétait comme un succès,
      * et la route n'était jamais exécutée.
      */
-    "/((?!_next/static|_next/image|favicon.ico|api/claap|api/cron|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|api/claap|api/cron|api/pennylane|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
   ],
 };

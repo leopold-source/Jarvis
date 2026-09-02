@@ -23,6 +23,7 @@ import {
   saveKindRule,
 } from "@/app/(crm)/parametres/claap-actions";
 import { runClaapProbe } from "@/app/(crm)/parametres/claap-probe-actions";
+import { runPennylaneProbe } from "@/app/(crm)/facturation/pennylane-actions";
 import { extractCallInsights } from "@/app/(crm)/affaires/insight-actions";
 import type { ProbeResult } from "@/lib/claap-api";
 
@@ -47,6 +48,25 @@ export function ClaapSettings({
   const [kind, setKind] = useState<CallKind>("r1");
   const [busy, setBusy] = useState(false);
   const [probe, setProbe] = useState<ProbeResult[] | null>(null);
+  const [pennylane, setPennylane] = useState<unknown>(null);
+
+  /**
+   * Sondage Pennylane, en lecture seule.
+   *
+   * L'application atteint leur API, contrairement à l'environnement où ce code
+   * a été écrit : c'est donc elle qui établit ce que l'API accepte, plutôt que
+   * nous qui le supposions — ce qui, sur de la facturation, serait imprudent.
+   */
+  async function sonderPennylane() {
+    setBusy(true);
+    const result = await runPennylaneProbe();
+    setBusy(false);
+    if (!result.ok) {
+      toast(result.error, "error");
+      return;
+    }
+    setPennylane(result.results);
+  }
 
   async function depouiller() {
     setBusy(true);
@@ -241,6 +261,23 @@ export function ClaapSettings({
                 {JSON.stringify(probe, null, 1)}
               </pre>
             ) : null}
+
+            <div className="mt-4 border-t border-[var(--border-subtle)] pt-4">
+              <p className="text-[12.5px] font-medium">Pennylane</p>
+              <p className="mt-0.5 text-[11.5px] text-[var(--text-muted)]">
+                Même démarche. Lecture seule : aucun document n&apos;est créé par ce sondage.
+              </p>
+              <Button variant="ghost" size="sm" loading={busy} onClick={sonderPennylane} className="mt-2">
+                <RefreshCw className="size-3.5" />
+                Sonder l&apos;API Pennylane
+              </Button>
+
+              {pennylane ? (
+                <pre className="mt-3 max-h-64 overflow-auto rounded-lg bg-[var(--surface-base)] p-2 text-[10.5px] leading-relaxed">
+                  {JSON.stringify(pennylane, null, 1)}
+                </pre>
+              ) : null}
+            </div>
           </div>
         </Card>
       ) : null}

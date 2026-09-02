@@ -215,3 +215,55 @@ select
 from public.dossiers d
 left join public.invoices i on i.dossier_id = d.id
 group by d.id;
+
+-- --- Identité fiscale et circuit de validation ------------------------------
+-- Sans SIRET ni numéro de TVA, aucun client ne peut être créé chez Pennylane,
+-- donc aucun devis émis.
+alter table public.companies
+  add column if not exists siret           text,
+  add column if not exists vat_number      text,
+  add column if not exists billing_address text,
+  add column if not exists billing_email   text,
+  add column if not exists pennylane_customer_id text;
+
+-- Rien n'est envoyé au client sans qu'un humain l'ait relu. Devis et factures
+-- sont d'abord poussés en BROUILLON chez Pennylane, et c'est de là qu'ils
+-- partent. Ce champ suit cette relecture ; il est distinct du statut
+-- commercial, qui décrit l'affaire et non le circuit de validation.
+do $$ begin
+  create type public.review_state as enum
+    ('a_preparer', 'a_valider', 'brouillon_pousse', 'envoye');
+exception when duplicate_object then null; end $$;
+
+alter table public.dossiers
+  add column if not exists quote_review    public.review_state not null default 'a_preparer',
+  add column if not exists quote_pushed_at timestamptz;
+
+alter table public.invoices
+  add column if not exists review    public.review_state not null default 'a_preparer',
+  add column if not exists pushed_at timestamptz;
+
+-- Journal des échanges avec Pennylane. Sur de la facturation, savoir ce qui a
+-- été envoyé et ce qui a été répondu n'est pas un confort de mise au point :
+-- c'est la seule façon de reconstituer pourquoi un document existe, ou non.
+create table if not exists public.pennylane_events (
+  id          uuid primary key default gen_random_uuid(),
+  direction   text not null check (direction in ('sortant', 'entrant')),
+  operation   text not null,
+  dossier_id  uuid references public.dossiers (id) on delete set null,
+  invoice_id  uuid references public.invoices (id) on delete set null,
+  http_status integer,
+  ok          boolean not null default false,
+  request     jsonb,
+  response    jsonb,
+  detail      text,
+  created_at  timestamptz not null default now()
+);
+
+create index if not exists pennylane_events_recent_idx
+  on public.pennylane_events (created_at desc);
+
+alter table public.pennylane_events enable row level security;
+
+create policy "pennylane_events_select_staff" on public.pennylane_events
+  for select to authenticated using (public.is_staff());

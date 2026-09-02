@@ -207,6 +207,10 @@ function CompanyDrawer({
     headcount: "",
     revenue: "",
     notes: "",
+    siret: "",
+    vat_number: "",
+    billing_address: "",
+    billing_email: "",
   });
 
   useEffect(() => {
@@ -221,6 +225,10 @@ function CompanyDrawer({
       headcount: company.headcount ?? "",
       revenue: company.revenue != null ? String(company.revenue) : "",
       notes: company.notes ?? "",
+      siret: company.siret ?? "",
+      vat_number: company.vat_number ?? "",
+      billing_address: company.billing_address ?? "",
+      billing_email: company.billing_email ?? "",
     });
   }, [company]);
 
@@ -244,6 +252,10 @@ function CompanyDrawer({
       headcount: form.headcount || null,
       revenue: Number.isFinite(parsed!) ? parsed : null,
       notes: form.notes || null,
+      siret: form.siret.replace(/\s/g, "") || null,
+      vat_number: form.vat_number.replace(/\s/g, "").toUpperCase() || null,
+      billing_address: form.billing_address || null,
+      billing_email: form.billing_email || null,
     });
     setSaving(false);
     if (!result.ok) {
@@ -368,6 +380,50 @@ function CompanyDrawer({
           <Field label="Adresse" className="sm:col-span-2">
             <Input value={form.address} onChange={(event) => set("address", event.target.value)} />
           </Field>
+        </div>
+
+        {/* Identité fiscale : sans SIRET ni numéro de TVA, aucun client ne
+            peut être créé chez Pennylane, donc aucun devis émis. */}
+        <div className="rounded-xl border border-[var(--border-subtle)] p-3.5">
+          <p className="text-[12.5px] font-medium text-[var(--text-secondary)]">
+            Facturation
+          </p>
+          <p className="mt-0.5 text-[11.5px] text-[var(--text-muted)]">
+            Le SIRET ou le numéro de TVA identifie le client chez Pennylane. L&apos;un des deux
+            suffit, mais il en faut un.
+          </p>
+
+          <div className="mt-3 grid gap-3.5 sm:grid-cols-2">
+            <Field label="SIRET">
+              <Input
+                value={form.siret}
+                onChange={(event) => set("siret", event.target.value)}
+                placeholder="123 456 789 00012"
+                inputMode="numeric"
+              />
+            </Field>
+            <Field label="N° de TVA intracommunautaire">
+              <Input
+                value={form.vat_number}
+                onChange={(event) => set("vat_number", event.target.value)}
+                placeholder="FR12345678900"
+              />
+            </Field>
+            <Field label="E-mail de facturation" className="sm:col-span-2">
+              <Input
+                type="email"
+                value={form.billing_email}
+                onChange={(event) => set("billing_email", event.target.value)}
+              />
+            </Field>
+            <Field label="Adresse de facturation" className="sm:col-span-2">
+              <Input
+                value={form.billing_address}
+                onChange={(event) => set("billing_address", event.target.value)}
+                placeholder="Si différente de l'adresse ci-dessus"
+              />
+            </Field>
+          </div>
         </div>
 
         <Field label="Notes">

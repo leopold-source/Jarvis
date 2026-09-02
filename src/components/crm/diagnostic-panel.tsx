@@ -33,6 +33,12 @@ const WATCHED = [
   // Sans lui, le webhook Claap accepte toute requete : a renseigner en prod.
   { name: "CLAAP_WEBHOOK_SECRET", secret: true, optional: false },
   { name: "CLAAP_API_KEY", secret: true, optional: false },
+  { name: "PENNYLANE_API_KEY", secret: true, optional: false },
+  // Garde-fou : tant qu'il n'est pas à « true », aucun document n'est poussé.
+  { name: "PENNYLANE_ENABLED", secret: false, optional: true },
+  { name: "PENNYLANE_WEBHOOK_SECRET", secret: true, optional: true },
+  // Sans elle, les notifications restent en base sans partir par e-mail.
+  { name: "RESEND_API_KEY", secret: true, optional: true },
 ] as const;
 
 /** Masque une valeur sensible en n'en gardant que les extrémités. */

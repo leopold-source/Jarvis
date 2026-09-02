@@ -5,10 +5,10 @@ import { useRouter } from "next/navigation";
 import { Check, FileSignature, Plus, Receipt, Trash2, Wallet } from "lucide-react";
 
 import { Badge, Button, Input, useToast } from "@/components/ui";
-import { DateField } from "@/components/ui/date-field";
 import { INVOICE_STATUS } from "@/lib/constants";
 import type { DossierLine, Invoice, InvoiceStatus } from "@/lib/database.types";
 import { cn, formatDate, formatMoney } from "@/lib/utils";
+import { PennylanePanel } from "@/components/crm/pennylane-panel";
 import {
   addInvoice,
   deleteLine,
@@ -27,7 +27,7 @@ import {
  * déjà quand il arrive dessus. L'écran autonome n'est là que pour qui suit la
  * facturation.
  */
-export function DossierPanel({ dossierId }: { dossierId: string }) {
+export function DossierPanel({ dossierId, isAdmin }: { dossierId: string; isAdmin: boolean }) {
   const router = useRouter();
   const toast = useToast();
   const [, startTransition] = useTransition();
@@ -135,6 +135,8 @@ export function DossierPanel({ dossierId }: { dossierId: string }) {
           Ajouter une ligne
         </Button>
       </section>
+
+      <PennylanePanel dossier={dossier} invoices={invoices} isAdmin={isAdmin} />
 
       {/* --- Échéancier -------------------------------------------------- */}
       <section>

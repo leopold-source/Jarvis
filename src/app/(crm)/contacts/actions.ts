@@ -43,6 +43,11 @@ export async function updateCompany(
     headcount?: string | null;
     revenue?: number | null;
     notes?: string | null;
+    /** Identité fiscale, requise pour créer le client chez Pennylane. */
+    siret?: string | null;
+    vat_number?: string | null;
+    billing_address?: string | null;
+    billing_email?: string | null;
   },
 ): Promise<ActionResult> {
   await requireStaff();
