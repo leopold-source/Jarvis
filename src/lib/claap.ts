@@ -1,5 +1,3 @@
-import type { CallKind } from "@/lib/database.types";
-
 /**
  * Rattachement d'un call Claap à une affaire.
  *
@@ -10,25 +8,6 @@ import type { CallKind } from "@/lib/database.types";
  * historique d'échanges attribué à la mauvaise entreprise.
  */
 
-/**
- * Les dossiers Claap portent déjà la qualification du rendez-vous : plutôt que
- * de demander un second étiquetage, on lit celui qui existe.
- */
-const FOLDER_TO_KIND: Record<string, CallKind> = {
-  r1: "r1",
-  r2: "r2",
-  "sales meetings": "decouverte",
-  "internal meetings": "interne",
-  demo: "demo",
-  closing: "closing",
-  suivi: "suivi",
-};
-
-export function kindFromFolder(folderTitle?: string | null): CallKind | null {
-  if (!folderTitle) return null;
-  return FOLDER_TO_KIND[folderTitle.trim().toLowerCase()] ?? null;
-}
-
 export type ClaapParticipant = { name?: string | null; email?: string | null };
 
 export type NormalizedCall = {
@@ -37,7 +16,9 @@ export type NormalizedCall = {
   url: string | null;
   occurredOn: string | null;
   durationMinutes: number | null;
-  kind: CallKind | null;
+  /** Dossier Claap d'origine, conservé brut : la qualification s'en déduit
+   *  par une règle configurable, jamais par une constante du code. */
+  folderTitle: string | null;
   externalEmails: string[];
   participants: ClaapParticipant[];
   suggestedCompany: string | null;
@@ -90,7 +71,7 @@ export function normalizeClaapPayload(raw: Record<string, unknown>): NormalizedC
     url: pick<string>("url", "recording.url") ?? `https://app.claap.io/${providerCallId}`,
     occurredOn: createdAt ? String(createdAt).slice(0, 10) : null,
     durationMinutes: typeof durationSeconds === "number" ? Math.round(durationSeconds / 60) : null,
-    kind: kindFromFolder(pick<string>("folder.title", "recording.folder.title", "folderTitle")),
+    folderTitle: pick<string>("folder.title", "recording.folder.title", "folderTitle"),
     externalEmails,
     participants,
     // À défaut de correspondance, le domaine de l'interlocuteur est le meilleur

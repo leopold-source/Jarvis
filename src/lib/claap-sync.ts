@@ -1,5 +1,25 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { NormalizedCall } from "@/lib/claap";
+import type { CallKind } from "@/lib/database.types";
+
+type Admin = NonNullable<ReturnType<typeof createAdminClient>>;
+
+/**
+ * Qualification déduite du dossier Claap, si une règle le prévoit.
+ *
+ * Les règles sont en base et modifiables : tout le monde ne range pas ses
+ * dossiers, et personne ne range tout. Sans règle correspondante, le call
+ * arrive « à qualifier » — ce qui est le comportement honnête.
+ */
+async function kindForFolder(admin: Admin, folderTitle: string | null): Promise<CallKind | null> {
+  if (!folderTitle) return null;
+  const { data } = await admin
+    .from("call_kind_rules")
+    .select("kind")
+    .ilike("folder_title", folderTitle.trim())
+    .maybeSingle();
+  return (data?.kind as CallKind | undefined) ?? null;
+}
 
 export type AttachOutcome =
   | { status: "rattache"; dealId: string }
@@ -63,7 +83,8 @@ export async function attachCall(call: NormalizedCall, raw: unknown): Promise<At
       url: call.url,
       occurred_on: call.occurredOn,
       duration_minutes: call.durationMinutes,
-      kind: call.kind,
+      kind: await kindForFolder(admin, call.folderTitle),
+      folder_title: call.folderTitle,
       has_external: true,
       participants: call.participants as never,
       raw_payload: raw as never,
@@ -77,6 +98,7 @@ export async function attachCall(call: NormalizedCall, raw: unknown): Promise<At
     title: call.title,
     url: call.url,
     occurred_on: call.occurredOn,
+    folder_title: call.folderTitle,
     participants: call.participants as never,
     suggested_company: call.suggestedCompany,
     raw_payload: raw as never,

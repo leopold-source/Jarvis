@@ -122,3 +122,50 @@ create policy "call_inbox_select_staff" on public.call_inbox
   for select to authenticated using (public.is_staff());
 create policy "call_inbox_write_staff" on public.call_inbox
   for all to authenticated using (public.is_staff()) with check (public.is_staff());
+
+-- --- Qualification des calls : une donnée, pas une règle du code -----------
+-- Chacun range ses dossiers Claap comme il veut, et personne ne range tout.
+-- Les correspondances vivent donc en base, modifiables sans redéploiement ;
+-- l'absence de règle laisse simplement le call à qualifier à la main.
+create table if not exists public.call_kind_rules (
+  id           uuid primary key default gen_random_uuid(),
+  folder_title text not null,
+  kind         public.call_kind not null,
+  created_at   timestamptz not null default now()
+);
+
+create unique index if not exists call_kind_rules_folder_idx
+  on public.call_kind_rules (lower(folder_title));
+
+alter table public.call_kind_rules enable row level security;
+
+create policy "call_kind_rules_select_staff" on public.call_kind_rules
+  for select to authenticated using (public.is_staff());
+create policy "call_kind_rules_write_admin" on public.call_kind_rules
+  for all to authenticated using (public.is_admin()) with check (public.is_admin());
+
+-- Le dossier d'origine est conservé brut : il permet de rejouer un étiquetage
+-- après avoir changé les règles.
+alter table public.call_records add column if not exists folder_title text;
+alter table public.call_inbox   add column if not exists folder_title text;
+
+-- Journal des appels entrants : sans lui, un webhook refusé ou illisible ne
+-- laisse aucune trace et le diagnostic devient une devinette.
+create table if not exists public.webhook_events (
+  id          uuid primary key default gen_random_uuid(),
+  source      text not null,
+  outcome     text not null,
+  detail      text,
+  headers     jsonb,
+  body        jsonb,
+  body_text   text,
+  created_at  timestamptz not null default now()
+);
+
+create index if not exists webhook_events_recent_idx
+  on public.webhook_events (source, created_at desc);
+
+alter table public.webhook_events enable row level security;
+
+create policy "webhook_events_select_admin" on public.webhook_events
+  for select to authenticated using (public.is_admin());

@@ -291,6 +291,7 @@ export type CallRecord = {
   occurred_on: string | null;
   duration_minutes: number | null;
   kind: CallKind | null;
+  folder_title: string | null;
   has_external: boolean;
   participants: Json;
   summary: string | null;
@@ -308,6 +309,7 @@ export type CallInbox = {
   occurred_on: string | null;
   participants: Json;
   suggested_company: string | null;
+  folder_title: string | null;
   status: "en_attente" | "traite" | "ignore";
   resolved_deal_id: string | null;
   resolved_by: string | null;
@@ -324,6 +326,24 @@ export type LeadEvent = {
   to_status: LeadStatus | null;
   note: string | null;
   actor_id: string | null;
+  created_at: string;
+}
+
+export type CallKindRule = {
+  id: string;
+  folder_title: string;
+  kind: CallKind;
+  created_at: string;
+}
+
+export type WebhookEvent = {
+  id: string;
+  source: string;
+  outcome: string;
+  detail: string | null;
+  headers: Json;
+  body: Json;
+  body_text: string | null;
   created_at: string;
 }
 
@@ -388,6 +408,8 @@ export type Database = {
       call_records: TableDef<CallRecord, "provider_call_id">;
       call_inbox: TableDef<CallInbox, "provider_call_id">;
       lead_events: TableDef<LeadEvent, "lead_id" | "kind">;
+      call_kind_rules: TableDef<CallKindRule, "folder_title" | "kind">;
+      webhook_events: TableDef<WebhookEvent, "source" | "outcome">;
     };
     Views: {
       project_progress: { Row: ProjectProgress; Relationships: [] };

@@ -1,10 +1,12 @@
 import Link from "next/link";
-import { Activity, Mail, UserCog } from "lucide-react";
+import { Activity, Mail, UserCog, Video } from "lucide-react";
 
 import { PageHeader } from "@/components/layout/page-header";
 import { GmailConnection, type GmailAccountView } from "@/components/crm/gmail-connection";
 import { DiagnosticPanel } from "@/components/crm/diagnostic-panel";
 import { PasswordForm } from "@/components/crm/password-form";
+import { ClaapSettings } from "@/components/crm/claap-settings";
+import { fetchClaapSettings } from "@/app/(crm)/parametres/claap-actions";
 import { requireStaff } from "@/lib/auth";
 import { googleCredentials } from "@/lib/google";
 import { createClient } from "@/lib/supabase/server";
@@ -27,6 +29,7 @@ const NOTICES: Record<string, string> = {
 const TABS = [
   { key: "compte", label: "Compte", icon: UserCog, adminOnly: false },
   { key: "google", label: "Connexion Google", icon: Mail, adminOnly: false },
+  { key: "claap", label: "Calls Claap", icon: Video, adminOnly: false },
   { key: "diagnostic", label: "Diagnostic", icon: Activity, adminOnly: true },
 ] as const;
 
@@ -124,8 +127,23 @@ export default async function ParametresPage({
           </>
         ) : null}
 
+        {active === "claap" ? <ClaapPanel isAdmin={isAdmin} /> : null}
+
         {active === "diagnostic" && isAdmin ? <DiagnosticPanel /> : null}
       </div>
     </div>
+  );
+}
+
+/** Chargé à part : l'onglet Claap ne coûte rien tant qu'il n'est pas ouvert. */
+async function ClaapPanel({ isAdmin }: { isAdmin: boolean }) {
+  const { rules, events, unmappedFolders } = await fetchClaapSettings();
+  return (
+    <ClaapSettings
+      rules={rules}
+      events={events}
+      unmappedFolders={unmappedFolders}
+      isAdmin={isAdmin}
+    />
   );
 }
