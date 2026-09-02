@@ -12,6 +12,7 @@ import type { Deal, DealStage } from "@/lib/database.types";
 import { formatDate, formatMoney } from "@/lib/utils";
 import { deleteDeal, moveDeal, updateDeal } from "@/app/(crm)/affaires/actions";
 import { DealEmails } from "@/components/crm/deal-emails";
+import { DealCalls } from "@/components/crm/deal-calls";
 
 type CompanyLite = { id: string; name: string; sector: string | null; region: string | null };
 type ContactLite = { id: string; full_name: string | null; email: string | null; company_id: string | null };
@@ -262,6 +263,8 @@ export function DealDrawer({
             placeholder="Contexte, besoins exprimés, points de vigilance…"
           />
         </Field>
+
+        {deal ? <DealCalls dealId={deal.id} /> : null}
 
         {deal ? <DealEmails dealId={deal.id} /> : null}
       </div>

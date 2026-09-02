@@ -7,7 +7,7 @@ import { Badge, Button, Drawer, Field, Input, Select, Textarea, useToast } from 
 import { DateField } from "@/components/ui/date-field";
 import { LEAD_STATUS, LEAD_STATUS_ORDER } from "@/lib/constants";
 import type { Lead, LeadStatus } from "@/lib/database.types";
-import { formatDate, formatMoney } from "@/lib/utils";
+import { formatDate, formatMoney, formatRelative } from "@/lib/utils";
 import { updateLead } from "@/app/(crm)/leads/actions";
 
 export function LeadDrawer({
@@ -185,6 +185,33 @@ export function LeadDrawer({
               placeholder="Compte rendu d'appel, objections, prochaines étapes…"
             />
           </Field>
+
+          {/* Le suivi d'activité répond à la question qu'on se pose vraiment
+              avant de décrocher : « ça fait combien de temps ? » */}
+          <div className="grid grid-cols-3 gap-2 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-base)]/50 p-3">
+            <div>
+              <p className="text-[10.5px] tracking-wide text-[var(--text-muted)] uppercase">
+                Dernier statut
+              </p>
+              <p className="mt-0.5 text-[12.5px]">
+                {lead.status_changed_at ? formatRelative(lead.status_changed_at) : "—"}
+              </p>
+            </div>
+            <div>
+              <p className="text-[10.5px] tracking-wide text-[var(--text-muted)] uppercase">
+                Dernier contact
+              </p>
+              <p className="mt-0.5 text-[12.5px]">
+                {lead.last_touched_at ? formatRelative(lead.last_touched_at) : "jamais"}
+              </p>
+            </div>
+            <div>
+              <p className="text-[10.5px] tracking-wide text-[var(--text-muted)] uppercase">
+                Tentatives
+              </p>
+              <p className="mt-0.5 text-[12.5px] tabular-nums">{lead.touch_count ?? 0}</p>
+            </div>
+          </div>
 
           <p className="flex items-center gap-1.5 text-[11.5px] text-[var(--text-muted)]">
             <CalendarClock className="size-3.5" />

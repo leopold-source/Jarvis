@@ -30,6 +30,8 @@ const WATCHED = [
   { name: "GOOGLE_REDIRECT_URI", secret: false, optional: true },
   // Protège la route de synchro planifiée /api/cron/gmail-sync.
   { name: "CRON_SECRET", secret: true, optional: false },
+  // Sans lui, le webhook Claap accepte toute requete : a renseigner en prod.
+  { name: "CLAAP_WEBHOOK_SECRET", secret: true, optional: false },
 ] as const;
 
 /** Masque une valeur sensible en n'en gardant que les extrémités. */

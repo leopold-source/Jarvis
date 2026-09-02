@@ -106,6 +106,10 @@ export type Lead = {
   linkedin_url: string | null;
   revenue: number | null;
   status: LeadStatus;
+  /** Tenus par un trigger : derniere activite reelle sur la fiche. */
+  status_changed_at: string;
+  last_touched_at: string | null;
+  touch_count: number;
   owner_name: string | null;
   owner_id: string | null;
   comment: string | null;
@@ -272,6 +276,57 @@ export type PipelineInsight = {
   created_at: string;
 }
 
+export type CallKind =
+  | "r1" | "r2" | "decouverte" | "demo" | "closing" | "suivi" | "interne" | "non_qualifie";
+
+export type CallRecord = {
+  id: string;
+  provider: string;
+  provider_call_id: string;
+  deal_id: string | null;
+  company_id: string | null;
+  contact_id: string | null;
+  title: string | null;
+  url: string | null;
+  occurred_on: string | null;
+  duration_minutes: number | null;
+  kind: CallKind | null;
+  has_external: boolean;
+  participants: Json;
+  summary: string | null;
+  raw_payload: Json;
+  synced_by: string | null;
+  created_at: string;
+}
+
+export type CallInbox = {
+  id: string;
+  provider: string;
+  provider_call_id: string;
+  title: string | null;
+  url: string | null;
+  occurred_on: string | null;
+  participants: Json;
+  suggested_company: string | null;
+  status: "en_attente" | "traite" | "ignore";
+  resolved_deal_id: string | null;
+  resolved_by: string | null;
+  resolved_at: string | null;
+  raw_payload: Json;
+  created_at: string;
+}
+
+export type LeadEvent = {
+  id: string;
+  lead_id: string;
+  kind: string;
+  from_status: LeadStatus | null;
+  to_status: LeadStatus | null;
+  note: string | null;
+  actor_id: string | null;
+  created_at: string;
+}
+
 export type DailySuggestion = {
   id: string;
   for_date: string;
@@ -300,7 +355,9 @@ export type ProjectProgress = {
 }
 
 /** Colonnes à valeur par défaut côté base, donc optionnelles à l'insertion. */
-type Defaulted = "id" | "created_at" | "updated_at" | "connected_at" | "synced_count" | "for_date" | "done_at";
+type Defaulted =
+  | "id" | "created_at" | "updated_at" | "connected_at" | "synced_count"
+  | "for_date" | "done_at" | "status_changed_at" | "touch_count";
 
 type TableDef<Row, RequiredKeys extends keyof Row = never> = {
   Row: Row;
@@ -328,6 +385,9 @@ export type Database = {
       google_accounts: TableDef<GoogleAccount, "user_id" | "email" | "refresh_token">;
       daily_suggestions: TableDef<DailySuggestion, "items">;
       suggestion_done: TableDef<SuggestionDone, "suggestion_date" | "item_key" | "user_id">;
+      call_records: TableDef<CallRecord, "provider_call_id">;
+      call_inbox: TableDef<CallInbox, "provider_call_id">;
+      lead_events: TableDef<LeadEvent, "lead_id" | "kind">;
     };
     Views: {
       project_progress: { Row: ProjectProgress; Relationships: [] };
@@ -352,6 +412,7 @@ export type Database = {
       task_status: TaskStatus;
       task_priority: TaskPriority;
       document_kind: DocumentKind;
+      call_kind: CallKind;
       entity_kind: EntityKind;
     };
     CompositeTypes: Record<string, never>;

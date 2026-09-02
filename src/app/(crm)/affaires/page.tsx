@@ -1,5 +1,6 @@
 import { PageHeader } from "@/components/layout/page-header";
 import { DealBoard } from "@/components/crm/deal-board";
+import { CallInbox } from "@/components/crm/call-inbox";
 import { requireStaff } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 
@@ -18,12 +19,23 @@ export default async function DealsPage() {
       supabase.from("projects").select("id, deal_id"),
     ]);
 
+  const { data: pendingCalls } = await supabase
+    .from("call_inbox")
+    .select("*")
+    .eq("status", "en_attente")
+    .order("occurred_on", { ascending: false });
+
   return (
     <div className="mx-auto flex max-w-[1600px] flex-col gap-5">
       <PageHeader
         title="Affaires"
         description="Le pipeline commercial. Glissez une carte pour la faire avancer ; une affaire gagnée crée automatiquement son projet."
       />
+      <CallInbox
+        pending={pendingCalls ?? []}
+        deals={(deals ?? []).map((deal) => ({ id: deal.id, name: deal.name }))}
+      />
+
       <DealBoard
         deals={deals ?? []}
         companies={companies ?? []}

@@ -116,6 +116,21 @@ export const LEAD_STATUS_ORDER: LeadStatus[] = [
   "call_pris",
 ];
 
+export const CALL_KIND: Record<string, { label: string; tone: Tone }> = {
+  r1: { label: "R1", tone: "indigo" },
+  r2: { label: "R2", tone: "violet" },
+  decouverte: { label: "Découverte", tone: "sky" },
+  demo: { label: "Démo", tone: "cyan" },
+  closing: { label: "Closing", tone: "emerald" },
+  suivi: { label: "Suivi", tone: "teal" },
+  interne: { label: "Interne", tone: "stone" },
+  non_qualifie: { label: "Non qualifié", tone: "stone" },
+};
+
+export const CALL_KIND_ORDER = [
+  "r1", "r2", "decouverte", "demo", "closing", "suivi", "interne", "non_qualifie",
+] as const;
+
 // --- Affaires -------------------------------------------------------------
 export const DEAL_STAGE: Record<
   DealStage,
