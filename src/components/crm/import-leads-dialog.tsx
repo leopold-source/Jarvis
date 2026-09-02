@@ -1,16 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { FileSpreadsheet, ListTree, Sparkles, Upload, Wand2 } from "lucide-react";
+import { FileSpreadsheet, Sparkles, Upload, Wand2 } from "lucide-react";
 
-import { Badge, Button, Input, Modal, Select, useToast } from "@/components/ui";
+import { Badge, Button, Input, Modal, useToast } from "@/components/ui";
 import { fetchImportIndex, importLeads } from "@/app/(crm)/leads/actions";
 import { cleanRowsWithAi } from "@/app/(crm)/leads/ai-actions";
-import {
-  ORGANIZE_TARGETS,
-  organizeRowsWithAi,
-  type OrganizeTarget,
-} from "@/app/(crm)/leads/organize-actions";
 import {
   buildLookup,
   classifyRow,
@@ -44,44 +39,9 @@ export function ImportLeadsDialog({
   const [parsed, setParsed] = useState<ParsedLeadsCsv | null>(null);
   const [analysed, setAnalysed] = useState<Analysed[] | null>(null);
   const [fileName, setFileName] = useState("");
-  const [busy, setBusy] = useState<"analyse" | "ia" | "organiser" | "import" | null>(null);
+  const [busy, setBusy] = useState<"analyse" | "ia" | "import" | null>(null);
   const [aiChanges, setAiChanges] = useState<Array<{ label: string; changes: string[] }>>([]);
   const [aiInstruction, setAiInstruction] = useState("");
-  const [organizeInstruction, setOrganizeInstruction] = useState("");
-  const [organizeTarget, setOrganizeTarget] = useState<OrganizeTarget>("segment");
-  const [distribution, setDistribution] = useState<Array<{ valeur: string; nombre: number }> | null>(
-    null,
-  );
-
-  /**
-   * Applique une consigne de classement libre.
-   *
-   * Le résultat est écrit dans les lignes en mémoire, pas en base : l'aperçu
-   * et le dédoublonnage sont rejoués derrière, et rien n'est importé tant que
-   * l'utilisateur n'a pas vu la répartition obtenue.
-   */
-  async function runOrganize() {
-    if (!parsed) return;
-    setBusy("organiser");
-    const result = await organizeRowsWithAi(parsed.rows, organizeInstruction, organizeTarget);
-    setBusy(null);
-
-    if (!result.ok) {
-      toast(result.error, "error");
-      return;
-    }
-
-    const rows = parsed.rows.map((row) => ({ ...row }));
-    for (const assignment of result.rows) {
-      if (assignment.valeur) rows[assignment.index][result.target] = assignment.valeur;
-    }
-
-    setParsed({ ...parsed, rows });
-    setDistribution(result.distribution);
-    const classees = result.rows.filter((row) => row.valeur).length;
-    toast(`${classees} ligne(s) classée(s) sur ${parsed.rows.length}.`);
-    await analyse(rows);
-  }
 
   function reset() {
     setParsed(null);
@@ -271,67 +231,6 @@ export function ImportLeadsDialog({
                 </div>
               </div>
             </div>
-
-            {/* --- Classement libre ------------------------------------ */}
-            <div className="mt-3 border-t border-[var(--border-subtle)] pt-3">
-              <p className="text-[13px] font-medium">Regrouper selon une consigne</p>
-              <p className="mt-0.5 text-[11.5px] leading-relaxed text-[var(--text-muted)]">
-                Décrivez la règle en français ; elle sera appliquée ligne par ligne pour remplir
-                un seul champ. Une ligne qui ne permet pas de trancher reste vide plutôt que
-                d&apos;être devinée.
-              </p>
-
-              <div className="mt-2.5 flex flex-wrap items-center gap-2">
-                <Input
-                  value={organizeInstruction}
-                  onChange={(event) => setOrganizeInstruction(event.target.value)}
-                  placeholder="Ex. : déduis la région depuis l'adresse ou le code postal"
-                  className="h-8 min-w-56 flex-1 text-[12.5px]"
-                />
-                <Select
-                  value={organizeTarget}
-                  onChange={(event) => setOrganizeTarget(event.target.value as OrganizeTarget)}
-                  aria-label="Champ à remplir"
-                  className="h-8 w-auto min-w-40 text-[12.5px]"
-                >
-                  {Object.entries(ORGANIZE_TARGETS).map(([key, meta]) => (
-                    <option key={key} value={key}>
-                      {meta.label}
-                    </option>
-                  ))}
-                </Select>
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  loading={busy === "organiser"}
-                  disabled={!organizeInstruction.trim()}
-                  onClick={runOrganize}
-                >
-                  <ListTree className="size-3.5" />
-                  Organiser
-                </Button>
-              </div>
-
-              {distribution ? (
-                <div className="mt-2.5 flex flex-wrap gap-1.5">
-                  {distribution.length === 0 ? (
-                    <span className="text-[11.5px] text-[var(--text-muted)]">
-                      Aucune ligne n&apos;a pu être classée avec cette consigne.
-                    </span>
-                  ) : (
-                    distribution.map(({ valeur, nombre }) => (
-                      <span
-                        key={valeur}
-                        className="rounded-full bg-[var(--surface-hover)] px-2 py-0.5 text-[11px]"
-                      >
-                        {valeur} <span className="text-[var(--text-muted)]">· {nombre}</span>
-                      </span>
-                    ))
-                  )}
-                </div>
-              ) : null}
-            </div>
-
             {aiChanges.length > 0 ? (
               <ul className="mt-3 max-h-32 space-y-1 overflow-y-auto border-t border-[var(--border-subtle)] pt-2.5 text-[11.5px]">
                 {aiChanges.map((entry, index) => (

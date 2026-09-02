@@ -119,14 +119,16 @@ export async function cleanRowsWithAi(
       }));
 
       const response = await client.messages.parse({
-        model: "claude-opus-5",
-        max_tokens: 16000,
+        // Normaliser une casse, un format de téléphone ou déduire une région
+        // d'un code postal relève de la lecture, pas du raisonnement : le
+        // modèle rapide suffit, pour une fraction du coût.
+        //
+        // Il ne connaît ni `thinking` adaptatif ni `output_config.effort` —
+        // les lui passer ferait échouer la requête.
+        model: "claude-haiku-4-5",
+        max_tokens: 8000,
         system: SYSTEM_PROMPT,
-        thinking: { type: "adaptive" },
-        output_config: {
-          effort: "low",
-          format: zodOutputFormat(CleanedBatch),
-        },
+        output_config: { format: zodOutputFormat(CleanedBatch) },
         messages: [
           {
             role: "user",
