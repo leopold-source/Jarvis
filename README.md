@@ -84,6 +84,8 @@ npm run dev
 | `SUPABASE_SERVICE_ROLE_KEY` | **Serveur uniquement.** Nécessaire pour envoyer les invitations depuis « Équipe & accès ». |
 | `ANTHROPIC_API_KEY` | **Serveur uniquement.** Active le nettoyage des imports CSV et l'analyse du pipeline. Préférer une clé créée **dans un espace de travail** : une clé « personnelle / tous les espaces de travail » est rejetée en 400 sans la variable ci-dessous. |
 | `ANTHROPIC_WORKSPACE_ID` | Facultative. Espace de travail à facturer, requis seulement pour une clé rattachée à une identité. |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | **Serveur uniquement.** Identifiants OAuth du client Web, pour la synchronisation Gmail. |
+| `GOOGLE_REDIRECT_URI` | Facultative. URI de retour OAuth ; à défaut, elle est déduite de l'origine de la requête. Doit correspondre au caractère près à celle déclarée dans la console Google. |
 
 La clé `service_role` ne doit jamais être préfixée `NEXT_PUBLIC_` : elle
 contourne la RLS.
@@ -205,3 +207,26 @@ une fonction planifiée qui interroge l'API Gmail et rattache chaque message à
 l'affaire dont l'adresse du contact correspond. C'est faisable — le point
 délicat n'est pas la synchronisation elle-même mais l'association fiable d'un
 fil de discussion à la bonne affaire quand plusieurs personnes sont en copie.
+
+## Synchronisation Gmail
+
+Chaque collaborateur connecte sa propre boîte depuis **Réglages**. Le CRM
+n'ouvre jamais la messagerie en entier : il interroge Gmail avec les adresses
+des contacts présents en base, et ne conserve que l'objet, la date, l'extrait
+fourni par Gmail et le sens de l'échange. Les corps de message restent chez
+Google.
+
+Mise en place côté Google Cloud :
+
+1. Créer un projet, puis activer l'**API Gmail**.
+2. Écran de consentement OAuth : type **Externe**, portées
+   `gmail.readonly` et `userinfo.email`. Tant que l'application est en test,
+   ajouter chaque collaborateur comme utilisateur autorisé.
+3. Identifiants → **ID client OAuth**, type *Application Web*, avec l'URI de
+   redirection `https://<domaine>/api/google/callback`.
+4. Reporter l'identifiant et le secret dans les variables d'environnement.
+
+Le jeton de rafraîchissement est stocké dans `google_accounts`, dans une
+colonne que le rôle `authenticated` n'a pas le droit de lire : seul le serveur
+y accède, via la clé `service_role`. « Déconnecter » révoque le jeton auprès de
+Google avant de supprimer la ligne.

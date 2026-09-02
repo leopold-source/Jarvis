@@ -248,6 +248,19 @@ export type EmailMessage = {
   created_at: string;
 }
 
+export type GoogleAccount = {
+  user_id: string;
+  email: string;
+  /** Jeton de rafraîchissement : colonne fermée au rôle `authenticated`. */
+  refresh_token: string;
+  scope: string | null;
+  last_synced_at: string | null;
+  last_error: string | null;
+  synced_count: number;
+  connected_at: string;
+  created_at: string;
+}
+
 export type PipelineInsight = {
   id: string;
   headline: string;
@@ -271,7 +284,7 @@ export type ProjectProgress = {
 }
 
 /** Colonnes à valeur par défaut côté base, donc optionnelles à l'insertion. */
-type Defaulted = "id" | "created_at" | "updated_at";
+type Defaulted = "id" | "created_at" | "updated_at" | "connected_at" | "synced_count";
 
 type TableDef<Row, RequiredKeys extends keyof Row = never> = {
   Row: Row;
@@ -296,6 +309,7 @@ export type Database = {
       activities: TableDef<Activity, "entity_type" | "entity_id" | "action">;
       email_messages: TableDef<EmailMessage>;
       pipeline_insights: TableDef<PipelineInsight, "headline">;
+      google_accounts: TableDef<GoogleAccount, "user_id" | "email" | "refresh_token">;
     };
     Views: {
       project_progress: { Row: ProjectProgress; Relationships: [] };

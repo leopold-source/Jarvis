@@ -10,6 +10,7 @@ import {
   LayoutDashboard,
   Stethoscope,
   Menu,
+  Settings,
   Sparkles,
   Users,
   UsersRound,
@@ -28,6 +29,7 @@ const NAV = [
   { href: "/contacts", label: "Contacts", icon: Users },
   { href: "/entreprises", label: "Entreprises", icon: Building2 },
   { href: "/projets", label: "Projets", icon: FolderKanban },
+  { href: "/parametres", label: "Réglages", icon: Settings },
 ] as const;
 
 const ADMIN_NAV = [

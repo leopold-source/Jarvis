@@ -28,6 +28,10 @@ const WATCHED = [
   { name: "ANTHROPIC_API_KEY", secret: true, optional: false },
   // Nécessaire uniquement si la clé ci-dessus est rattachée à une identité.
   { name: "ANTHROPIC_WORKSPACE_ID", secret: false, optional: true },
+  { name: "GOOGLE_CLIENT_ID", secret: false, optional: false },
+  { name: "GOOGLE_CLIENT_SECRET", secret: true, optional: false },
+  // Sans elle, l'URI de retour est déduite de l'origine de la requête.
+  { name: "GOOGLE_REDIRECT_URI", secret: false, optional: true },
 ] as const;
 
 /** Masque une valeur sensible en n'en gardant que les extrémités. */
