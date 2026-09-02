@@ -201,7 +201,17 @@ export function ClaapSettings({
                   <div className="min-w-0 flex-1">
                     <p className="font-mono text-[12px]">{event.outcome}</p>
                     {event.detail ? (
-                      <p className="truncate text-[11.5px] text-[var(--text-muted)]">{event.detail}</p>
+                      <p className="text-[11.5px] text-[var(--text-muted)]">{event.detail}</p>
+                    ) : null}
+                    {!good && event.headers ? (
+                      <details className="mt-1">
+                        <summary className="cursor-pointer text-[11px] text-brand-500 dark:text-brand-300">
+                          En-têtes reçus
+                        </summary>
+                        <pre className="mt-1 max-h-40 overflow-auto rounded-lg bg-[var(--surface-base)] p-2 text-[10.5px] leading-relaxed">
+                          {JSON.stringify(event.headers, null, 1)}
+                        </pre>
+                      </details>
                     ) : null}
                   </div>
                   <span className="shrink-0 text-[11px] text-[var(--text-muted)]">

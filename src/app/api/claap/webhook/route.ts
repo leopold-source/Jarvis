@@ -15,16 +15,33 @@ import { createAdminClient } from "@/lib/supabase/admin";
  * rejeté qui ne laisse aucune trace transforme le diagnostic en devinette.
  */
 
-/** En-têtes conservés pour le diagnostic. Aucun secret n'y figure. */
-const LOGGED_HEADERS = [
-  "content-type",
-  "user-agent",
-  "x-claap-signature",
-  "x-webhook-signature",
-  "x-hub-signature-256",
-  "x-claap-event",
-  "x-event-type",
-];
+/**
+ * Noms d'en-têtes dont la valeur est masquée.
+ *
+ * On journalise *tous* les en-têtes, pas une liste choisie d'avance : si le
+ * fournisseur signe avec un nom qu'on n'avait pas prévu, une allowlist le
+ * rejetterait sans jamais révéler lequel — exactement le cas qu'on cherche à
+ * diagnostiquer. Les valeurs sensibles sont tronquées, jamais leur nom.
+ */
+const SENSITIVE = /signature|secret|token|authorization|api-?key/i;
+
+function collectHeaders(request: NextRequest): Record<string, string> {
+  const headers: Record<string, string> = {};
+  request.headers.forEach((value, name) => {
+    if (name === "cookie") return;
+    headers[name] = SENSITIVE.test(name) ? `${value.slice(0, 10)}… (${value.length} car.)` : value;
+  });
+  return headers;
+}
+
+/** Tout en-tête qui ressemble à une signature, quel que soit son nom. */
+function signatureHeaders(request: NextRequest): Array<[string, string]> {
+  const found: Array<[string, string]> = [];
+  request.headers.forEach((value, name) => {
+    if (/signature|digest/i.test(name)) found.push([name, value]);
+  });
+  return found;
+}
 
 async function log(
   outcome: string,
@@ -36,19 +53,11 @@ async function log(
   const admin = createAdminClient();
   if (!admin) return;
 
-  const headers: Record<string, string> = {};
-  for (const name of LOGGED_HEADERS) {
-    const value = request.headers.get(name);
-    // La signature est tronquée : sa présence est l'information utile, sa
-    // valeur complète n'a aucune raison de rester en base.
-    if (value) headers[name] = name.includes("signature") ? `${value.slice(0, 12)}…` : value;
-  }
-
   await admin.from("webhook_events").insert({
     source: "claap",
     outcome,
     detail,
-    headers: headers as never,
+    headers: collectHeaders(request) as never,
     body: (parsed ?? null) as never,
     body_text: parsed ? null : body.slice(0, 4000),
   });
@@ -59,18 +68,30 @@ export async function POST(request: NextRequest) {
   const secret = process.env.CLAAP_WEBHOOK_SECRET?.trim();
 
   if (secret) {
-    const provided =
-      request.headers.get("x-claap-signature") ??
-      request.headers.get("x-webhook-signature") ??
-      request.headers.get("x-hub-signature-256");
+    const candidates = signatureHeaders(request);
 
-    if (!provided || !isValidSignature(body, provided, secret)) {
+    if (candidates.length === 0) {
+      // Aucun en-tête de signature : plutôt que de rejeter en aveugle, on
+      // enregistre la requête pour pouvoir lire ce que le fournisseur envoie
+      // réellement, puis on refuse.
       await log(
-        "signature_refusee",
-        provided ? "Signature présente mais invalide." : "Aucun en-tête de signature reconnu.",
+        "signature_absente",
+        "Aucun en-tête ressemblant à une signature. Voir « headers » pour ce que Claap envoie.",
         request,
         body,
-        null,
+        safeParse(body),
+      );
+      return NextResponse.json({ error: "signature absente" }, { status: 401 });
+    }
+
+    const accepted = candidates.some(([, value]) => isValidSignature(body, value, secret));
+    if (!accepted) {
+      await log(
+        "signature_refusee",
+        `Signature présente (${candidates.map(([name]) => name).join(", ")}) mais aucune ne correspond au secret.`,
+        request,
+        body,
+        safeParse(body),
       );
       return NextResponse.json({ error: "signature invalide" }, { status: 401 });
     }
@@ -97,10 +118,29 @@ export async function POST(request: NextRequest) {
   return NextResponse.json(outcome);
 }
 
+function safeParse(body: string): unknown {
+  try {
+    return JSON.parse(body);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Compare la signature reçue à celle attendue.
+ *
+ * Deux encodages circulent selon les fournisseurs — hexadécimal et base64 —
+ * et le préfixe `sha256=` est optionnel. On accepte les deux plutôt que de
+ * faire dépendre l'intégration d'un détail de forme.
+ */
 function isValidSignature(body: string, provided: string, secret: string): boolean {
-  const expected = createHmac("sha256", secret).update(body).digest("hex");
-  const clean = provided.replace(/^sha256=/, "");
-  const a = Buffer.from(expected);
-  const b = Buffer.from(clean);
-  return a.length === b.length && timingSafeEqual(a, b);
+  const clean = provided.replace(/^sha256=/i, "").trim();
+  const received = Buffer.from(clean);
+
+  // Un Hmac ne se réutilise pas après `digest()` : on en construit un par
+  // encodage testé plutôt que de cloner celui déjà consommé.
+  return (["hex", "base64"] as const).some((encoding) => {
+    const expected = Buffer.from(createHmac("sha256", secret).update(body).digest(encoding));
+    return expected.length === received.length && timingSafeEqual(expected, received);
+  });
 }
