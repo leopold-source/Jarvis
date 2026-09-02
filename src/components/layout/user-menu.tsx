@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChevronDown, LogOut } from "lucide-react";
+import { Activity, ChevronDown, LogOut, Mail, Settings } from "lucide-react";
 
 import { Avatar } from "@/components/ui";
 import { ROLE_LABEL } from "@/lib/constants";
@@ -23,6 +24,16 @@ export function UserMenu({ profile }: { profile: Profile }) {
     document.addEventListener("mousedown", onClickOutside);
     return () => document.removeEventListener("mousedown", onClickOutside);
   }, [open]);
+
+  // Le diagnostic n'a de sens que pour un administrateur : lui seul peut agir
+  // sur les variables d'environnement qu'il expose.
+  const links = [
+    { href: "/parametres?onglet=compte", label: "Réglages du compte", icon: Settings },
+    { href: "/parametres?onglet=google", label: "Connexion Google", icon: Mail },
+    ...(profile.role === "admin"
+      ? [{ href: "/parametres?onglet=diagnostic", label: "Diagnostic", icon: Activity }]
+      : []),
+  ];
 
   async function signOut() {
     await createClient().auth.signOut();
@@ -51,7 +62,12 @@ export function UserMenu({ profile }: { profile: Profile }) {
             {ROLE_LABEL[profile.role]}
           </span>
         </span>
-        <ChevronDown className="size-3.5 text-[var(--text-muted)]" />
+        <ChevronDown
+          className={cn(
+            "size-3.5 text-[var(--text-muted)] transition-transform duration-300",
+            open && "rotate-180",
+          )}
+        />
       </button>
 
       {open ? (
@@ -66,6 +82,25 @@ export function UserMenu({ profile }: { profile: Profile }) {
             <p className="truncate text-[13px] font-medium">{profile.full_name ?? "—"}</p>
             <p className="truncate text-[11.5px] text-[var(--text-muted)]">{profile.email}</p>
           </div>
+          <div className="border-b border-[var(--border-subtle)] py-1">
+            {links.map(({ href, label, icon: Icon }, index) => (
+              <Link
+                key={href}
+                href={href}
+                prefetch
+                onClick={() => setOpen(false)}
+                style={{ ["--i" as string]: index }}
+                className={cn(
+                  "stagger flex items-center gap-2 px-3.5 py-2 text-[13px] text-[var(--text-secondary)]",
+                  "transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)]",
+                )}
+              >
+                <Icon className="size-4 text-[var(--text-muted)]" />
+                {label}
+              </Link>
+            ))}
+          </div>
+
           <button
             type="button"
             onClick={signOut}

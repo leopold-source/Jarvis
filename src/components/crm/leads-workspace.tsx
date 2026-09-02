@@ -15,6 +15,7 @@ import {
   Phone,
   Plus,
   Rocket,
+  Rows3,
   Sparkles,
   Table2,
   Upload,
@@ -53,6 +54,25 @@ const PAGE_SIZE = 60;
  * après les relances dues, pour qu'il y ait toujours de quoi appeler.
  */
 const RELANCE_SANS_DATE: LeadStatus[] = ["nrp", "nrp2", "nrp3", "a_recontacter"];
+
+/**
+ * Hauteurs de ligne, à la manière d'Airtable.
+ *
+ * Prospecter, c'est balayer une liste : on veut le plus de lignes possible à
+ * l'écran. Consulter, c'est lire : on veut de l'air. Plutôt que d'arbitrer à
+ * la place de l'utilisateur, on lui laisse le curseur — et on retient son
+ * choix, parce que c'est une préférence, pas une décision à reprendre chaque
+ * matin.
+ */
+const DENSITIES = {
+  compacte: { label: "Compacte", row: "h-6", cell: "py-0", text: "text-[12px]", avatar: 16 },
+  normale: { label: "Normale", row: "h-8", cell: "py-0.5", text: "text-[12.5px]", avatar: 18 },
+  confort: { label: "Confort", row: "h-11", cell: "py-1.5", text: "text-[13px]", avatar: 22 },
+} as const;
+
+type Density = keyof typeof DENSITIES;
+const DENSITY_ORDER = Object.keys(DENSITIES) as Density[];
+const DENSITY_STORAGE_KEY = "antichaos.leads.density";
 
 type MemberLite = { id: string; full_name: string | null; email: string; role: string };
 type ViewMode = "lecture" | "prospection";
@@ -96,6 +116,19 @@ export function LeadsWorkspace({
   const [view, setView] = useState<ViewMode>("lecture");
   const [showOverdue, setShowOverdue] = useState(true);
   const [visible, setVisible] = useState(PAGE_SIZE);
+  const [density, setDensity] = useState<Density>("compacte");
+
+  // La préférence est relue après le premier rendu : la lire pendant
+  // l'hydratation ferait diverger le serveur et le client.
+  useEffect(() => {
+    const stored = window.localStorage.getItem(DENSITY_STORAGE_KEY);
+    if (stored && stored in DENSITIES) setDensity(stored as Density);
+  }, []);
+
+  function chooseDensity(next: Density) {
+    setDensity(next);
+    window.localStorage.setItem(DENSITY_STORAGE_KEY, next);
+  }
 
   const [selected, setSelected] = useState<Lead | null>(null);
   const [creating, setCreating] = useState(false);
@@ -183,6 +216,7 @@ export function LeadsWorkspace({
     [leads],
   );
 
+  const size = DENSITIES[density];
   const page = filtered.slice(0, visible);
   const hasMore = visible < filtered.length;
 
@@ -340,6 +374,33 @@ export function LeadsWorkspace({
             ))}
           </div>
 
+          <span className="ml-auto flex items-center gap-1 rounded-[10px] bg-[var(--surface-hover)] p-1">
+            {DENSITY_ORDER.map((key) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => chooseDensity(key)}
+                title={`Hauteur de ligne : ${DENSITIES[key].label.toLowerCase()}`}
+                aria-pressed={density === key}
+                className={cn(
+                  "flex items-center gap-1 rounded-lg px-2 py-1 text-[11.5px] transition-all duration-200",
+                  density === key
+                    ? "bg-[var(--surface-overlay)] text-[var(--text-primary)] shadow-[var(--shadow-card)]"
+                    : "text-[var(--text-muted)] hover:text-[var(--text-secondary)]",
+                )}
+              >
+                <Rows3
+                  className={cn(
+                    "size-3.5 transition-transform duration-200",
+                    key === "compacte" && "scale-y-75",
+                    key === "confort" && "scale-y-125",
+                  )}
+                />
+                <span className="hidden sm:inline">{DENSITIES[key].label}</span>
+              </button>
+            ))}
+          </span>
+
           {view === "prospection" ? (
             <>
               <span className="flex items-center gap-1.5">
@@ -356,7 +417,7 @@ export function LeadsWorkspace({
                 {showOverdue ? <Eye className="size-3.5" /> : <EyeOff className="size-3.5" />}
                 {showOverdue ? "Retards affichés" : "Retards masqués"}
               </Button>
-              <p className="text-[11.5px] text-[var(--text-muted)]">
+              <p className="order-first w-full text-[11.5px] text-[var(--text-muted)] lg:order-none lg:w-auto">
                 Retards, puis relances du jour, puis les NRP et « à recontacter » sans date.
               </p>
             </>
@@ -391,14 +452,14 @@ export function LeadsWorkspace({
           />
         ) : (
           <div ref={scroller} className="max-h-[calc(100vh-17rem)] min-h-64 overflow-auto">
-            <table className="w-full min-w-[1240px] text-left text-[12.5px]">
+            <table className={cn("w-full min-w-[1240px] text-left", size.text)}>
               <thead className="sticky top-0 z-10 bg-[var(--surface-raised)] text-[10.5px] tracking-wide text-[var(--text-muted)] uppercase">
                 <tr className="border-b border-[var(--border-subtle)]">
                   <th className="w-12 px-2 py-1.5 text-right font-medium">#</th>
                   <th className="px-2.5 py-1.5 font-medium">Contact</th>
                   <th className="px-2.5 py-1.5 font-medium">Entreprise</th>
                   <th className="px-2.5 py-1.5 font-medium">Statut</th>
-                  <th className="px-2.5 py-1.5 font-medium">Téléphone</th>
+                  <th className="min-w-40 px-2.5 py-1.5 font-medium">Téléphone</th>
                   <th className="px-2.5 py-1.5 font-medium">Relance</th>
                   <th className="px-2.5 py-1.5 font-medium">Assigné</th>
                   <th className="px-2.5 py-1.5 font-medium">Commentaire</th>
@@ -412,7 +473,8 @@ export function LeadsWorkspace({
                     key={lead.id}
                     onClick={() => setSelected(lead)}
                     className={cn(
-                      "h-7 cursor-pointer transition-colors hover:bg-[var(--surface-hover)]/60",
+                      size.row,
+                      "cursor-pointer transition-colors duration-150 hover:bg-[var(--surface-hover)]/60",
                       view === "prospection" && lead.follow_up_on === today && "bg-brand-500/[0.07]",
                       view === "prospection" &&
                         lead.follow_up_on &&
@@ -420,33 +482,33 @@ export function LeadsWorkspace({
                         "bg-rose-500/[0.07]",
                     )}
                   >
-                    <td className="px-2 py-0.5 text-right font-mono text-[11px] text-[var(--text-muted)] tabular-nums">
+                    <td className={cn("px-2 text-right font-mono text-[11px] text-[var(--text-muted)] tabular-nums", size.cell)}>
                       {index + 1}
                     </td>
 
-                    <td className="max-w-52 px-2.5 py-0.5">
+                    <td className={cn("max-w-52 px-2.5", size.cell)}>
                       <p className="truncate font-medium" title={lead.email ?? undefined}>
                         {lead.full_name ?? lead.email ?? "Sans nom"}
                       </p>
                     </td>
 
-                    <td className="max-w-52 px-2.5 py-0.5">
+                    <td className={cn("max-w-52 px-2.5", size.cell)}>
                       <p className="truncate" title={lead.company_activity ?? undefined}>
                         {lead.company_name ?? "—"}
                       </p>
                     </td>
 
-                    <td className="px-2.5 py-0.5" onClick={(event) => event.stopPropagation()}>
+                    <td className={cn("px-2.5", size.cell)} onClick={(event) => event.stopPropagation()}>
                       <StatusSelect lead={lead} onChange={handleStatusChange} />
                     </td>
 
-                    <td className="px-2.5 py-0.5" onClick={(event) => event.stopPropagation()}>
-                      <CopyablePhone phone={lead.phone} />
+                    <td className={cn("px-2.5", size.cell)} onClick={(event) => event.stopPropagation()}>
+                      <CopyablePhone phone={lead.phone} dense={density === "compacte"} />
                     </td>
 
-                    <td className="px-2.5 py-0.5" onClick={(event) => event.stopPropagation()}>
+                    <td className={cn("px-2.5", size.cell)} onClick={(event) => event.stopPropagation()}>
                       <DateField
-                        dense
+                        dense={density !== "confort"}
                         value={lead.follow_up_on}
                         placeholder="Planifier"
                         className="w-32"
@@ -454,10 +516,11 @@ export function LeadsWorkspace({
                       />
                     </td>
 
-                    <td className="px-2.5 py-0.5" onClick={(event) => event.stopPropagation()}>
+                    <td className={cn("px-2.5", size.cell)} onClick={(event) => event.stopPropagation()}>
                       <OwnerSelect
                         lead={lead}
                         members={members}
+                        avatarSize={size.avatar}
                         onAssign={async (ownerId) => {
                           const result = await assignLead(lead.id, ownerId);
                           if (!result.ok) {
@@ -469,18 +532,18 @@ export function LeadsWorkspace({
                       />
                     </td>
 
-                    <td className="w-56 px-2.5 py-0.5" onClick={(event) => event.stopPropagation()}>
+                    <td className={cn("w-56 px-2.5", size.cell)} onClick={(event) => event.stopPropagation()}>
                       <InlineComment
                         value={lead.comment}
                         onCommit={(value) => patch(lead, "comment", value)}
                       />
                     </td>
 
-                    <td className="px-2.5 py-0.5 text-right tabular-nums text-[var(--text-secondary)]">
+                    <td className={cn("px-2.5 text-right tabular-nums text-[var(--text-secondary)]", size.cell)}>
                       {formatMoney(lead.revenue, true)}
                     </td>
 
-                    <td className="px-2 py-0.5 text-right">
+                    <td className={cn("px-2 text-right", size.cell)}>
                       {lead.converted_deal_id ? (
                         <Badge tone="emerald">
                           <ExternalLink className="size-3" />
@@ -720,7 +783,7 @@ function StatusSelect({
 }
 
 /** Numéro cliquable : un clic copie, un second clic sur l'icône appelle. */
-function CopyablePhone({ phone }: { phone: string | null }) {
+function CopyablePhone({ phone, dense }: { phone: string | null; dense?: boolean }) {
   const toast = useToast();
   const [copied, setCopied] = useState(false);
 
@@ -737,13 +800,16 @@ function CopyablePhone({ phone }: { phone: string | null }) {
   }
 
   return (
-    <span className="flex items-center gap-1">
+    // `whitespace-nowrap` est ici essentiel : sans lui, un numéro français
+    // s'enroule sur quatre lignes et fait exploser la hauteur de la ligne.
+    <span className="flex items-center gap-1 whitespace-nowrap">
       <button
         type="button"
         onClick={copy}
         title="Copier le numéro"
         className={cn(
-          "group inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 font-mono text-[11.5px] transition-colors",
+          "group inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 font-mono transition-colors",
+          dense ? "text-[11px]" : "text-[11.5px]",
           copied
             ? "bg-emerald-500/15 text-emerald-500"
             : "text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)]",
@@ -768,19 +834,24 @@ function OwnerSelect({
   lead,
   members,
   onAssign,
+  avatarSize = 18,
 }: {
   lead: Lead;
   members: MemberLite[];
   onAssign: (ownerId: string | null) => Promise<void>;
+  avatarSize?: number;
 }) {
   const current = members.find((member) => member.id === lead.owner_id);
 
   return (
-    <span className="flex items-center gap-1.5">
+    <span className="flex items-center gap-1.5 whitespace-nowrap">
       {current ? (
-        <Avatar name={current.full_name} email={current.email} size={18} />
+        <Avatar name={current.full_name} email={current.email} size={avatarSize} />
       ) : (
-        <span className="grid size-[18px] shrink-0 place-items-center rounded-full bg-[var(--surface-hover)] text-[var(--text-muted)]">
+        <span
+          style={{ width: avatarSize, height: avatarSize }}
+          className="grid shrink-0 place-items-center rounded-full bg-[var(--surface-hover)] text-[var(--text-muted)]"
+        >
           <UserRound className="size-3" />
         </span>
       )}

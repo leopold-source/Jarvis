@@ -1,8 +1,6 @@
 import { AlertTriangle, CheckCircle2, GitCommitHorizontal, KeyRound, XCircle } from "lucide-react";
 
-import { PageHeader } from "@/components/layout/page-header";
 import { Badge, Card, SectionTitle } from "@/components/ui";
-import { requireAdmin } from "@/lib/auth";
 import {
   anthropicClient,
   anthropicKey,
@@ -11,16 +9,14 @@ import {
 } from "@/lib/anthropic";
 
 /**
- * Page de diagnostic.
+ * Panneau de diagnostic.
  *
  * Une variable d'environnement « présente dans Vercel » mais absente à
  * l'exécution vient presque toujours du même malentendu : le navigateur est
  * resté sur l'URL figée d'un ancien déploiement, qui garde l'environnement de
- * son propre build. Cette page dit donc d'abord *quelle version tourne*, puis
- * ce qu'elle voit, puis teste la clé pour de bon.
+ * son propre build. Ce panneau dit donc d'abord *quelle version tourne*, puis
+ * ce qu'il voit, puis teste la clé pour de bon.
  */
-export const dynamic = "force-dynamic";
-
 const WATCHED = [
   { name: "NEXT_PUBLIC_SUPABASE_URL", secret: false, optional: false },
   { name: "NEXT_PUBLIC_SUPABASE_ANON_KEY", secret: true, optional: false },
@@ -63,20 +59,13 @@ function Row({ label, value }: { label: string; value: string }) {
   );
 }
 
-export default async function DiagnosticPage() {
-  await requireAdmin();
-
+export async function DiagnosticPanel() {
   const env = process.env;
   const sha = env.VERCEL_GIT_COMMIT_SHA;
   const ping = await pingAnthropic();
 
   return (
-    <div className="space-y-6">
-      <PageHeader
-        title="Diagnostic"
-        description="Ce que le serveur voit réellement, dans le déploiement qui répond à cette page."
-      />
-
+    <div className="space-y-5">
       <Card glow className="p-5">
         <SectionTitle
           title={

@@ -2,15 +2,14 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useLinkStatus } from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Building2,
   FolderKanban,
   Handshake,
   LayoutDashboard,
-  Stethoscope,
   Menu,
-  Settings,
   Sparkles,
   Users,
   UsersRound,
@@ -29,13 +28,28 @@ const NAV = [
   { href: "/contacts", label: "Contacts", icon: Users },
   { href: "/entreprises", label: "Entreprises", icon: Building2 },
   { href: "/projets", label: "Projets", icon: FolderKanban },
-  { href: "/parametres", label: "Réglages", icon: Settings },
 ] as const;
 
-const ADMIN_NAV = [
-  { href: "/equipe", label: "Équipe & accès", icon: UsersRound },
-  { href: "/diagnostic", label: "Diagnostic", icon: Stethoscope },
-] as const;
+const ADMIN_NAV = [{ href: "/equipe", label: "Équipe & accès", icon: UsersRound }] as const;
+
+/**
+ * Retour visuel pendant une navigation.
+ *
+ * Les `loading.tsx` rendent la bascule instantanée dans la quasi-totalité des
+ * cas ; ce voile ne se voit donc que sur une connexion lente, quand le
+ * prefetch n'a pas eu le temps d'aboutir. C'est précisément là qu'un clic sans
+ * réaction donne l'impression d'une application figée.
+ */
+function NavPending() {
+  const { pending } = useLinkStatus();
+  if (!pending) return null;
+  return (
+    <span
+      aria-hidden
+      className="absolute inset-0 animate-fade-in bg-linear-to-r from-transparent via-brand-500/15 to-transparent"
+    />
+  );
+}
 
 export function Sidebar({ role }: { role: AppRole }) {
   const pathname = usePathname();
@@ -72,8 +86,9 @@ export function Sidebar({ role }: { role: AppRole }) {
             <Link
               key={href}
               href={href}
+              prefetch
               className={cn(
-                "group relative flex items-center gap-2.5 rounded-[10px] px-3 py-2 text-[13.5px] font-medium",
+                "group relative flex items-center gap-2.5 overflow-hidden rounded-[10px] px-3 py-2 text-[13.5px] font-medium",
                 "transition-colors duration-150",
                 active
                   ? "bg-[var(--surface-hover)] text-[var(--text-primary)]"
@@ -97,6 +112,7 @@ export function Sidebar({ role }: { role: AppRole }) {
                 )}
               />
               {label}
+              <NavPending />
             </Link>
           );
         })}
