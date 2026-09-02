@@ -16,7 +16,7 @@ export default async function DealsPage() {
       supabase.from("companies").select("id, name, sector, region").order("name"),
       supabase.from("contacts").select("id, full_name, email, company_id").order("full_name"),
       supabase.from("profiles").select("id, full_name, email, role").neq("role", "client"),
-      supabase.from("projects").select("id, deal_id"),
+      supabase.from("projects").select("id, deal_id, name").order("name"),
     ]);
 
   const { data: pendingCalls } = await supabase
@@ -34,6 +34,7 @@ export default async function DealsPage() {
       <CallInbox
         pending={pendingCalls ?? []}
         deals={(deals ?? []).map((deal) => ({ id: deal.id, name: deal.name }))}
+        projects={(projects ?? []).map((project) => ({ id: project.id, name: project.name }))}
       />
 
       <DealBoard

@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui";
 import { CALL_KIND, CALL_KIND_ORDER } from "@/lib/constants";
 import type { CallKind, CallRecord } from "@/lib/database.types";
 import { cn, formatDate } from "@/lib/utils";
-import { fetchDealCalls, setCallKind } from "@/app/(crm)/affaires/call-actions";
+import { fetchCalls, setCallKind, type CallTarget } from "@/app/(crm)/affaires/call-actions";
 
 /**
  * Historique des calls d'une affaire.
@@ -15,19 +15,20 @@ import { fetchDealCalls, setCallKind } from "@/app/(crm)/affaires/call-actions";
  * Le compteur en tête vaut autant que la liste : « 3 calls, dont 2 R2 » dit
  * en un coup d'œil si l'affaire avance ou si elle tourne en rond.
  */
-export function DealCalls({ dealId }: { dealId: string }) {
+export function DealCalls({ target }: { target: CallTarget }) {
   const [calls, setCalls] = useState<CallRecord[] | null>(null);
 
   useEffect(() => {
     let active = true;
     setCalls(null);
-    fetchDealCalls(dealId).then((result) => {
+    fetchCalls(target).then((result) => {
       if (active) setCalls(result.ok ? result.calls : []);
     });
     return () => {
       active = false;
     };
-  }, [dealId]);
+    // La cible est un objet recréé à chaque rendu : on dépend de ses champs.
+  }, [target.kind, target.id]);
 
   async function requalify(callId: string, kind: CallKind | null) {
     setCalls((current) =>
@@ -65,7 +66,7 @@ export function DealCalls({ dealId }: { dealId: string }) {
         </p>
       ) : calls.length === 0 ? (
         <p className="mt-2 text-[12.5px] text-[var(--text-muted)]">
-          Aucun call rattaché à cette affaire.
+          Aucun call rattaché à {target.kind === "affaire" ? "cette affaire" : "ce projet"}.
         </p>
       ) : (
         <ol className="mt-2 space-y-1.5">

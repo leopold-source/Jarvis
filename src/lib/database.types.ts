@@ -284,6 +284,8 @@ export type CallRecord = {
   provider: string;
   provider_call_id: string;
   deal_id: string | null;
+  /** Après la signature, les échanges relèvent du projet, pas de l'affaire. */
+  project_id: string | null;
   company_id: string | null;
   contact_id: string | null;
   title: string | null;
@@ -312,6 +314,7 @@ export type CallInbox = {
   folder_title: string | null;
   status: "en_attente" | "traite" | "ignore";
   resolved_deal_id: string | null;
+  resolved_project_id: string | null;
   resolved_by: string | null;
   resolved_at: string | null;
   raw_payload: Json;

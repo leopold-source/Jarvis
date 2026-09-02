@@ -169,3 +169,22 @@ alter table public.webhook_events enable row level security;
 
 create policy "webhook_events_select_admin" on public.webhook_events
   for select to authenticated using (public.is_admin());
+
+-- --- Un call ne relève pas toujours d'une affaire ---------------------------
+-- Après la signature, les échanges sont de la production : ils appartiennent
+-- au projet. Sans cette distinction, le compteur de calls d'une affaire signée
+-- gonflerait indéfiniment et fausserait la lecture du cycle commercial.
+alter table public.call_records
+  add column if not exists project_id uuid references public.projects (id) on delete cascade;
+
+create index if not exists call_records_project_idx
+  on public.call_records (project_id, occurred_on desc);
+
+-- Un call rattaché nulle part n'a rien à faire dans cette table : il reste
+-- dans la file d'attente jusqu'à ce qu'on tranche.
+alter table public.call_records drop constraint if exists call_records_cible;
+alter table public.call_records add constraint call_records_cible
+  check (deal_id is not null or project_id is not null);
+
+alter table public.call_inbox
+  add column if not exists resolved_project_id uuid references public.projects (id) on delete set null;

@@ -45,6 +45,7 @@ import type {
 import { cn, daysUntil, formatDate, formatMoney } from "@/lib/utils";
 import { updateProject } from "@/app/(crm)/projets/actions";
 import { ProjectComments } from "@/components/projects/project-comments";
+import { DealCalls } from "@/components/crm/deal-calls";
 import { ProjectDocuments } from "@/components/projects/project-documents";
 import { TaskBoard } from "@/components/projects/task-board";
 
@@ -238,13 +239,21 @@ export function ProjectWorkspace({
       ) : null}
 
       {tab === "echanges" ? (
-        <ProjectComments
-          project={project}
-          comments={comments}
-          members={members}
-          currentUser={currentUser}
-          onChanged={refresh}
-        />
+        <div className="space-y-5">
+          {/* Les calls de production remontent ici : après la signature, les
+              échanges relèvent du projet et non plus de l'affaire. */}
+          <Card className="p-5">
+            <DealCalls target={{ kind: "projet", id: project.id }} />
+          </Card>
+
+          <ProjectComments
+            project={project}
+            comments={comments}
+            members={members}
+            currentUser={currentUser}
+            onChanged={refresh}
+          />
+        </div>
       ) : null}
 
       <EditProjectDialog

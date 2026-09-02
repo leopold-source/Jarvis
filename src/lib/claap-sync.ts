@@ -41,12 +41,14 @@ export async function attachCall(call: NormalizedCall, raw: unknown): Promise<At
   // à chaque modification, et on ne veut ni doublon ni écrasement d'un
   // rattachement tranché à la main.
   const [{ data: known }, { data: queued }] = await Promise.all([
-    admin.from("call_records").select("deal_id").eq("provider", "claap")
+    admin.from("call_records").select("deal_id, project_id").eq("provider", "claap")
       .eq("provider_call_id", call.providerCallId).maybeSingle(),
     admin.from("call_inbox").select("id").eq("provider", "claap")
       .eq("provider_call_id", call.providerCallId).maybeSingle(),
   ]);
-  if (known?.deal_id) return { status: "rattache", dealId: known.deal_id };
+  if (known?.deal_id || known?.project_id) {
+    return { status: "rattache", dealId: (known.deal_id ?? known.project_id)! };
+  }
   if (queued) return { status: "en_attente" };
 
   if (call.externalEmails.length === 0) {
@@ -61,22 +63,39 @@ export async function attachCall(call: NormalizedCall, raw: unknown): Promise<At
     .maybeSingle();
 
   let dealId: string | null = null;
+  let projectId: string | null = null;
+
   if (contact) {
     const { data: deal } = await admin
       .from("deals")
-      .select("id")
+      .select("id, stage")
       .or(`contact_id.eq.${contact.id}${contact.company_id ? `,company_id.eq.${contact.company_id}` : ""}`)
       .order("updated_at", { ascending: false })
       .limit(1)
       .maybeSingle();
-    dealId = deal?.id ?? null;
+
+    // Une affaire gagnee a donne un projet : les echanges qui suivent sont de
+    // la production, pas de la vente. On les range donc dans le projet, sans
+    // quoi le compteur de calls d'une affaire signee gonflerait indefiniment
+    // et fausserait toute lecture du cycle commercial.
+    if (deal?.stage === "gagne") {
+      const { data: project } = await admin
+        .from("projects")
+        .select("id")
+        .eq("deal_id", deal.id)
+        .maybeSingle();
+      projectId = project?.id ?? null;
+    }
+
+    if (!projectId) dealId = deal?.id ?? null;
   }
 
-  if (dealId) {
+  if (dealId || projectId) {
     await admin.from("call_records").insert({
       provider: "claap",
       provider_call_id: call.providerCallId,
       deal_id: dealId,
+      project_id: projectId,
       contact_id: contact?.id ?? null,
       company_id: contact?.company_id ?? null,
       title: call.title,
@@ -89,7 +108,7 @@ export async function attachCall(call: NormalizedCall, raw: unknown): Promise<At
       participants: call.participants as never,
       raw_payload: raw as never,
     });
-    return { status: "rattache", dealId };
+    return { status: "rattache", dealId: dealId ?? projectId! };
   }
 
   await admin.from("call_inbox").insert({

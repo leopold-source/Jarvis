@@ -9,7 +9,7 @@ import type { CallInbox as CallInboxRow } from "@/lib/database.types";
 import { formatDate } from "@/lib/utils";
 import { dismissPendingCall, resolvePendingCall } from "@/app/(crm)/affaires/call-actions";
 
-type DealLite = { id: string; name: string };
+type TargetLite = { id: string; name: string };
 
 /**
  * Calls que le rattachement automatique n'a pas su placer.
@@ -18,7 +18,15 @@ type DealLite = { id: string; name: string };
  * Un call écarté disparaît de la file sans rien créer — beaucoup d'échanges
  * n'ont aucune raison d'entrer dans le CRM.
  */
-export function CallInbox({ pending, deals }: { pending: CallInboxRow[]; deals: DealLite[] }) {
+export function CallInbox({
+  pending,
+  deals,
+  projects,
+}: {
+  pending: CallInboxRow[];
+  deals: TargetLite[];
+  projects: TargetLite[];
+}) {
   const router = useRouter();
   const toast = useToast();
   const [, startTransition] = useTransition();
@@ -28,13 +36,18 @@ export function CallInbox({ pending, deals }: { pending: CallInboxRow[]; deals: 
   if (pending.length === 0) return null;
 
   async function attach(row: CallInboxRow) {
-    const dealId = choices[row.id];
-    if (!dealId) {
-      toast("Choisissez une affaire.", "error");
+    const choice = choices[row.id];
+    if (!choice) {
+      toast("Choisissez une affaire ou un projet.", "error");
       return;
     }
+    // La valeur porte son type : « affaire:uuid » ou « projet:uuid ».
+    const [kind, id] = choice.split(":");
     setBusy(row.id);
-    const result = await resolvePendingCall(row.id, dealId);
+    const result = await resolvePendingCall(row.id, {
+      kind: kind as "affaire" | "projet",
+      id,
+    });
     setBusy(null);
     if (!result.ok) {
       toast(result.error, "error");
@@ -64,7 +77,7 @@ export function CallInbox({ pending, deals }: { pending: CallInboxRow[]; deals: 
             Calls à rattacher
           </span>
         }
-        description="Aucun participant ne correspond à un contact du CRM. Choisissez l'affaire, ou écartez."
+        description="Aucun participant ne correspond à un contact du CRM. Rattachez à une affaire ou à un projet, ou écartez."
         action={<Badge tone="amber">{pending.length}</Badge>}
       />
 
@@ -91,15 +104,28 @@ export function CallInbox({ pending, deals }: { pending: CallInboxRow[]; deals: 
                 onChange={(event) =>
                   setChoices((current) => ({ ...current, [row.id]: event.target.value }))
                 }
-                aria-label="Affaire à rattacher"
-                className="w-auto min-w-44"
+                aria-label="Affaire ou projet à rattacher"
+                className="w-auto min-w-48"
               >
-                <option value="">Choisir une affaire…</option>
-                {deals.map((deal) => (
-                  <option key={deal.id} value={deal.id}>
-                    {deal.name}
-                  </option>
-                ))}
+                <option value="">Choisir une destination…</option>
+                {deals.length > 0 ? (
+                  <optgroup label="Affaires">
+                    {deals.map((deal) => (
+                      <option key={deal.id} value={`affaire:${deal.id}`}>
+                        {deal.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                ) : null}
+                {projects.length > 0 ? (
+                  <optgroup label="Projets">
+                    {projects.map((project) => (
+                      <option key={project.id} value={`projet:${project.id}`}>
+                        {project.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                ) : null}
               </Select>
 
               <Button
