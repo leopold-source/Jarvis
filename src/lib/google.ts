@@ -29,10 +29,15 @@ export function googleCredentials(): GoogleCredentials | null {
 /**
  * URI de retour. Google exige une correspondance exacte avec ce qui est
  * déclaré dans la console : on privilégie donc la variable d'environnement, et
- * on ne retombe sur l'origine de la requête que faute de mieux.
+ * on ne retombe sur l'origine de la requête que faute de mieux — en retirant
+ * un éventuel `www.`, puisque seul le domaine nu est déclaré côté Google et
+ * qu'un visiteur peut atterrir sur l'un ou l'autre selon les redirections DNS.
  */
 export function googleRedirectUri(origin: string): string {
-  return process.env.GOOGLE_REDIRECT_URI?.trim() || `${origin}/api/google/callback`;
+  const configured = process.env.GOOGLE_REDIRECT_URI?.trim();
+  if (configured) return configured;
+  const bare = origin.replace(/^(https?:\/\/)www\./, "$1");
+  return `${bare}/api/google/callback`;
 }
 
 export function googleAuthorizeUrl(redirectUri: string, state: string): string {
@@ -47,7 +52,11 @@ export function googleAuthorizeUrl(redirectUri: string, state: string): string {
     // Indispensables pour obtenir un refresh_token, et le réobtenir si
     // l'utilisateur reconnecte un compte déjà autorisé.
     access_type: "offline",
-    prompt: "consent",
+    // `select_account` force le sélecteur même quand une seule session Google
+    // est active dans le navigateur, indispensable si le compte par défaut
+    // n'est pas celui à connecter (ex. un Gmail personnel plutôt que le
+    // compte professionnel attendu par un écran de consentement Interne).
+    prompt: "select_account consent",
     include_granted_scopes: "true",
     state,
   });
