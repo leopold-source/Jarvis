@@ -230,3 +230,20 @@ Le jeton de rafraîchissement est stocké dans `google_accounts`, dans une
 colonne que le rôle `authenticated` n'a pas le droit de lire : seul le serveur
 y accède, via la clé `service_role`. « Déconnecter » révoque le jeton auprès de
 Google avant de supprimer la ligne.
+
+### Synchronisation automatique
+
+`vercel.json` déclare un cron quotidien (5h UTC) qui appelle
+`/api/cron/gmail-sync` et synchronise tous les comptes connectés, l'un après
+l'autre. Le bouton « Synchroniser maintenant » dans Réglages reste disponible
+pour un rafraîchissement immédiat.
+
+La fréquence quotidienne n'est pas une limite technique de l'API Gmail — le
+coût d'un appel est négligeable, même toutes les 15 minutes — mais celle du
+plan Vercel **Hobby**, qui plafonne les cron jobs à une exécution par jour.
+Sur un plan **Pro**, resserrer le rythme se fait en une ligne dans
+`vercel.json` (par exemple `"0 * * * *"` pour toutes les heures).
+
+Définir `CRON_SECRET` dans les variables d'environnement : Vercel signe
+automatiquement ses appels planifiés avec cette valeur, ce qui empêche
+quiconque d'autre de déclencher la route.

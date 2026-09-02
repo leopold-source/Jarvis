@@ -32,6 +32,8 @@ const WATCHED = [
   { name: "GOOGLE_CLIENT_SECRET", secret: true, optional: false },
   // Sans elle, l'URI de retour est déduite de l'origine de la requête.
   { name: "GOOGLE_REDIRECT_URI", secret: false, optional: true },
+  // Protège la route de synchro planifiée /api/cron/gmail-sync.
+  { name: "CRON_SECRET", secret: true, optional: false },
 ] as const;
 
 /** Masque une valeur sensible en n'en gardant que les extrémités. */

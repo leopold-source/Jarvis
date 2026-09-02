@@ -139,6 +139,11 @@ export function GmailConnection({
               Déconnecter
             </Button>
           </div>
+
+          <p className="mt-3 text-[11.5px] text-[var(--text-muted)]">
+            Une synchronisation automatique tourne aussi chaque nuit — ce bouton ne sert qu'à
+            forcer un rafraîchissement immédiat.
+          </p>
         </>
       ) : (
         <>

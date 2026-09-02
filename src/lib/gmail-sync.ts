@@ -205,3 +205,36 @@ export async function syncGmailForUser(userId: string): Promise<SyncOutcome> {
 
   return { ok: true, imported: rows.length, scanned, since };
 }
+
+export type SyncAllOutcome = {
+  accounts: number;
+  imported: number;
+  failed: Array<{ userId: string; email: string; error: string }>;
+};
+
+/**
+ * Synchronise tous les comptes connectés, l'un après l'autre.
+ *
+ * Séquentiel plutôt qu'en parallèle : chaque compte appelle Gmail plusieurs
+ * fois, et une exécution planifiée n'a aucune urgence à gagner quelques
+ * secondes — mieux vaut rester loin des limites de débit de l'API.
+ */
+export async function syncAllGoogleAccounts(): Promise<SyncAllOutcome> {
+  const admin = createAdminClient();
+  if (!admin) return { accounts: 0, imported: 0, failed: [] };
+
+  const { data: accounts } = await admin.from("google_accounts").select("user_id, email");
+  const failed: SyncAllOutcome["failed"] = [];
+  let imported = 0;
+
+  for (const account of accounts ?? []) {
+    const result = await syncGmailForUser(account.user_id);
+    if (result.ok) {
+      imported += result.imported;
+    } else {
+      failed.push({ userId: account.user_id, email: account.email, error: result.error });
+    }
+  }
+
+  return { accounts: accounts?.length ?? 0, imported, failed };
+}
