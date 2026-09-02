@@ -7,6 +7,7 @@ import { usePathname } from "next/navigation";
 import {
   Building2,
   FolderKanban,
+  Banknote,
   Handshake,
   LayoutDashboard,
   Menu,
@@ -28,6 +29,7 @@ const NAV = [
   { href: "/contacts", label: "Contacts", icon: Users },
   { href: "/entreprises", label: "Entreprises", icon: Building2 },
   { href: "/projets", label: "Projets", icon: FolderKanban },
+  { href: "/facturation", label: "Facturation", icon: Banknote },
 ] as const;
 
 const ADMIN_NAV = [{ href: "/equipe", label: "Équipe & accès", icon: UsersRound }] as const;

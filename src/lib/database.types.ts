@@ -371,6 +371,83 @@ export type SuggestionDone = {
   done_at: string;
 }
 
+export type DossierStatus =
+  | "brouillon" | "devis_envoye" | "devis_signe" | "en_facturation" | "solde" | "annule";
+
+export type InvoiceStatus = "prevue" | "emise" | "payee" | "annulee";
+
+/** Le réel administratif, là où l'affaire est le théorique commercial. */
+export type Dossier = {
+  id: string;
+  code: string | null;
+  deal_id: string | null;
+  company_id: string | null;
+  contact_id: string | null;
+  project_id: string | null;
+  status: DossierStatus;
+  amount_ht: number;
+  vat_rate: number;
+  /** Colonne générée. */
+  amount_ttc: number;
+  payment_terms_days: number;
+  pennylane_customer_id: string | null;
+  pennylane_quote_id: string | null;
+  quote_url: string | null;
+  quote_sent_at: string | null;
+  quote_signed_at: string | null;
+  last_sync_error: string | null;
+  notes: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type DossierLine = {
+  id: string;
+  dossier_id: string;
+  label: string;
+  quantity: number;
+  unit_price_ht: number;
+  vat_rate: number;
+  position: number;
+  created_at: string;
+}
+
+/** Une échéance planifiée devient une facture émise : même ligne, statut qui avance. */
+export type Invoice = {
+  id: string;
+  dossier_id: string;
+  label: string;
+  amount_ht: number;
+  vat_rate: number;
+  amount_ttc: number;
+  status: InvoiceStatus;
+  due_on: string | null;
+  issued_on: string | null;
+  paid_on: string | null;
+  paid_amount: number;
+  pennylane_invoice_id: string | null;
+  invoice_number: string | null;
+  invoice_url: string | null;
+  position: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export type DossierFinance = {
+  dossier_id: string | null;
+  code: string | null;
+  status: DossierStatus | null;
+  amount_ht: number | null;
+  amount_ttc: number | null;
+  facture_ttc: number | null;
+  encaisse_ttc: number | null;
+  en_attente_ttc: number | null;
+  a_facturer_ttc: number | null;
+  en_retard_ttc: number | null;
+  prochaine_echeance: string | null;
+}
+
 export type ProjectProgress = {
   project_id: string | null;
   tasks_total: number | null;
@@ -385,7 +462,8 @@ export type ProjectProgress = {
 /** Colonnes à valeur par défaut côté base, donc optionnelles à l'insertion. */
 type Defaulted =
   | "id" | "created_at" | "updated_at" | "connected_at" | "synced_count"
-  | "for_date" | "done_at" | "status_changed_at" | "touch_count";
+  | "for_date" | "done_at" | "status_changed_at" | "touch_count"
+  | "amount_ttc" | "paid_amount" | "position" | "vat_rate";
 
 type TableDef<Row, RequiredKeys extends keyof Row = never> = {
   Row: Row;
@@ -418,9 +496,13 @@ export type Database = {
       lead_events: TableDef<LeadEvent, "lead_id" | "kind">;
       call_kind_rules: TableDef<CallKindRule, "folder_title" | "kind">;
       webhook_events: TableDef<WebhookEvent, "source" | "outcome">;
+      dossiers: TableDef<Dossier>;
+      dossier_lines: TableDef<DossierLine, "dossier_id" | "label">;
+      invoices: TableDef<Invoice, "dossier_id" | "label">;
     };
     Views: {
       project_progress: { Row: ProjectProgress; Relationships: [] };
+      dossier_finance: { Row: DossierFinance; Relationships: [] };
     };
     Functions: {
       convert_lead_to_deal: {
@@ -443,6 +525,8 @@ export type Database = {
       task_priority: TaskPriority;
       document_kind: DocumentKind;
       call_kind: CallKind;
+      dossier_status: DossierStatus;
+      invoice_status: InvoiceStatus;
       entity_kind: EntityKind;
     };
     CompositeTypes: Record<string, never>;

@@ -13,6 +13,7 @@ import { formatDate, formatMoney } from "@/lib/utils";
 import { deleteDeal, moveDeal, updateDeal } from "@/app/(crm)/affaires/actions";
 import { DealEmails } from "@/components/crm/deal-emails";
 import { DealCalls } from "@/components/crm/deal-calls";
+import { DealDossier } from "@/components/crm/deal-dossier";
 
 type CompanyLite = { id: string; name: string; sector: string | null; region: string | null };
 type ContactLite = { id: string; full_name: string | null; email: string | null; company_id: string | null };
@@ -263,6 +264,8 @@ export function DealDrawer({
             placeholder="Contexte, besoins exprimés, points de vigilance…"
           />
         </Field>
+
+        {deal ? <DealDossier dealId={deal.id} /> : null}
 
         {deal ? <DealCalls target={{ kind: "affaire", id: deal.id }} /> : null}
 

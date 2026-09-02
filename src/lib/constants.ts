@@ -131,6 +131,27 @@ export const CALL_KIND_ORDER = [
   "r1", "r2", "decouverte", "demo", "closing", "suivi", "interne", "non_qualifie",
 ] as const;
 
+// --- Dossiers administratifs ---
+export const DOSSIER_STATUS: Record<string, { label: string; tone: Tone }> = {
+  brouillon: { label: "Brouillon", tone: "stone" },
+  devis_envoye: { label: "Devis envoyé", tone: "sky" },
+  devis_signe: { label: "Devis signé", tone: "indigo" },
+  en_facturation: { label: "En facturation", tone: "amber" },
+  solde: { label: "Soldé", tone: "emerald" },
+  annule: { label: "Annulé", tone: "rose" },
+};
+
+export const DOSSIER_STATUS_ORDER = [
+  "brouillon", "devis_envoye", "devis_signe", "en_facturation", "solde", "annule",
+] as const;
+
+export const INVOICE_STATUS: Record<string, { label: string; tone: Tone }> = {
+  prevue: { label: "Prévue", tone: "stone" },
+  emise: { label: "Émise", tone: "amber" },
+  payee: { label: "Payée", tone: "emerald" },
+  annulee: { label: "Annulée", tone: "rose" },
+};
+
 // --- Affaires -------------------------------------------------------------
 export const DEAL_STAGE: Record<
   DealStage,
