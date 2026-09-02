@@ -121,9 +121,9 @@ export function PipelineInsight({ insight }: { insight: InsightRow | null }) {
               <li
                 key={index}
                 style={{ ["--i" as string]: index }}
-                className="stagger rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-base)]/50 p-4"
+                className="stagger rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-base)]/50 p-3 sm:p-4"
               >
-                <div className="flex items-start gap-3">
+                <div className="flex items-start gap-2.5 sm:gap-3">
                   <span
                     className={cn(
                       "grid size-6 shrink-0 place-items-center rounded-full text-[12px] font-semibold",
@@ -136,7 +136,7 @@ export function PipelineInsight({ insight }: { insight: InsightRow | null }) {
                   </span>
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <p className="text-[14px] font-medium">{priority.title}</p>
+                      <p className="text-[13.5px] font-medium sm:text-[14px]">{priority.title}</p>
                       <Badge tone={severity.tone}>{severity.label}</Badge>
                     </div>
                     <p className="mt-1.5 text-[13px] text-[var(--text-secondary)]">
@@ -146,9 +146,9 @@ export function PipelineInsight({ insight }: { insight: InsightRow | null }) {
                       <span className="text-[var(--text-muted)]">Action — </span>
                       {priority.action}
                     </p>
-                    <p className="mt-1.5 inline-flex items-center gap-1.5 rounded-lg bg-emerald-500/10 px-2 py-1 text-[12.5px] text-emerald-600 dark:text-emerald-300">
-                      <Target className="size-3" />
-                      {priority.target}
+                    <p className="mt-2 flex items-start gap-1.5 rounded-lg bg-emerald-500/10 px-2 py-1.5 text-[12.5px] text-emerald-600 dark:text-emerald-300">
+                      <Target className="mt-0.5 size-3 shrink-0" />
+                      <span>{priority.target}</span>
                     </p>
                   </div>
                 </div>

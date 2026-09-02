@@ -272,6 +272,22 @@ export type PipelineInsight = {
   created_at: string;
 }
 
+export type DailySuggestion = {
+  id: string;
+  for_date: string;
+  focus: string | null;
+  items: Json;
+  model: string | null;
+  created_at: string;
+}
+
+export type SuggestionDone = {
+  suggestion_date: string;
+  item_key: string;
+  user_id: string;
+  done_at: string;
+}
+
 export type ProjectProgress = {
   project_id: string | null;
   tasks_total: number | null;
@@ -284,7 +300,7 @@ export type ProjectProgress = {
 }
 
 /** Colonnes à valeur par défaut côté base, donc optionnelles à l'insertion. */
-type Defaulted = "id" | "created_at" | "updated_at" | "connected_at" | "synced_count";
+type Defaulted = "id" | "created_at" | "updated_at" | "connected_at" | "synced_count" | "for_date" | "done_at";
 
 type TableDef<Row, RequiredKeys extends keyof Row = never> = {
   Row: Row;
@@ -310,6 +326,8 @@ export type Database = {
       email_messages: TableDef<EmailMessage>;
       pipeline_insights: TableDef<PipelineInsight, "headline">;
       google_accounts: TableDef<GoogleAccount, "user_id" | "email" | "refresh_token">;
+      daily_suggestions: TableDef<DailySuggestion, "items">;
+      suggestion_done: TableDef<SuggestionDone, "suggestion_date" | "item_key" | "user_id">;
     };
     Views: {
       project_progress: { Row: ProjectProgress; Relationships: [] };

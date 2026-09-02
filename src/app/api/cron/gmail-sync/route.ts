@@ -1,9 +1,11 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { syncAllGoogleAccounts } from "@/lib/gmail-sync";
+import { runSuggestions } from "@/app/(crm)/suggestions-actions";
 
 /**
- * Synchronisation planifiée, une fois par jour (voir vercel.json).
+ * Routine du matin, une fois par jour (voir vercel.json) : synchronisation
+ * Gmail, puis préparation des suggestions du jour.
  *
  * Le coût réel — quelques appels à l'API Gmail par compte connecté — est
  * négligeable à n'importe quelle fréquence ; c'est la limite de Vercel qui
@@ -21,6 +23,13 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  const result = await syncAllGoogleAccounts();
-  return NextResponse.json(result);
+  // La synchro d'abord : les suggestions du jour lisent le CRM, autant qu'il
+  // soit à jour des échanges de la veille au moment où on les prépare.
+  const sync = await syncAllGoogleAccounts();
+  const suggestions = await runSuggestions(true);
+
+  return NextResponse.json({
+    sync,
+    suggestions: suggestions.ok ? "ok" : suggestions.error,
+  });
 }

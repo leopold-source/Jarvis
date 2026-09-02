@@ -11,6 +11,8 @@ import {
 
 import { PageHeader } from "@/components/layout/page-header";
 import { PipelineInsight } from "@/components/crm/pipeline-insight";
+import { DailySuggestions } from "@/components/crm/daily-suggestions";
+import type { SuggestionItemType } from "@/app/(crm)/suggestions-actions";
 import { Badge, Card, EmptyState, ProgressBar, SectionTitle } from "@/components/ui";
 import {
   DEAL_STAGE,
@@ -58,12 +60,20 @@ export default async function DashboardPage() {
       supabase.from("leads").select("id", { count: "exact", head: true }),
     ]);
 
-  const { data: insight } = await supabase
-    .from("pipeline_insights")
-    .select("*")
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  const [{ data: insight }, { data: suggestions }, { data: doneRows }] = await Promise.all([
+    supabase
+      .from("pipeline_insights")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    supabase.from("daily_suggestions").select("*").eq("for_date", today).maybeSingle(),
+    supabase
+      .from("suggestion_done")
+      .select("item_key")
+      .eq("suggestion_date", today)
+      .eq("user_id", profile.id),
+  ]);
 
   const allDeals = deals ?? [];
   const openDeals = allDeals.filter((deal) => OPEN_STAGES.includes(deal.stage));
@@ -123,6 +133,13 @@ export default async function DashboardPage() {
       />
 
       <PipelineInsight insight={insight} />
+
+      <DailySuggestions
+        focus={suggestions?.focus ?? null}
+        items={(suggestions?.items ?? []) as unknown as SuggestionItemType[]}
+        done={(doneRows ?? []).map((row) => row.item_key)}
+        generatedAt={suggestions?.created_at ?? null}
+      />
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {stats.map(({ label, value, hint, icon: Icon, href }, index) => (

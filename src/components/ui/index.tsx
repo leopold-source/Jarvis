@@ -313,35 +313,47 @@ export function Modal({
   const widths = { sm: "max-w-md", md: "max-w-xl", lg: "max-w-3xl" };
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4 sm:items-center">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6">
       <div
         className="fixed inset-0 bg-black/55 backdrop-blur-sm animate-fade-in"
         onClick={onClose}
         aria-hidden
       />
+      {/*
+        La fenêtre ne dépasse jamais la hauteur visible : c'est son corps qui
+        défile, en-tête et pied restant en place. Sans cela, un contenu long —
+        une analyse détaillée, par exemple — poussait le pied hors de l'écran
+        et emmenait la page entière dans son défilement.
+      */}
       <div
         role="dialog"
         aria-modal="true"
         className={cn(
-          "relative z-10 my-8 w-full animate-pop rounded-2xl",
+          "relative z-10 flex max-h-full w-full animate-pop flex-col rounded-2xl",
           "border border-[var(--border-strong)] bg-[var(--surface-overlay)] shadow-[var(--shadow-pop)]",
           widths[size],
         )}
       >
-        <div className="edge-glow flex items-start justify-between gap-4 rounded-t-2xl border-b border-[var(--border-subtle)] px-5 py-4">
+        <div className="edge-glow flex shrink-0 items-start justify-between gap-4 rounded-t-2xl border-b border-[var(--border-subtle)] px-4 py-3.5 sm:px-5 sm:py-4">
           <div className="min-w-0">
-            <h2 className="text-base font-semibold tracking-tight">{title}</h2>
+            <h2 className="text-[15px] font-semibold tracking-tight sm:text-base">{title}</h2>
             {description ? (
-              <p className="mt-0.5 text-[13px] text-[var(--text-muted)]">{description}</p>
+              <p className="mt-0.5 text-[12.5px] text-[var(--text-muted)] sm:text-[13px]">
+                {description}
+              </p>
             ) : null}
           </div>
           <Button variant="ghost" size="icon" onClick={onClose} aria-label="Fermer">
             <X className="size-4" />
           </Button>
         </div>
-        <div className="px-5 py-4">{children}</div>
+
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 sm:px-5">
+          {children}
+        </div>
+
         {footer ? (
-          <div className="flex justify-end gap-2 border-t border-[var(--border-subtle)] px-5 py-3.5">
+          <div className="flex shrink-0 flex-wrap justify-end gap-2 border-t border-[var(--border-subtle)] px-4 py-3 sm:px-5 sm:py-3.5">
             {footer}
           </div>
         ) : null}
