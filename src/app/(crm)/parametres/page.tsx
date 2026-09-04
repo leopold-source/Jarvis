@@ -1,11 +1,13 @@
 import Link from "next/link";
-import { Activity, Mail, UserCog, Video } from "lucide-react";
+import { Activity, Mail, MoonStar, UserCog, Video } from "lucide-react";
 
 import { PageHeader } from "@/components/layout/page-header";
 import { GmailConnection, type GmailAccountView } from "@/components/crm/gmail-connection";
 import { DiagnosticPanel } from "@/components/crm/diagnostic-panel";
 import { PasswordForm } from "@/components/crm/password-form";
 import { ClaapSettings } from "@/components/crm/claap-settings";
+import { DormancySettings } from "@/components/crm/dormancy-settings";
+import { fetchDormancyRules } from "@/app/(crm)/parametres/dormancy-actions";
 import { fetchClaapSettings } from "@/app/(crm)/parametres/claap-actions";
 import { requireStaff } from "@/lib/auth";
 import { googleCredentials } from "@/lib/google";
@@ -30,6 +32,7 @@ const TABS = [
   { key: "compte", label: "Compte", icon: UserCog, adminOnly: false },
   { key: "google", label: "Connexion Google", icon: Mail, adminOnly: false },
   { key: "claap", label: "Calls Claap", icon: Video, adminOnly: false },
+  { key: "pipeline", label: "Pipeline", icon: MoonStar, adminOnly: false },
   { key: "diagnostic", label: "Diagnostic", icon: Activity, adminOnly: true },
 ] as const;
 
@@ -129,10 +132,18 @@ export default async function ParametresPage({
 
         {active === "claap" ? <ClaapPanel isAdmin={isAdmin} /> : null}
 
+        {active === "pipeline" ? <PipelinePanel isAdmin={isAdmin} /> : null}
+
         {active === "diagnostic" && isAdmin ? <DiagnosticPanel /> : null}
       </div>
     </div>
   );
+}
+
+/** Les seuils de dormance, avec ce qu'ils font basculer aujourd'hui. */
+async function PipelinePanel({ isAdmin }: { isAdmin: boolean }) {
+  const { rules, dormants } = await fetchDormancyRules();
+  return <DormancySettings rules={rules} dormants={dormants} isAdmin={isAdmin} />;
 }
 
 /** Chargé à part : l'onglet Claap ne coûte rien tant qu'il n'est pas ouvert. */

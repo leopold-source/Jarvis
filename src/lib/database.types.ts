@@ -489,12 +489,83 @@ export type ProjectProgress = {
   progress_pct: number | null;
 }
 
+/* --- Pilotage de la boîte ------------------------------------------------ */
+
+export type ChantierStatus = "actif" | "en_pause" | "termine";
+
+/**
+ * D'où vient le chiffre d'un objectif.
+ *
+ * `manuel` oblige à saisir la valeur ; les autres se calculent depuis les
+ * données déjà présentes dans le CRM. Le principe : ne jamais demander à la
+ * main un nombre que l'application sait compter elle-même.
+ */
+export type MetricSource =
+  | "manuel"
+  | "rdv_pris"
+  | "affaires_gagnees"
+  | "ca_facture"
+  | "ca_encaisse"
+  | "leads_contactes";
+
+export type Chantier = {
+  id: string;
+  title: string;
+  intention: string | null;
+  owner_id: string | null;
+  status: ChantierStatus;
+  color: string | null;
+  position: number;
+  started_on: string;
+  completed_at: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type Objectif = {
+  id: string;
+  chantier_id: string;
+  title: string;
+  rationale: string | null;
+  target_value: number;
+  current_value: number;
+  unit: string | null;
+  source: MetricSource;
+  starts_on: string;
+  due_on: string | null;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * Combien de jours une affaire peut rester dans une étape avant d'être
+ * considérée dormante. Le seuil vit en base et non dans le code : c'est un
+ * réglage commercial, il doit pouvoir bouger sans redéploiement.
+ */
+export type DealActivityRule = {
+  stage: DealStage;
+  max_days_active: number;
+  note: string | null;
+}
+
+export type DealHealth = {
+  deal_id: string | null;
+  stage: DealStage | null;
+  amount: number | null;
+  jours_dans_etape: number | null;
+  max_days_active: number | null;
+  sante: "actif" | "dormant" | "clos" | null;
+}
+
 /** Colonnes à valeur par défaut côté base, donc optionnelles à l'insertion. */
 type Defaulted =
   | "id" | "created_at" | "updated_at" | "connected_at" | "synced_count"
   | "for_date" | "done_at" | "status_changed_at" | "touch_count"
   | "amount_ttc" | "paid_amount" | "position" | "vat_rate"
-  | "quote_review" | "review" | "ok";
+  | "quote_review" | "review" | "ok"
+  | "started_on" | "starts_on" | "target_value" | "current_value" | "source";
 
 type TableDef<Row, RequiredKeys extends keyof Row = never> = {
   Row: Row;
@@ -531,10 +602,14 @@ export type Database = {
       dossier_lines: TableDef<DossierLine, "dossier_id" | "label">;
       invoices: TableDef<Invoice, "dossier_id" | "label">;
       pennylane_events: TableDef<PennylaneEvent, "direction" | "operation">;
+      chantiers: TableDef<Chantier, "title">;
+      objectifs: TableDef<Objectif, "chantier_id" | "title">;
+      deal_activity_rules: TableDef<DealActivityRule, "stage" | "max_days_active">;
     };
     Views: {
       project_progress: { Row: ProjectProgress; Relationships: [] };
       dossier_finance: { Row: DossierFinance; Relationships: [] };
+      deal_health: { Row: DealHealth; Relationships: [] };
     };
     Functions: {
       convert_lead_to_deal: {
@@ -561,6 +636,8 @@ export type Database = {
       invoice_status: InvoiceStatus;
       review_state: ReviewState;
       entity_kind: EntityKind;
+      chantier_status: ChantierStatus;
+      metric_source: MetricSource;
     };
     CompositeTypes: Record<string, never>;
   };

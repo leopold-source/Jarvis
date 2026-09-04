@@ -6,6 +6,7 @@ import { useLinkStatus } from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Building2,
+  Compass,
   FolderKanban,
   Banknote,
   Handshake,
@@ -24,6 +25,7 @@ import { cn } from "@/lib/utils";
 
 const NAV = [
   { href: "/", label: "Tableau de bord", icon: LayoutDashboard, exact: true },
+  { href: "/chantiers", label: "Chantiers", icon: Compass },
   { href: "/leads", label: "Leads", icon: Sparkles },
   { href: "/affaires", label: "Affaires", icon: Handshake },
   { href: "/contacts", label: "Contacts", icon: Users },

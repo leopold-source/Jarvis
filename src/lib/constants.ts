@@ -1,7 +1,9 @@
 import type {
+  ChantierStatus,
   DealStage,
   DocumentKind,
   LeadStatus,
+  MetricSource,
   ProjectStatus,
   TaskPriority,
   TaskStatus,
@@ -190,6 +192,86 @@ export const OPEN_STAGES: DealStage[] = [
   "no_show",
   "nurturing",
 ];
+
+// --- Pilotage : chantiers et objectifs ------------------------------------
+export const CHANTIER_STATUS: Record<ChantierStatus, { label: string; tone: Tone }> = {
+  actif: { label: "En cours", tone: "violet" },
+  en_pause: { label: "En pause", tone: "amber" },
+  termine: { label: "Terminé", tone: "emerald" },
+};
+
+export const CHANTIER_STATUS_ORDER: ChantierStatus[] = ["actif", "en_pause", "termine"];
+
+/**
+ * Chaque source dit qui tient le chiffre.
+ *
+ * `unit` sert de valeur par défaut à la création d'un objectif : on propose
+ * l'unité qui va avec la mesure plutôt que de laisser le champ vide.
+ */
+export const METRIC_SOURCE: Record<
+  MetricSource,
+  { label: string; hint: string; unit: string; money: boolean }
+> = {
+  manuel: {
+    label: "Saisie manuelle",
+    hint: "Vous mettez la valeur à jour vous-même.",
+    unit: "",
+    money: false,
+  },
+  rdv_pris: {
+    label: "RDV pris",
+    hint: "Affaires entrées en R1 depuis le début de l'objectif.",
+    unit: "RDV",
+    money: false,
+  },
+  affaires_gagnees: {
+    label: "Affaires gagnées",
+    hint: "Affaires passées en « gagné » sur la période.",
+    unit: "affaires",
+    money: false,
+  },
+  ca_facture: {
+    label: "CA facturé",
+    hint: "Factures émises ou payées sur la période.",
+    unit: "€",
+    money: true,
+  },
+  ca_encaisse: {
+    label: "CA encaissé",
+    hint: "Montants réellement reçus sur la période.",
+    unit: "€",
+    money: true,
+  },
+  leads_contactes: {
+    label: "Leads contactés",
+    hint: "Leads dont le statut a bougé sur la période.",
+    unit: "leads",
+    money: false,
+  },
+};
+
+export const METRIC_SOURCE_ORDER: MetricSource[] = [
+  "manuel",
+  "rdv_pris",
+  "affaires_gagnees",
+  "ca_facture",
+  "ca_encaisse",
+  "leads_contactes",
+];
+
+/**
+ * Santé commerciale d'une affaire.
+ *
+ * « Dormant » n'est pas une étape du pipeline mais une lecture du temps passé
+ * sans mouvement. Une propale sans réponse depuis deux mois n'est pas perdue —
+ * on ne la déclare pas morte — mais la compter dans le prévisionnel au même
+ * titre qu'une affaire vivante fausse la lecture. D'où un troisième état.
+ */
+export const DEAL_HEALTH: Record<string, { label: string; tone: Tone; hint: string }> = {
+  actif: { label: "Actif", tone: "emerald", hint: "Mouvement récent sur l'affaire." },
+  dormant: { label: "Dormant", tone: "amber", hint: "Sans mouvement depuis le délai fixé." },
+  clos: { label: "Clos", tone: "stone", hint: "Affaire clôturée." },
+};
 
 // --- Projets --------------------------------------------------------------
 export const PROJECT_STATUS: Record<ProjectStatus, { label: string; tone: Tone }> = {
