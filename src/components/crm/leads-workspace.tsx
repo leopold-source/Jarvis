@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowRight,
@@ -22,6 +22,8 @@ import {
   Upload,
   UserRound,
   Users2,
+  ClipboardPaste,
+  X,
 } from "lucide-react";
 
 import {
@@ -41,8 +43,16 @@ import {
 import { DateField } from "@/components/ui/date-field";
 import { LEAD_STATUS, LEAD_STATUS_ORDER, TONE_CLASSES, TONE_DOT } from "@/lib/constants";
 import type { Lead, LeadStatus } from "@/lib/database.types";
-import { cn, daysUntil, formatMoney, normalize } from "@/lib/utils";
-import { assignLead, convertLead, createLead, updateLead } from "@/app/(crm)/leads/actions";
+import { cn, daysUntil, formatDate, formatMoney, normalize } from "@/lib/utils";
+import {
+  assignLead,
+  convertLead,
+  createLead,
+  updateLead,
+  updateLeads,
+  type BulkField,
+} from "@/app/(crm)/leads/actions";
+import { useGridSelection } from "@/lib/use-grid-selection";
 import { ImportLeadsDialog } from "@/components/crm/import-leads-dialog";
 import { buildOrgIndex, spreadByOrg, type OrgLink } from "@/lib/lead-orgs";
 import { LeadDrawer } from "@/components/crm/lead-drawer";
@@ -57,6 +67,9 @@ const PAGE_SIZE = 60;
  * après les relances dues, pour qu'il y ait toujours de quoi appeler.
  */
 const RELANCE_SANS_DATE: LeadStatus[] = ["nrp", "nrp2", "nrp3", "a_recontacter"];
+
+/** Jamais appelé : la réserve dans laquelle on puise quand les relances sont faites. */
+const JAMAIS_APPELE: LeadStatus[] = ["a_contacter"];
 
 /**
  * Hauteurs de ligne, à la manière d'Airtable.
@@ -81,12 +94,33 @@ type MemberLite = { id: string; full_name: string | null; email: string; role: s
 type ViewMode = "lecture" | "prospection";
 
 /**
- * Rang d'un lead dans la file d'appel : le retard passe avant le jour même,
- * qui passe avant les relances orphelines.
+ * Filtre sur la présence d'un numéro.
+ *
+ * « Renseigné » vaut pour le portable comme pour le standard : c'est la
+ * question qu'on se pose vraiment — puis-je appeler cette fiche ? Un filtre qui
+ * ne regarderait que le portable écarterait des centaines de lignes appelables.
+ */
+const PHONE_FILTERS = {
+  tous: { label: "Téléphone : indifférent", keep: () => true },
+  renseigne: { label: "Téléphone renseigné", keep: (lead: Lead) => Boolean(lead.phone ?? lead.phone_standard) },
+  portable: { label: "Portable uniquement", keep: (lead: Lead) => Boolean(lead.phone) },
+  vide: { label: "Téléphone vide", keep: (lead: Lead) => !lead.phone && !lead.phone_standard },
+} as const;
+
+type PhoneFilter = keyof typeof PHONE_FILTERS;
+
+/**
+ * Rang d'un lead dans la file d'appel.
+ *
+ * Une relance promise passe avant un premier appel : le retard, puis le jour
+ * même, puis les relances qu'aucune date ne porte plus, puis seulement les
+ * fiches jamais travaillées. Sans ce dernier rang, les 239 leads d'un import
+ * noieraient les quelques rappels réellement dus.
  */
 function prospectionRank(lead: Lead, today: string): number {
   if (lead.follow_up_on && lead.follow_up_on < today) return 0;
   if (lead.follow_up_on === today) return 1;
+  if (JAMAIS_APPELE.includes(lead.status)) return 3;
   return 2;
 }
 
@@ -121,6 +155,7 @@ export function LeadsWorkspace({
   const [view, setView] = useState<ViewMode>("lecture");
   const [showOverdue, setShowOverdue] = useState(true);
   const [onlyGrouped, setOnlyGrouped] = useState(false);
+  const [phoneFilter, setPhoneFilter] = useState<PhoneFilter>("tous");
   const [visible, setVisible] = useState(PAGE_SIZE);
   const [density, setDensity] = useState<Density>("compacte");
 
@@ -137,6 +172,20 @@ export function LeadsWorkspace({
   }
 
   const [selected, setSelected] = useState<Lead | null>(null);
+
+  /*
+    Copier une valeur, puis la coller sur les lignes retenues.
+
+    `activeCell` retient la dernière cellule touchée : c'est elle que ⌘C
+    recopie. On ne mémorise que le champ et sa valeur, jamais la ligne
+    d'origine — ce qu'on colle est une valeur, pas un lien vers une fiche.
+  */
+  const [activeCell, setActiveCell] = useState<{ field: BulkField; lead: Lead } | null>(null);
+  const [copied, setCopied] = useState<{ field: BulkField; value: string | null; label: string } | null>(
+    null,
+  );
+  const [pasting, setPasting] = useState(false);
+
   const [creating, setCreating] = useState(false);
   const [importing, setImporting] = useState(false);
 
@@ -195,6 +244,7 @@ export function LeadsWorkspace({
       if (owner === "moi" && lead.owner_id !== currentUserId) return false;
       if (owner !== "tous" && owner !== "moi" && lead.owner_id !== owner) return false;
       if (onlyGrouped && !orgIndex.has(lead.id)) return false;
+      if (!PHONE_FILTERS[phoneFilter].keep(lead)) return false;
       if (!needle) return true;
       return normalize(
         [lead.full_name, lead.company_name, lead.email, lead.phone, lead.company_activity]
@@ -206,7 +256,7 @@ export function LeadsWorkspace({
     if (view === "lecture") return base;
 
     // Mode prospection : la file d'appel. Les retards d'abord, puis le jour
-    // même, puis les leads à relancer qu'aucune date ne porte plus.
+    // même, puis les relances orphelines, puis les fiches jamais appelées.
     const queue = base
       .filter((lead) => {
         if (lead.follow_up_on) {
@@ -214,7 +264,7 @@ export function LeadsWorkspace({
           if (!showOverdue && lead.follow_up_on < today) return false;
           return true;
         }
-        return RELANCE_SANS_DATE.includes(lead.status);
+        return RELANCE_SANS_DATE.includes(lead.status) || JAMAIS_APPELE.includes(lead.status);
       })
       .sort((a, b) => {
         const rankA = prospectionRank(a, today);
@@ -229,7 +279,7 @@ export function LeadsWorkspace({
     // Deux dirigeants d'un même groupe ne s'enchaînent jamais : c'est là, en
     // descendant la file sans réfléchir, qu'on rappelle la même boîte deux fois.
     return spreadByOrg(queue, orgIndex);
-  }, [leads, search, statuses, region, segment, owner, currentUserId, view, showOverdue, today, onlyGrouped, orgIndex]);
+  }, [leads, search, statuses, region, segment, owner, currentUserId, view, showOverdue, today, onlyGrouped, phoneFilter, orgIndex]);
 
   const dueToday = useMemo(
     () => leads.filter((lead) => lead.follow_up_on === today).length,
@@ -243,13 +293,101 @@ export function LeadsWorkspace({
     () => leads.filter((lead) => !lead.follow_up_on && RELANCE_SANS_DATE.includes(lead.status)).length,
     [leads],
   );
+  const jamaisAppeles = useMemo(
+    () => leads.filter((lead) => JAMAIS_APPELE.includes(lead.status)).length,
+    [leads],
+  );
 
   const size = DENSITIES[density];
   const page = filtered.slice(0, visible);
   const hasMore = visible < filtered.length;
 
+  // La sélection ne porte que sur les lignes réellement affichées : coller sur
+  // une ligne qu'on ne voit pas serait une modification à l'aveugle.
+  const pageIds = useMemo(() => page.map((lead) => lead.id), [page]);
+  const grid = useGridSelection(pageIds);
+
+  /** Ce qu'une cellule contient, et comment le dire à l'écran. */
+  const readCell = useCallback(
+    (lead: Lead, field: BulkField): { value: string | null; label: string } => {
+      switch (field) {
+        case "status":
+          return { value: lead.status, label: LEAD_STATUS[lead.status].label };
+        case "follow_up_on":
+          return {
+            value: lead.follow_up_on,
+            label: lead.follow_up_on ? formatDate(lead.follow_up_on) : "aucune relance",
+          };
+        case "owner_id": {
+          const member = members.find((entry) => entry.id === lead.owner_id);
+          return {
+            value: lead.owner_id,
+            label: member?.full_name ?? member?.email ?? "non assigné",
+          };
+        }
+        case "comment":
+          return {
+            value: lead.comment,
+            label: lead.comment ? `« ${lead.comment.slice(0, 40)} »` : "commentaire vide",
+          };
+      }
+    },
+    [members],
+  );
+
+  const applyCopied = useCallback(async () => {
+    if (!copied || grid.count === 0) return;
+    setPasting(true);
+    const result = await updateLeads([...grid.selected], copied.field, copied.value);
+    setPasting(false);
+
+    if (!result.ok) {
+      toast(result.error, "error");
+      return;
+    }
+    toast(`${result.data?.updated ?? 0} ligne(s) mises à jour.`);
+    grid.clear();
+    refresh();
+    // `refresh` et `toast` sont stables ; les lister ferait boucler l'effet.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [copied, grid]);
+
+  /*
+    ⌘C / ⌘V, au clavier plutôt qu'au bouton.
+
+    Le raccourci n'est intercepté que si une cellule est désignée et qu'aucun
+    texte n'est sélectionné : sans cette réserve, copier trois mots dans un
+    commentaire copierait le commentaire entier.
+  */
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if (!(event.metaKey || event.ctrlKey)) return;
+
+      if (event.key === "c" || event.key === "C") {
+        if (!activeCell) return;
+        if (window.getSelection()?.toString()) return;
+        const { value, label } = readCell(activeCell.lead, activeCell.field);
+        event.preventDefault();
+        setCopied({ field: activeCell.field, value, label });
+        void navigator.clipboard?.writeText(value ?? "").catch(() => {});
+        toast(`Copié : ${label}`);
+        return;
+      }
+
+      if (event.key === "v" || event.key === "V") {
+        if (!copied || grid.count === 0) return;
+        event.preventDefault();
+        void applyCopied();
+      }
+    }
+
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeCell, copied, grid.count, readCell, applyCopied]);
+
   // Toute modification des filtres remet la pagination à zéro.
-  useEffect(() => setVisible(PAGE_SIZE), [search, statuses, region, segment, owner, view, showOverdue, onlyGrouped]);
+  useEffect(() => setVisible(PAGE_SIZE), [search, statuses, region, segment, owner, view, showOverdue, onlyGrouped, phoneFilter]);
 
   // Défilement infini : une sentinelle en bas de la liste charge la tranche
   // suivante avant d'être atteinte. L'effet dépend de `visible`, ce qui remet
@@ -362,6 +500,19 @@ export function LeadsWorkspace({
             ))}
           </Select>
 
+          <Select
+            value={phoneFilter}
+            onChange={(event) => setPhoneFilter(event.target.value as PhoneFilter)}
+            className="w-auto min-w-44"
+            aria-label="Filtrer sur la présence d'un téléphone"
+          >
+            {(Object.keys(PHONE_FILTERS) as PhoneFilter[]).map((key) => (
+              <option key={key} value={key}>
+                {PHONE_FILTERS[key].label}
+              </option>
+            ))}
+          </Select>
+
           <span className="ml-auto flex items-center gap-2">
             {isAdmin ? (
               <Button variant="secondary" onClick={() => setImporting(true)}>
@@ -447,6 +598,7 @@ export function LeadsWorkspace({
                 <Badge tone="orange">{dueToday} pour aujourd&apos;hui</Badge>
                 {overdue > 0 ? <Badge tone="red">{overdue} en retard</Badge> : null}
                 {undated > 0 ? <Badge tone="violet">{undated} sans date</Badge> : null}
+                {jamaisAppeles > 0 ? <Badge tone="cyan">{jamaisAppeles} à contacter</Badge> : null}
               </span>
               <Button
                 variant={showOverdue ? "secondary" : "subtle"}
@@ -512,19 +664,42 @@ export function LeadsWorkspace({
                 {page.map((lead, index) => (
                   <tr
                     key={lead.id}
-                    onClick={() => setSelected(lead)}
+                    onMouseDown={(event) => grid.onRowMouseDown(index, event)}
+                    onMouseEnter={() => grid.onRowMouseEnter(index)}
+                    onClick={() => {
+                      // Un glissement vient de se terminer : ce clic n'en est
+                      // pas un, il ne doit pas ouvrir la fiche.
+                      if (grid.consumeClickSuppression()) return;
+                      if (grid.count > 0) return grid.clear();
+                      setSelected(lead);
+                    }}
                     className={cn(
                       size.row,
-                      "cursor-pointer transition-colors duration-150 hover:bg-[var(--surface-hover)]/60",
-                      view === "prospection" && lead.follow_up_on === today && "bg-brand-500/[0.07]",
-                      view === "prospection" &&
+                      "cursor-pointer transition-colors duration-150",
+                      grid.isSelected(lead.id)
+                        ? "bg-brand-500/15 ring-1 ring-inset ring-brand-500/30"
+                        : "hover:bg-[var(--surface-hover)]/60",
+                      !grid.isSelected(lead.id) &&
+                        view === "prospection" &&
+                        lead.follow_up_on === today &&
+                        "bg-brand-500/[0.07]",
+                      !grid.isSelected(lead.id) &&
+                        view === "prospection" &&
                         lead.follow_up_on &&
                         lead.follow_up_on < today &&
                         "bg-rose-500/[0.07]",
                     )}
                   >
-                    <td className={cn("px-2 text-right font-mono text-[11px] text-[var(--text-muted)] tabular-nums", size.cell)}>
-                      {index + 1}
+                    <td
+                      className={cn(
+                        "px-2 text-right font-mono text-[11px] tabular-nums select-none",
+                        grid.isSelected(lead.id)
+                          ? "text-brand-500 dark:text-brand-300"
+                          : "text-[var(--text-muted)]",
+                        size.cell,
+                      )}
+                    >
+                      {grid.isSelected(lead.id) ? <Check className="ml-auto size-3" /> : index + 1}
                     </td>
 
                     <td className={cn("max-w-52 px-2.5", size.cell)}>
@@ -558,15 +733,31 @@ export function LeadsWorkspace({
                       </p>
                     </td>
 
-                    <td className={cn("px-2.5", size.cell)} onClick={(event) => event.stopPropagation()}>
+                    <CopyableCell
+                      field="status"
+                      lead={lead}
+                      active={activeCell}
+                      onActivate={setActiveCell}
+                      className={size.cell}
+                    >
                       <StatusSelect lead={lead} onChange={handleStatusChange} />
-                    </td>
+                    </CopyableCell>
 
                     <td className={cn("px-2.5", size.cell)} onClick={(event) => event.stopPropagation()}>
-                      <CopyablePhone phone={lead.phone} dense={density === "compacte"} />
+                      <CopyablePhone
+                        phone={lead.phone}
+                        standard={lead.phone_standard}
+                        dense={density === "compacte"}
+                      />
                     </td>
 
-                    <td className={cn("px-2.5", size.cell)} onClick={(event) => event.stopPropagation()}>
+                    <CopyableCell
+                      field="follow_up_on"
+                      lead={lead}
+                      active={activeCell}
+                      onActivate={setActiveCell}
+                      className={size.cell}
+                    >
                       <DateField
                         dense={density !== "confort"}
                         value={lead.follow_up_on}
@@ -574,9 +765,15 @@ export function LeadsWorkspace({
                         className="w-32"
                         onChange={(value) => patch(lead, "follow_up_on", value, true)}
                       />
-                    </td>
+                    </CopyableCell>
 
-                    <td className={cn("px-2.5", size.cell)} onClick={(event) => event.stopPropagation()}>
+                    <CopyableCell
+                      field="owner_id"
+                      lead={lead}
+                      active={activeCell}
+                      onActivate={setActiveCell}
+                      className={size.cell}
+                    >
                       <OwnerSelect
                         lead={lead}
                         members={members}
@@ -590,14 +787,20 @@ export function LeadsWorkspace({
                           refresh();
                         }}
                       />
-                    </td>
+                    </CopyableCell>
 
-                    <td className={cn("w-56 px-2.5", size.cell)} onClick={(event) => event.stopPropagation()}>
+                    <CopyableCell
+                      field="comment"
+                      lead={lead}
+                      active={activeCell}
+                      onActivate={setActiveCell}
+                      className={cn("w-56", size.cell)}
+                    >
                       <InlineComment
                         value={lead.comment}
                         onCommit={(value) => patch(lead, "comment", value)}
                       />
-                    </td>
+                    </CopyableCell>
 
                     <td className={cn("px-2.5 text-right tabular-nums text-[var(--text-secondary)]", size.cell)}>
                       {formatMoney(lead.revenue, true)}
@@ -634,6 +837,16 @@ export function LeadsWorkspace({
           </div>
         )}
       </Card>
+
+      <SelectionBar
+        count={grid.count}
+        total={page.length}
+        copied={copied}
+        pasting={pasting}
+        onPaste={applyCopied}
+        onSelectAll={() => grid.selectAll(pageIds)}
+        onClear={grid.clear}
+      />
 
       <LeadDrawer
         lead={selected}
@@ -715,6 +928,138 @@ function OrgChip({ link }: { link?: OrgLink }) {
       <Users2 className="size-2.5" />
       {link.siblings.length + 1}
     </span>
+  );
+}
+
+
+/**
+ * Une cellule dont la valeur peut être reprise ailleurs.
+ *
+ * Elle ne fait rien de plus que se signaler : c'est la dernière touchée qui
+ * sert de source à ⌘C. Le liseré n'est donc pas décoratif, il répond à la seule
+ * question qui compte avant de copier — laquelle, au juste ?
+ */
+
+/**
+ * Ce que la sélection permet, dit au moment où elle existe.
+ *
+ * Une barre plutôt qu'une aide dans un menu : les raccourcis ⌘C / ⌘V ne
+ * s'inventent pas, et personne ne va les chercher. Elle disparaît dès que la
+ * sélection est vide, donc elle n'encombre jamais la lecture.
+ */
+function SelectionBar({
+  count,
+  total,
+  copied,
+  pasting,
+  onPaste,
+  onSelectAll,
+  onClear,
+}: {
+  count: number;
+  total: number;
+  copied: { field: BulkField; value: string | null; label: string } | null;
+  pasting: boolean;
+  onPaste: () => void;
+  onSelectAll: () => void;
+  onClear: () => void;
+}) {
+  if (count === 0) return null;
+
+  const FIELD_LABEL: Record<BulkField, string> = {
+    status: "Statut",
+    follow_up_on: "Relance",
+    owner_id: "Assigné",
+    comment: "Commentaire",
+  };
+
+  return (
+    <div className="pointer-events-none fixed inset-x-0 bottom-5 z-40 flex justify-center px-4">
+      <div className="pointer-events-auto flex max-w-full flex-wrap items-center gap-2.5 rounded-full border border-[var(--border-subtle)] bg-[var(--surface-overlay)] py-2 pr-2 pl-4 shadow-[var(--shadow-card)] backdrop-blur animate-fade-up">
+        <span className="text-[12.5px] font-medium whitespace-nowrap">
+          {count} ligne{count > 1 ? "s" : ""} sélectionnée{count > 1 ? "s" : ""}
+        </span>
+
+        {count < total ? (
+          <button
+            type="button"
+            onClick={onSelectAll}
+            className="text-[11.5px] whitespace-nowrap text-brand-400 transition-colors hover:text-brand-300"
+          >
+            tout prendre ({total})
+          </button>
+        ) : null}
+
+        <span className="h-4 w-px bg-[var(--border-subtle)]" aria-hidden />
+
+        {copied ? (
+          <>
+            <span className="max-w-64 truncate text-[11.5px] text-[var(--text-muted)]">
+              {FIELD_LABEL[copied.field]} : <span className="text-[var(--text-secondary)]">{copied.label}</span>
+            </span>
+            <Button size="sm" variant="primary" loading={pasting} onClick={onPaste}>
+              <ClipboardPaste className="size-3.5" />
+              Coller ({count})
+            </Button>
+          </>
+        ) : (
+          <span className="text-[11.5px] text-[var(--text-muted)]">
+            Cliquez une cellule (statut, relance, assigné, commentaire) puis <Kbd>⌘</Kbd>
+            <Kbd>C</Kbd> pour copier sa valeur
+          </span>
+        )}
+
+        <button
+          type="button"
+          onClick={onClear}
+          aria-label="Effacer la sélection"
+          className="rounded-full p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)]"
+        >
+          <X className="size-3.5" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function Kbd({ children }: { children: React.ReactNode }) {
+  return (
+    <kbd className="mx-px rounded border border-[var(--border-subtle)] bg-[var(--surface-hover)] px-1 font-sans text-[10px] text-[var(--text-secondary)]">
+      {children}
+    </kbd>
+  );
+}
+
+function CopyableCell({
+  field,
+  lead,
+  active,
+  onActivate,
+  className,
+  children,
+}: {
+  field: BulkField;
+  lead: Lead;
+  active: { field: BulkField; lead: Lead } | null;
+  onActivate: (cell: { field: BulkField; lead: Lead }) => void;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  const isActive = active?.field === field && active.lead.id === lead.id;
+
+  return (
+    <td
+      // En capture : le repère se pose même quand l'enfant arrête l'événement.
+      onMouseDownCapture={() => onActivate({ field, lead })}
+      onClick={(event) => event.stopPropagation()}
+      className={cn(
+        "px-2.5",
+        isActive && "ring-1 ring-inset ring-brand-400/70",
+        className,
+      )}
+    >
+      {children}
+    </td>
   );
 }
 
@@ -881,15 +1226,34 @@ function StatusSelect({
 }
 
 /** Numéro cliquable : un clic copie, un second clic sur l'icône appelle. */
-function CopyablePhone({ phone, dense }: { phone: string | null; dense?: boolean }) {
+/**
+ * Le numéro à composer, portable d'abord.
+ *
+ * Le standard prend le relais quand il n'y a pas de portable, marqué comme
+ * tel : dans un export de sourcing il est deux fois plus souvent renseigné, et
+ * l'afficher change une colonne vide en un appel possible. Le repère « std »
+ * n'est pas cosmétique — on n'aborde pas un standard comme une ligne directe.
+ */
+function CopyablePhone({
+  phone,
+  standard,
+  dense,
+}: {
+  phone: string | null;
+  standard?: string | null;
+  dense?: boolean;
+}) {
   const toast = useToast();
   const [copied, setCopied] = useState(false);
 
-  if (!phone) return <span className="text-[var(--text-muted)]">—</span>;
+  const numero = phone ?? standard ?? null;
+  const estStandard = !phone && Boolean(standard);
+
+  if (!numero) return <span className="text-[var(--text-muted)]">—</span>;
 
   async function copy() {
     try {
-      await navigator.clipboard.writeText(phone!);
+      await navigator.clipboard.writeText(numero!);
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch {
@@ -914,10 +1278,18 @@ function CopyablePhone({ phone, dense }: { phone: string | null; dense?: boolean
         )}
       >
         {copied ? <Check className="size-3" /> : <Copy className="size-3 opacity-50 group-hover:opacity-100" />}
-        {phone}
+        {numero}
       </button>
+      {estStandard ? (
+        <span
+          title="Ligne standard : pas de portable connu"
+          className="rounded bg-[var(--surface-hover)] px-1 text-[9.5px] tracking-wide text-[var(--text-muted)] uppercase"
+        >
+          std
+        </span>
+      ) : null}
       <a
-        href={`tel:${phone.replace(/\s/g, "")}`}
+        href={`tel:${numero.replace(/\s/g, "")}`}
         title="Appeler"
         className="rounded-md p-0.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--surface-hover)] hover:text-brand-400"
       >

@@ -11,7 +11,6 @@ export type Json = string | number | boolean | null | { [key: string]: Json | un
 export type AppRole = "admin" | "member" | "client";
 
 export type LeadStatus =
-  | "nouveau"
   | "a_contacter"
   | "nrp"
   | "nrp2"

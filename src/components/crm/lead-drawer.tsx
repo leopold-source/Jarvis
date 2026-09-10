@@ -27,7 +27,7 @@ export function LeadDrawer({
   onConvert: (lead: Lead, dealName: string, amount: number | null) => Promise<void>;
 }) {
   const toast = useToast();
-  const [status, setStatus] = useState<LeadStatus>("nouveau");
+  const [status, setStatus] = useState<LeadStatus>("a_contacter");
   const [comment, setComment] = useState("");
   const [followUp, setFollowUp] = useState("");
   const [saving, setSaving] = useState(false);

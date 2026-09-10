@@ -92,8 +92,10 @@ export const TONE_GRADIENT: Record<Tone, string> = {
 // --- Leads ----------------------------------------------------------------
 // La série NRP se réchauffe à chaque tentative (ambre → orange → rouge), les
 // refus virent au rose, et « call pris » est le seul vert de la table.
+//
+// Pas de statut « nouveau » : il ne disait rien de plus que la date de création
+// et sortait la fiche du mode prospection. Un lead qui entre est à appeler.
 export const LEAD_STATUS: Record<LeadStatus, { label: string; tone: Tone }> = {
-  nouveau: { label: "Nouveau", tone: "sky" },
   a_contacter: { label: "À contacter", tone: "cyan" },
   nrp: { label: "NRP", tone: "amber" },
   nrp2: { label: "NRP 2", tone: "orange" },
@@ -106,7 +108,6 @@ export const LEAD_STATUS: Record<LeadStatus, { label: string; tone: Tone }> = {
 };
 
 export const LEAD_STATUS_ORDER: LeadStatus[] = [
-  "nouveau",
   "a_contacter",
   "nrp",
   "nrp2",

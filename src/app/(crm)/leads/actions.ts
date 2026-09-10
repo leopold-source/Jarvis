@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 
 import { buildLookup, classifyRow, companyKey, domainKey, emailKey, personKey, type ImportIndex } from "@/lib/leads-dedupe";
-import type { LeadStatus } from "@/lib/database.types";
+import type { Lead, LeadStatus } from "@/lib/database.types";
 import { requireStaff } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 
@@ -31,6 +31,61 @@ export async function updateLead(
 
   revalidatePath("/leads");
   return { ok: true };
+}
+
+/** Les champs qu'une sélection multiple peut recevoir d'un coup. */
+export type BulkField = "status" | "follow_up_on" | "owner_id" | "comment";
+
+/**
+ * Applique une même valeur à plusieurs leads.
+ *
+ * Réservé aux champs où la répétition a un sens : un statut, une date de
+ * relance, un propriétaire, une note. Ni le nom, ni l'e-mail, ni le téléphone —
+ * les recopier sur vingt fiches ne corrigerait rien, cela détruirait vingt
+ * contacts d'un geste que rien ne rattraperait.
+ *
+ * Un lead passé en « call pris » demande une conversion, pas une mise à jour :
+ * ces lignes sont écartées et signalées plutôt que traitées à moitié.
+ */
+export async function updateLeads(
+  ids: string[],
+  field: BulkField,
+  value: string | null,
+): Promise<ActionResult<{ updated: number }>> {
+  await requireStaff();
+
+  if (ids.length === 0) return { ok: false, error: "Aucune ligne sélectionnée." };
+  if (field === "status" && value === "call_pris") {
+    return {
+      ok: false,
+      error: "« Call pris » crée une affaire : ouvrez la fiche pour la convertir, une par une.",
+    };
+  }
+
+  const supabase = await createClient();
+  // Le champ est choisi dans une union fermée : le typer ainsi dit à
+  // TypeScript ce que la signature garantit déjà.
+  const patch = { [field]: value } as Partial<Lead>;
+
+  // `owner_name` double `owner_id` pour l'affichage. L'assignation unitaire
+  // tient les deux ; l'oublier ici laisserait le nom de l'ancien propriétaire
+  // sur des fiches qui ont changé de main.
+  if (field === "owner_id") {
+    const { data: owner } = value
+      ? await supabase.from("profiles").select("full_name, email").eq("id", value).maybeSingle()
+      : { data: null };
+    patch.owner_name = owner?.full_name ?? owner?.email ?? null;
+  }
+
+  const { error, count } = await supabase
+    .from("leads")
+    .update(patch, { count: "exact" })
+    .in("id", ids);
+
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath("/leads");
+  return { ok: true, data: { updated: count ?? ids.length } };
 }
 
 /**
@@ -109,7 +164,7 @@ export async function createLead(input: {
       owner_id: profile.id,
       owner_name: profile.full_name,
       source: "saisie_manuelle",
-      status: "nouveau",
+      status: "a_contacter",
     })
     .select("id")
     .single();

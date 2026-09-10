@@ -133,8 +133,8 @@ const IGNORED_COLUMNS: Record<string, string> = {
 };
 
 const STATUS_MAP: Record<string, LeadStatus> = {
-  "": "nouveau",
-  nouveau: "nouveau",
+  "": "a_contacter",
+  nouveau: "a_contacter",
   "a contacter": "a_contacter",
   nrp: "nrp",
   nrp2: "nrp2",
@@ -347,7 +347,7 @@ export function parseLeadsCsv(text: string): ParsedLeadsCsv {
           break;
         }
         case "status":
-          record.status = STATUS_MAP[headerKey(raw)] ?? "nouveau";
+          record.status = STATUS_MAP[headerKey(raw)] ?? "a_contacter";
           break;
         default:
           // Le premier en-tête qui alimente un champ gagne : « Nom commercial »
@@ -382,7 +382,7 @@ export function parseLeadsCsv(text: string): ParsedLeadsCsv {
       record.company_name = record.company_legal_name;
     }
 
-    record.status ??= "nouveau";
+    record.status ??= "a_contacter";
     rows.push(record);
   }
 
