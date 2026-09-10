@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { AlertTriangle, ArrowRight, Building2, CalendarClock, Globe, Linkedin, Mail, MapPin, Phone, Rocket, Users2 } from "lucide-react";
+import { AlertTriangle, ArrowRight, BriefcaseBusiness, Building2, CalendarClock, Globe, Hash, Linkedin, Mail, MapPin, Phone, Rocket, Users, Users2 } from "lucide-react";
 
 import { Badge, Button, Drawer, Field, Input, Select, Textarea, useToast } from "@/components/ui";
 import { DateField } from "@/components/ui/date-field";
@@ -146,8 +146,23 @@ export function LeadDrawer({
           <div className="grid grid-cols-2 gap-3">
             <InfoTile icon={Mail} label="E-mail" value={lead.email} href={lead.email ? `mailto:${lead.email}` : null} />
             <InfoTile icon={Phone} label="Téléphone" value={lead.phone} href={lead.phone ? `tel:${lead.phone.replace(/\s/g, "")}` : null} />
+            <InfoTile icon={BriefcaseBusiness} label="Poste" value={lead.job_title} />
+            <InfoTile
+              icon={Phone}
+              label="Standard"
+              value={lead.phone_standard}
+              href={lead.phone_standard ? `tel:${lead.phone_standard.replace(/\s/g, "")}` : null}
+            />
             <InfoTile icon={Building2} label="Entreprise" value={lead.company_name} />
             <InfoTile icon={MapPin} label="Région" value={lead.region} />
+            <InfoTile
+              icon={Users}
+              label="Effectif"
+              value={lead.headcount ? String(lead.headcount) : lead.headcount_range}
+            />
+            {/* Le SIRET n'est pas décoratif : c'est lui qui créera la fiche
+                client chez Pennylane le jour où l'affaire se gagne. */}
+            <InfoTile icon={Hash} label="SIRET" value={lead.siret ?? lead.siren} />
             <InfoTile
               icon={Globe}
               label="Site web"

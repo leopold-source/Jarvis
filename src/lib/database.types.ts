@@ -106,6 +106,20 @@ export type Lead = {
   company_name: string | null;
   company_website: string | null;
   company_activity: string | null;
+  company_legal_name: string | null;
+  company_linkedin_url: string | null;
+  company_description: string | null;
+  job_title: string | null;
+  /** Ligne standard : distincte du portable, on ne les compose pas dans le même ordre. */
+  phone_standard: string | null;
+  siren: string | null;
+  siret: string | null;
+  headcount: number | null;
+  headcount_range: string | null;
+  founded_year: number | null;
+  revenue_year: number | null;
+  /** Fiabilité annoncée par la source : un e-mail douteux ne se brûle qu'une fois. */
+  email_quality: string | null;
   sector: string | null;
   region: string | null;
   address: string | null;

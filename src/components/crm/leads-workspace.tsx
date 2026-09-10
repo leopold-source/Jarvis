@@ -10,6 +10,7 @@ import {
   Copy,
   ExternalLink,
   Eye,
+  Linkedin,
   Loader2,
   EyeOff,
   Phone,
@@ -491,11 +492,12 @@ export function LeadsWorkspace({
           />
         ) : (
           <div ref={scroller} className="max-h-[calc(100vh-17rem)] min-h-64 overflow-auto">
-            <table className={cn("w-full min-w-[1240px] text-left", size.text)}>
+            <table className={cn("w-full min-w-[1380px] text-left", size.text)}>
               <thead className="sticky top-0 z-10 bg-[var(--surface-raised)] text-[10.5px] tracking-wide text-[var(--text-muted)] uppercase">
                 <tr className="border-b border-[var(--border-subtle)]">
                   <th className="w-12 px-2 py-1.5 text-right font-medium">#</th>
                   <th className="px-2.5 py-1.5 font-medium">Contact</th>
+                  <th className="px-2.5 py-1.5 font-medium">Poste</th>
                   <th className="px-2.5 py-1.5 font-medium">Entreprise</th>
                   <th className="px-2.5 py-1.5 font-medium">Statut</th>
                   <th className="min-w-40 px-2.5 py-1.5 font-medium">Téléphone</th>
@@ -526,8 +528,26 @@ export function LeadsWorkspace({
                     </td>
 
                     <td className={cn("max-w-52 px-2.5", size.cell)}>
-                      <p className="truncate font-medium" title={lead.email ?? undefined}>
-                        {lead.full_name ?? lead.email ?? "Sans nom"}
+                      <p className="flex items-center gap-1 truncate font-medium" title={lead.email ?? undefined}>
+                        <span className="truncate">{lead.full_name ?? lead.email ?? "Sans nom"}</span>
+                        {lead.linkedin_url ? (
+                          <a
+                            href={lead.linkedin_url}
+                            target="_blank"
+                            rel="noreferrer"
+                            onClick={(event) => event.stopPropagation()}
+                            title="Profil LinkedIn"
+                            className="shrink-0 text-[var(--text-muted)] transition-colors hover:text-brand-400"
+                          >
+                            <Linkedin className="size-3" />
+                          </a>
+                        ) : null}
+                      </p>
+                    </td>
+
+                    <td className={cn("max-w-36 px-2.5 text-[var(--text-muted)]", size.cell)}>
+                      <p className="truncate" title={lead.job_title ?? undefined}>
+                        {lead.job_title ?? "—"}
                       </p>
                     </td>
 

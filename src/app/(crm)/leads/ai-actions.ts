@@ -4,6 +4,7 @@ import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { z } from "zod";
 
 import { REGIONS } from "@/lib/constants";
+import { regionFromAddress } from "@/lib/french-regions";
 import { requireStaff } from "@/lib/auth";
 import {
   MISSING_KEY_ERROR,
@@ -58,9 +59,10 @@ Règles impératives :
 Ce que tu dois corriger :
 - region : ramène-la à l'une de ces valeurs exactes, et à aucune autre :
   ${REGIONS.join(", ")}.
-  Déduis-la de l'adresse ou du code postal quand la région est absente ou mal
-  écrite (« IDF » → « Île-de-France », « Haut-de-France » → « Hauts-de-France »,
-  « 44100 Nantes » → « Pays de la Loire », « 69003 Lyon » → « Auvergne-Rhône-Alpes »).
+  Quand l'adresse contient un code postal, la région en est déjà déduite : ne
+  la conteste pas. Ton apport est ailleurs — les adresses sans code postal,
+  où seule la ville est donnée (« Avignon » → « Provence-Alpes-Côte d'Azur »),
+  et les régions mal écrites (« IDF » → « Île-de-France »).
   Si tu n'as aucun indice fiable, laisse null plutôt que de deviner.
 - phone : format français lisible « +33 6 12 34 56 78 ». Un numéro commençant
   par 0 devient +33 sans le 0. Ne touche pas aux numéros étrangers.
@@ -157,6 +159,11 @@ export async function cleanRowsWithAi(
         for (const [key, value] of Object.entries(fields)) {
           if (value !== null && value !== "") cleaned[target] = { ...cleaned[target], [key]: value };
         }
+
+        // Le code postal tranche : il donne la région sans interprétation
+        // possible. Le modèle ne sert qu'aux adresses qui n'en portent pas.
+        const derived = regionFromAddress(cleaned[target].address as string | null);
+        if (derived) cleaned[target] = { ...cleaned[target], region: derived };
 
         if (rowChanges.length > 0) {
           changes.push({

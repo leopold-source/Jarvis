@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { FileSpreadsheet, Sparkles, Upload, Wand2 } from "lucide-react";
+import { AlertTriangle, Check, ChevronDown, FileSpreadsheet, Linkedin, MapPin, Sparkles, Upload, Wand2 } from "lucide-react";
 
 import { Badge, Button, Input, Modal, useToast } from "@/components/ui";
 import { fetchImportIndex, importLeads } from "@/app/(crm)/leads/actions";
@@ -173,8 +173,8 @@ export function ImportLeadsDialog({
         </span>
         <span className="text-[13.5px] font-medium">{fileName || "Choisir un fichier CSV"}</span>
         <span className="max-w-md text-[11.5px] text-[var(--text-muted)]">
-          Colonnes reconnues : Name, Prénom, Nom, E-mail, Tél, Entreprise, Statut, Région, Relance,
-          Valeur CA, Site entreprise, Url LinkedIn, Commentaire, Activité, Secteur, Adresse.
+          Export de votre table de prospection ou d&apos;un outil de sourcing. Les en-têtes sont
+          reconnus automatiquement, et le fichier vous dira lesquels il a lus.
         </span>
         <input type="file" accept=".csv,text/csv" className="hidden" onChange={onFile} />
       </label>
@@ -198,11 +198,7 @@ export function ImportLeadsDialog({
             ) : null}
           </div>
 
-          {parsed.unknownColumns.length > 0 ? (
-            <p className="rounded-lg bg-amber-500/10 px-3 py-2 text-[11.5px] text-amber-600 ring-1 ring-amber-500/25 dark:text-amber-300">
-              Colonnes ignorées : {parsed.unknownColumns.join(", ")}
-            </p>
-          ) : null}
+          <ColumnReport parsed={parsed} />
 
           {/* --- Nettoyage assisté ------------------------------------- */}
           <div className="rounded-xl border border-[var(--border-subtle)] bg-linear-to-br from-brand-500/8 to-accent-500/5 p-3.5">
@@ -213,9 +209,10 @@ export function ImportLeadsDialog({
               <div className="min-w-0 flex-1">
                 <p className="text-[13px] font-medium">Ranger le fichier avec l&apos;IA</p>
                 <p className="mt-0.5 text-[11.5px] leading-relaxed text-[var(--text-muted)]">
-                  Claude normalise les régions à partir des adresses et codes postaux, met les
-                  téléphones au format français et corrige la casse des entreprises. Il ne remplit
-                  jamais un champ vide en inventant une donnée.
+                  Les codes postaux et les téléphones sont déjà traités à la lecture, sans appel
+                  au modèle. Claude reprend le reste : la casse des entreprises, les adresses sans
+                  code postal, les régions mal orthographiées. Il ne remplit jamais un champ vide
+                  en inventant une donnée.
                 </p>
                 <div className="mt-2.5 flex flex-wrap items-center gap-2">
                   <Input
@@ -250,7 +247,10 @@ export function ImportLeadsDialog({
                 <thead className="sticky top-0 bg-[var(--surface-overlay)] text-[10.5px] tracking-wide text-[var(--text-muted)] uppercase">
                   <tr className="border-b border-[var(--border-subtle)]">
                     <th className="px-2.5 py-1.5">Nom</th>
+                    <th className="px-2.5 py-1.5">Poste</th>
                     <th className="px-2.5 py-1.5">Entreprise</th>
+                    <th className="px-2.5 py-1.5">Téléphone</th>
+                    <th className="px-2.5 py-1.5">E-mail</th>
                     <th className="px-2.5 py-1.5">Région</th>
                     <th className="px-2.5 py-1.5">Analyse</th>
                   </tr>
@@ -260,9 +260,30 @@ export function ImportLeadsDialog({
                     const style = VERDICT_STYLE[entry.verdict];
                     return (
                       <tr key={index} className={cn("transition-colors", style.row)}>
-                        <td className="px-2.5 py-1.5">{String(entry.row.full_name ?? "—")}</td>
-                        <td className="px-2.5 py-1.5">{String(entry.row.company_name ?? "—")}</td>
-                        <td className="px-2.5 py-1.5 text-[var(--text-muted)]">
+                        <td className="px-2.5 py-1.5 whitespace-nowrap">
+                          {String(entry.row.full_name ?? "—")}
+                          {entry.row.linkedin_url ? (
+                            <Linkedin className="ml-1 inline size-3 text-[var(--text-muted)]" />
+                          ) : null}
+                        </td>
+                        <td className="max-w-32 truncate px-2.5 py-1.5 text-[var(--text-muted)]">
+                          {String(entry.row.job_title ?? "—")}
+                        </td>
+                        <td className="max-w-40 truncate px-2.5 py-1.5">
+                          {String(entry.row.company_name ?? "—")}
+                        </td>
+                        {/* Le portable d'abord ; à défaut le standard, signalé comme tel. */}
+                        <td className="px-2.5 py-1.5 whitespace-nowrap text-[var(--text-muted)]">
+                          {entry.row.phone
+                            ? String(entry.row.phone)
+                            : entry.row.phone_standard
+                              ? `${entry.row.phone_standard} (std)`
+                              : "—"}
+                        </td>
+                        <td className="max-w-40 truncate px-2.5 py-1.5 text-[var(--text-muted)]">
+                          {String(entry.row.email ?? "—")}
+                        </td>
+                        <td className="px-2.5 py-1.5 whitespace-nowrap text-[var(--text-muted)]">
                           {String(entry.row.region ?? "—")}
                         </td>
                         <td className="px-2.5 py-1.5">
@@ -289,5 +310,85 @@ export function ImportLeadsDialog({
         </div>
       ) : null}
     </Modal>
+  );
+}
+
+/**
+ * Ce que le fichier a donné, en-tête par en-tête.
+ *
+ * Trois catégories, et la distinction compte : une colonne lue rassure, une
+ * colonne écartée sciemment ferme le sujet, une colonne inconnue est un travail
+ * à faire. Les mélanger — c'était le cas — donnait une liste alarmante de
+ * « colonnes ignorées » où figuraient aussi bien le SIRET, réellement perdu,
+ * que des identifiants Hubspot dont personne ne veut.
+ */
+function ColumnReport({ parsed }: { parsed: ParsedLeadsCsv }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="rounded-lg border border-[var(--border-subtle)]">
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        className="flex w-full flex-wrap items-center gap-2 px-3 py-2 text-left text-[11.5px] transition-colors hover:bg-[var(--surface-hover)]/60"
+      >
+        <Check className="size-3.5 text-emerald-500" />
+        <span>
+          <span className="font-medium">{parsed.mappedColumns.length}</span> colonne(s) lue(s)
+          {parsed.profile === "pharow" ? " · format de sourcing reconnu" : ""}
+        </span>
+
+        {parsed.regionsDerived > 0 ? (
+          <span className="flex items-center gap-1 text-[var(--text-muted)]">
+            <MapPin className="size-3" />
+            {parsed.regionsDerived} région(s) déduite(s) du code postal
+          </span>
+        ) : null}
+
+        {parsed.unknownColumns.length > 0 ? (
+          <span className="flex items-center gap-1 text-amber-600 dark:text-amber-300">
+            <AlertTriangle className="size-3" />
+            {parsed.unknownColumns.length} non reconnue(s)
+          </span>
+        ) : null}
+
+        <ChevronDown
+          className={cn("ml-auto size-3.5 text-[var(--text-muted)] transition-transform", open && "rotate-180")}
+        />
+      </button>
+
+      {open ? (
+        <div className="space-y-2.5 border-t border-[var(--border-subtle)] px-3 py-2.5 text-[11px]">
+          <div className="flex flex-wrap gap-1">
+            {parsed.mappedColumns.map(({ header, field }) => (
+              <span
+                key={header}
+                title={`→ ${field}`}
+                className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-emerald-700 ring-1 ring-emerald-500/25 dark:text-emerald-300"
+              >
+                {header}
+              </span>
+            ))}
+          </div>
+
+          {parsed.unknownColumns.length > 0 ? (
+            <p className="text-amber-600 dark:text-amber-300">
+              <span className="font-medium">Non reconnues :</span> {parsed.unknownColumns.join(", ")}.
+              Ces données ne seront pas importées.
+            </p>
+          ) : null}
+
+          {parsed.ignoredColumns.length > 0 ? (
+            <ul className="space-y-0.5 text-[var(--text-muted)]">
+              {parsed.ignoredColumns.map(({ header, reason }) => (
+                <li key={header}>
+                  <span className="text-[var(--text-secondary)]">{header}</span> — écartée : {reason}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
   );
 }
