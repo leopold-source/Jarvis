@@ -112,6 +112,16 @@ export type Lead = {
   linkedin_url: string | null;
   revenue: number | null;
   status: LeadStatus;
+  /**
+   * Clés de rattachement, calculées par la base.
+   *
+   * `org_key` : domaine e-mail professionnel, sinon domaine du site, sinon nom
+   * d'entreprise réduit. `phone_key` : les neuf derniers chiffres du numéro.
+   * Deux leads qui partagent l'une des deux parlent de la même organisation —
+   * ou de la même personne.
+   */
+  org_key: string | null;
+  phone_key: string | null;
   /** Tenus par un trigger : derniere activite reelle sur la fiche. */
   status_changed_at: string;
   last_touched_at: string | null;
@@ -377,6 +387,12 @@ export type SuggestionDone = {
   done_at: string;
 }
 
+export type AppSetting = {
+  key: string;
+  value: Json;
+  updated_at: string;
+}
+
 export type DossierStatus =
   | "brouillon" | "devis_envoye" | "devis_signe" | "en_facturation" | "solde" | "annule";
 
@@ -565,7 +581,8 @@ type Defaulted =
   | "for_date" | "done_at" | "status_changed_at" | "touch_count"
   | "amount_ttc" | "paid_amount" | "position" | "vat_rate"
   | "quote_review" | "review" | "ok"
-  | "started_on" | "starts_on" | "target_value" | "current_value" | "source";
+  | "started_on" | "starts_on" | "target_value" | "current_value" | "source"
+  | "org_key" | "phone_key";
 
 type TableDef<Row, RequiredKeys extends keyof Row = never> = {
   Row: Row;
@@ -605,6 +622,7 @@ export type Database = {
       chantiers: TableDef<Chantier, "title">;
       objectifs: TableDef<Objectif, "chantier_id" | "title">;
       deal_activity_rules: TableDef<DealActivityRule, "stage" | "max_days_active">;
+      app_settings: TableDef<AppSetting, "key" | "value">;
     };
     Views: {
       project_progress: { Row: ProjectProgress; Relationships: [] };

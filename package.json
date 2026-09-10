@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "test:dedupe": "npx --yes tsx src/lib/__tests__/leads-dedupe.test.ts"
+    "test:dedupe": "npx --yes tsx src/lib/__tests__/leads-dedupe.test.ts",
+    "test:orgs": "npx --yes tsx src/lib/__tests__/lead-orgs.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.122.0",

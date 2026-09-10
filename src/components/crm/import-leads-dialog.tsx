@@ -56,7 +56,7 @@ export function ImportLeadsDialog({
     setBusy("analyse");
     try {
       const lookup = buildLookup(await fetchImportIndex());
-      const seen = { emails: new Set<string>(), people: new Set<string>() };
+      const seen = { emails: new Set<string>(), people: new Set<string>(), domains: new Set<string>() };
       setAnalysed(rows.map((row) => ({ row, ...classifyRow(row, lookup, seen) })));
     } catch (caught) {
       toast(caught instanceof Error ? caught.message : "Analyse impossible", "error");

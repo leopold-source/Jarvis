@@ -37,6 +37,39 @@ export async function fetchDormancyRules(): Promise<{
   return { rules: (rules ?? []) as DealActivityRule[], dormants };
 }
 
+/** Le délai au-delà duquel un appel chez la même organisation n'est plus un doublon. */
+export async function fetchOrgCooldown(): Promise<number> {
+  await requireStaff();
+  const supabase = await createClient();
+
+  const { data } = await supabase
+    .from("app_settings")
+    .select("value")
+    .eq("key", "prospection")
+    .maybeSingle();
+
+  return Number((data?.value as { org_cooldown_days?: number } | null)?.org_cooldown_days ?? 30);
+}
+
+export async function setOrgCooldown(
+  days: number,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  await requireAdmin();
+  const supabase = await createClient();
+
+  const { error } = await supabase.from("app_settings").upsert({
+    key: "prospection",
+    value: { org_cooldown_days: Math.max(0, Math.round(days)) },
+    updated_at: new Date().toISOString(),
+  });
+
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath("/parametres");
+  revalidatePath("/leads");
+  return { ok: true };
+}
+
 export async function setDormancyRule(
   stage: DealStage,
   maxDaysActive: number | null,

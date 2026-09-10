@@ -12,6 +12,7 @@ const index = {
   people: ["bonan paul@carbonapp", "sergent sebastien@ecotechnics"],
   companiesFromLeads: ["valutec"],
   companiesInPipeline: ["carbonapp", "ecotechnics"],
+  domains: ["auddice.com"],
 };
 
 let pass = 0, fail = 0;
@@ -21,7 +22,7 @@ function check(label: string, got: string, want: string) {
   console.log(`${ok ? "OK  " : "FAIL"} ${label}  →  ${got}${ok ? "" : ` (attendu ${want})`}`);
 }
 
-const fresh = () => ({ emails: new Set<string>(), people: new Set<string>() });
+const fresh = () => ({ emails: new Set<string>(), people: new Set<string>(), domains: new Set<string>() });
 const run = (row: Record<string, unknown>, seen = fresh()) =>
   classifyRow(row, buildLookup(index), seen).verdict;
 
@@ -54,6 +55,50 @@ check("homonyme sans entreprise (2) — personne DIFFÉRENTE, doit passer", run(
 check("ligne vide", run({}), "nouveau");
 const s3 = fresh();
 check("2 lignes vides", run({}, s3) + "/" + run({}, s3), "nouveau/nouveau");
+
+console.log("\n--- rattachement par domaine ---");
+// La raison sociale diffère, le domaine non : nouveau contact chez un compte
+// déjà travaillé, pas un doublon. C'est exactement le cas des filiales.
+check(
+  "filiale d'un lead existant",
+  run({ full_name: "Arnaud Froger", email: "a.froger@auddice.com", company_name: "Auddice Environnement" }),
+  "entreprise_connue",
+);
+check(
+  "domaine inconnu",
+  run({ full_name: "Zoe Blanc", email: "zoe@inconnue.fr", company_name: "Inconnue" }),
+  "nouveau",
+);
+// Une adresse personnelle ne dit rien de l'employeur : ne rien en conclure.
+const perso = fresh();
+check(
+  "gmail (1)",
+  run({ full_name: "Ana Roux", email: "ana@gmail.com", company_name: "Boite A" }, perso),
+  "nouveau",
+);
+check(
+  "gmail (2) — ne relie pas deux entreprises",
+  run({ full_name: "Bob Roux", email: "bob@gmail.com", company_name: "Boite B" }, perso),
+  "nouveau",
+);
+// Trois dirigeants d'une même boîte dans un seul fichier : tous importés, mais
+// le second et le troisième sont signalés.
+const trio = fresh();
+check(
+  "1er DG du fichier",
+  run({ full_name: "Un Dg", email: "un@verdi-ingenierie.fr", company_name: "Verdi Normandie" }, trio),
+  "nouveau",
+);
+check(
+  "2e DG, même domaine",
+  run({ full_name: "Deux Dg", email: "deux@verdi-ingenierie.fr", company_name: "Verdi Nord" }, trio),
+  "entreprise_connue",
+);
+check(
+  "3e DG, même domaine",
+  run({ full_name: "Trois Dg", email: "trois@verdi-ingenierie.fr", company_name: "Verdi Est" }, trio),
+  "entreprise_connue",
+);
 
 console.log(`\n${pass} OK, ${fail} FAIL`);
 if (fail > 0) process.exit(1);

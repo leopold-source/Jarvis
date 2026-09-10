@@ -20,6 +20,7 @@ import {
   Table2,
   Upload,
   UserRound,
+  Users2,
 } from "lucide-react";
 
 import {
@@ -42,6 +43,7 @@ import type { Lead, LeadStatus } from "@/lib/database.types";
 import { cn, daysUntil, formatMoney, normalize } from "@/lib/utils";
 import { assignLead, convertLead, createLead, updateLead } from "@/app/(crm)/leads/actions";
 import { ImportLeadsDialog } from "@/components/crm/import-leads-dialog";
+import { buildOrgIndex, spreadByOrg, type OrgLink } from "@/lib/lead-orgs";
 import { LeadDrawer } from "@/components/crm/lead-drawer";
 
 const PAGE_SIZE = 60;
@@ -96,11 +98,13 @@ export function LeadsWorkspace({
   leads,
   members,
   currentUserId,
+  orgCooldownDays,
   isAdmin,
 }: {
   leads: Lead[];
   members: MemberLite[];
   currentUserId: string;
+  orgCooldownDays: number;
   isAdmin: boolean;
 }) {
   const router = useRouter();
@@ -115,6 +119,7 @@ export function LeadsWorkspace({
   const [owner, setOwner] = useState("tous");
   const [view, setView] = useState<ViewMode>("lecture");
   const [showOverdue, setShowOverdue] = useState(true);
+  const [onlyGrouped, setOnlyGrouped] = useState(false);
   const [visible, setVisible] = useState(PAGE_SIZE);
   const [density, setDensity] = useState<Density>("compacte");
 
@@ -161,6 +166,23 @@ export function LeadsWorkspace({
 
   const today = todayIso();
 
+  /*
+    Qui d'autre, chez la même organisation, est déjà dans la base.
+
+    Calculé sur l'ensemble des leads et non sur la vue filtrée : un collègue
+    masqué par un filtre de région reste un collègue qu'on a peut-être appelé
+    la semaine dernière. C'est précisément celui qu'on ne verrait pas.
+  */
+  const orgIndex = useMemo(
+    () => buildOrgIndex(leads, orgCooldownDays),
+    [leads, orgCooldownDays],
+  );
+
+  const grouped = useMemo(
+    () => leads.filter((lead) => orgIndex.has(lead.id)).length,
+    [leads, orgIndex],
+  );
+
   const filtered = useMemo(() => {
     const needle = normalize(search.trim());
     const wanted = new Set(statuses);
@@ -171,6 +193,7 @@ export function LeadsWorkspace({
       if (segment !== "tous" && lead.segment !== segment) return false;
       if (owner === "moi" && lead.owner_id !== currentUserId) return false;
       if (owner !== "tous" && owner !== "moi" && lead.owner_id !== owner) return false;
+      if (onlyGrouped && !orgIndex.has(lead.id)) return false;
       if (!needle) return true;
       return normalize(
         [lead.full_name, lead.company_name, lead.email, lead.phone, lead.company_activity]
@@ -183,7 +206,7 @@ export function LeadsWorkspace({
 
     // Mode prospection : la file d'appel. Les retards d'abord, puis le jour
     // même, puis les leads à relancer qu'aucune date ne porte plus.
-    return base
+    const queue = base
       .filter((lead) => {
         if (lead.follow_up_on) {
           if (lead.follow_up_on > today) return false;
@@ -201,7 +224,11 @@ export function LeadsWorkspace({
         const keyB = b.follow_up_on ?? b.created_at;
         return keyA < keyB ? -1 : keyA > keyB ? 1 : 0;
       });
-  }, [leads, search, statuses, region, segment, owner, currentUserId, view, showOverdue, today]);
+
+    // Deux dirigeants d'un même groupe ne s'enchaînent jamais : c'est là, en
+    // descendant la file sans réfléchir, qu'on rappelle la même boîte deux fois.
+    return spreadByOrg(queue, orgIndex);
+  }, [leads, search, statuses, region, segment, owner, currentUserId, view, showOverdue, today, onlyGrouped, orgIndex]);
 
   const dueToday = useMemo(
     () => leads.filter((lead) => lead.follow_up_on === today).length,
@@ -221,7 +248,7 @@ export function LeadsWorkspace({
   const hasMore = visible < filtered.length;
 
   // Toute modification des filtres remet la pagination à zéro.
-  useEffect(() => setVisible(PAGE_SIZE), [search, statuses, region, segment, owner, view, showOverdue]);
+  useEffect(() => setVisible(PAGE_SIZE), [search, statuses, region, segment, owner, view, showOverdue, onlyGrouped]);
 
   // Défilement infini : une sentinelle en bas de la liste charge la tranche
   // suivante avant d'être atteinte. L'effet dépend de `visible`, ce qui remet
@@ -401,6 +428,18 @@ export function LeadsWorkspace({
             ))}
           </span>
 
+          {grouped > 0 ? (
+            <Button
+              variant={onlyGrouped ? "secondary" : "subtle"}
+              size="sm"
+              onClick={() => setOnlyGrouped((value) => !value)}
+              title="Les leads qui partagent une organisation ou une ligne téléphonique"
+            >
+              <Users2 className="size-3.5" />
+              {grouped} rattaché{grouped > 1 ? "s" : ""}
+            </Button>
+          ) : null}
+
           {view === "prospection" ? (
             <>
               <span className="flex items-center gap-1.5">
@@ -493,8 +532,9 @@ export function LeadsWorkspace({
                     </td>
 
                     <td className={cn("max-w-52 px-2.5", size.cell)}>
-                      <p className="truncate" title={lead.company_activity ?? undefined}>
-                        {lead.company_name ?? "—"}
+                      <p className="flex items-center gap-1.5 truncate" title={lead.company_activity ?? undefined}>
+                        <span className="truncate">{lead.company_name ?? "—"}</span>
+                        <OrgChip link={orgIndex.get(lead.id)} />
                       </p>
                     </td>
 
@@ -577,6 +617,8 @@ export function LeadsWorkspace({
 
       <LeadDrawer
         lead={selected}
+        org={selected ? orgIndex.get(selected.id) : undefined}
+        onOpenLead={setSelected}
         onClose={() => setSelected(null)}
         onSaved={refresh}
         onConvert={async (lead, dealName, amount) => {
@@ -619,6 +661,42 @@ export function LeadsWorkspace({
 }
 
 /* ------------------------------------------------- Filtre multi-statuts */
+
+/**
+ * La pastille qui dit « vous n'êtes pas seul sur cette boîte ».
+ *
+ * Discrète tant que le voisin est ancien, ambrée dès qu'il a été travaillé
+ * récemment — c'est le seul moment où elle doit accrocher l'œil. Elle
+ * n'empêche rien : appeler deux dirigeants d'un même groupe est parfois la
+ * bonne décision, encore faut-il la prendre.
+ */
+function OrgChip({ link }: { link?: OrgLink }) {
+  if (!link) return null;
+
+  const alerte = link.recent !== null;
+  const qui = link.siblings
+    .map((sibling) => `${sibling.full_name ?? "sans nom"} — ${LEAD_STATUS[sibling.status].label}`)
+    .join("\n");
+
+  return (
+    <span
+      title={
+        (alerte
+          ? `Contacté il y a ${link.daysSince} j chez la même organisation.\n\n`
+          : `Même organisation.\n\n`) + qui
+      }
+      className={cn(
+        "flex shrink-0 items-center gap-0.5 rounded-full px-1.5 py-px text-[10px] font-medium ring-1 ring-inset",
+        alerte
+          ? "bg-amber-500/15 text-amber-700 ring-amber-500/30 dark:text-amber-300"
+          : "bg-[var(--surface-hover)] text-[var(--text-muted)] ring-[var(--border-subtle)]",
+      )}
+    >
+      <Users2 className="size-2.5" />
+      {link.siblings.length + 1}
+    </span>
+  );
+}
 
 function StatusFilter({
   selected,

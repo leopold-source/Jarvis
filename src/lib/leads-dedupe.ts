@@ -56,6 +56,28 @@ export function emailKey(email: string | null | undefined): string {
   return email?.trim() ? normalize(email) : "";
 }
 
+/** Messageries grand public : leur domaine ne dit rien de l'employeur. */
+const FREE_EMAIL_DOMAINS = new Set([
+  "gmail.com", "googlemail.com", "outlook.com", "outlook.fr", "hotmail.com",
+  "hotmail.fr", "yahoo.com", "yahoo.fr", "free.fr", "orange.fr", "wanadoo.fr",
+  "sfr.fr", "neuf.fr", "laposte.net", "live.fr", "icloud.com", "me.com",
+  "aol.com", "bbox.fr", "numericable.fr", "gmx.fr", "protonmail.com", "proton.me",
+]);
+
+/**
+ * Clé d'organisation : le domaine e-mail professionnel.
+ *
+ * Le nom d'entreprise ne rapproche pas « Auddice Seine Normandie » et
+ * « Auddice Environnement » ; le domaine, si. Doit rester alignée sur
+ * `org_key_from()` en base, qui applique la même règle aux leads existants.
+ */
+export function domainKey(email: string | null | undefined): string {
+  const value = emailKey(email);
+  if (!value.includes("@")) return "";
+  const domain = value.split("@")[1] ?? "";
+  return FREE_EMAIL_DOMAINS.has(domain) ? "" : domain;
+}
+
 /** Index de l'existant, construit côté serveur et envoyé au navigateur. */
 export interface ImportIndex {
   /** E-mails déjà connus, toutes tables confondues. */
@@ -66,6 +88,8 @@ export interface ImportIndex {
   companiesFromLeads: string[];
   /** Entreprises ayant une fiche ou une affaire — donc déjà travaillées. */
   companiesInPipeline: string[];
+  /** Domaines e-mail déjà présents en base, quel qu'en soit le nom d'entreprise. */
+  domains: string[];
 }
 
 export interface DedupeResult {
@@ -81,6 +105,7 @@ export function buildLookup(index: ImportIndex) {
     people: new Set(index.people),
     companiesFromLeads: new Set(index.companiesFromLeads),
     companiesInPipeline: new Set(index.companiesInPipeline),
+    domains: new Set(index.domains),
   };
 }
 
@@ -93,13 +118,14 @@ export type Lookup = ReturnType<typeof buildLookup>;
 export function classifyRow(
   row: { first_name?: unknown; last_name?: unknown; full_name?: unknown; email?: unknown; company_name?: unknown },
   lookup: Lookup,
-  seen: { emails: Set<string>; people: Set<string> },
+  seen: { emails: Set<string>; people: Set<string>; domains: Set<string> },
 ): DedupeResult {
   const asText = (value: unknown) => (typeof value === "string" ? value : null);
 
   const email = emailKey(asText(row.email));
   const person = personKey(asText(row.first_name), asText(row.last_name), asText(row.full_name));
   const company = companyKey(asText(row.company_name));
+  const domain = domainKey(asText(row.email));
   const pair = `${person}@${company}`;
 
   if (email && seen.emails.has(email)) {
@@ -112,8 +138,11 @@ export function classifyRow(
     return { verdict: "doublon", reason: "En double dans ce fichier" };
   }
 
+  const dejaVuDansLeFichier = Boolean(domain) && seen.domains.has(domain);
+
   if (email) seen.emails.add(email);
   if (person && company) seen.people.add(pair);
+  if (domain) seen.domains.add(domain);
 
   if (email && lookup.emails.has(email)) {
     return { verdict: "doublon", reason: "E-mail déjà en base" };
@@ -127,6 +156,15 @@ export function classifyRow(
   }
   if (company && lookup.companiesFromLeads.has(company)) {
     return { verdict: "entreprise_connue", reason: "Entreprise déjà en lead — nouveau contact" };
+  }
+  // Le domaine passe après le nom d'entreprise : quand les deux répondent, le
+  // nom donne le message le plus parlant. Mais lui seul rattrape les filiales,
+  // dont la raison sociale diffère.
+  if (domain && lookup.domains.has(domain)) {
+    return { verdict: "entreprise_connue", reason: "Même domaine qu'un lead existant — nouveau contact" };
+  }
+  if (dejaVuDansLeFichier) {
+    return { verdict: "entreprise_connue", reason: "Deuxième contact de cette entreprise dans ce fichier" };
   }
 
   return { verdict: "nouveau", reason: "Nouveau" };

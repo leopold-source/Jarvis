@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 
-import { buildLookup, classifyRow, companyKey, emailKey, personKey, type ImportIndex } from "@/lib/leads-dedupe";
+import { buildLookup, classifyRow, companyKey, domainKey, emailKey, personKey, type ImportIndex } from "@/lib/leads-dedupe";
 import type { LeadStatus } from "@/lib/database.types";
 import { requireStaff } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
@@ -161,6 +161,7 @@ export async function fetchImportIndex(): Promise<ImportIndex> {
   const people = new Set<string>();
   const companiesFromLeads = new Set<string>();
   const companiesInPipeline = new Set<string>();
+  const domains = new Set<string>();
 
   const companyNameById = new Map(companies.map((company) => [company.id, company.name]));
 
@@ -171,6 +172,9 @@ export async function fetchImportIndex(): Promise<ImportIndex> {
     if (company) companiesFromLeads.add(company);
     const person = personKey(lead.first_name, lead.last_name, lead.full_name);
     if (person) people.add(`${person}@${company}`);
+    // Le domaine rattrape les filiales, dont la raison sociale diffère.
+    const domain = domainKey(lead.email);
+    if (domain) domains.add(domain);
   }
 
   // Une fiche entreprise n'existe que parce qu'un lead a été converti : toute
@@ -191,6 +195,8 @@ export async function fetchImportIndex(): Promise<ImportIndex> {
     const company = companyKey(contact.company_id ? companyNameById.get(contact.company_id) : null);
     const person = personKey(contact.first_name, contact.last_name, contact.full_name);
     if (person) people.add(`${person}@${company}`);
+    const domain = domainKey(contact.email);
+    if (domain) domains.add(domain);
   }
 
   return {
@@ -198,6 +204,7 @@ export async function fetchImportIndex(): Promise<ImportIndex> {
     people: [...people],
     companiesFromLeads: [...companiesFromLeads],
     companiesInPipeline: [...companiesInPipeline],
+    domains: [...domains],
   };
 }
 
@@ -216,7 +223,7 @@ export async function importLeads(
   if (rows.length > 5000) return { ok: false, error: "Import limité à 5 000 lignes par fichier." };
 
   const lookup = buildLookup(await fetchImportIndex());
-  const seen = { emails: new Set<string>(), people: new Set<string>() };
+  const seen = { emails: new Set<string>(), people: new Set<string>(), domains: new Set<string>() };
 
   const keepers = rows.filter((row) => classifyRow(row, lookup, seen).verdict !== "doublon");
   const skipped = rows.length - keepers.length;

@@ -1,22 +1,27 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Building2, CalendarClock, Globe, Linkedin, Mail, MapPin, Phone, Rocket } from "lucide-react";
+import { AlertTriangle, ArrowRight, Building2, CalendarClock, Globe, Linkedin, Mail, MapPin, Phone, Rocket, Users2 } from "lucide-react";
 
 import { Badge, Button, Drawer, Field, Input, Select, Textarea, useToast } from "@/components/ui";
 import { DateField } from "@/components/ui/date-field";
 import { LEAD_STATUS, LEAD_STATUS_ORDER } from "@/lib/constants";
 import type { Lead, LeadStatus } from "@/lib/database.types";
-import { formatDate, formatMoney, formatRelative } from "@/lib/utils";
+import { cn, formatDate, formatMoney, formatRelative } from "@/lib/utils";
+import type { OrgLink } from "@/lib/lead-orgs";
 import { updateLead } from "@/app/(crm)/leads/actions";
 
 export function LeadDrawer({
   lead,
+  org,
+  onOpenLead,
   onClose,
   onSaved,
   onConvert,
 }: {
   lead: Lead | null;
+  org?: OrgLink;
+  onOpenLead?: (lead: Lead) => void;
   onClose: () => void;
   onSaved: () => void;
   onConvert: (lead: Lead, dealName: string, amount: number | null) => Promise<void>;
@@ -135,6 +140,8 @@ export function LeadDrawer({
               dans le pipeline.
             </div>
           ) : null}
+
+          {org ? <OrgBanner org={org} onOpenLead={onOpenLead} /> : null}
 
           <div className="grid grid-cols-2 gap-3">
             <InfoTile icon={Mail} label="E-mail" value={lead.email} href={lead.email ? `mailto:${lead.email}` : null} />
@@ -260,4 +267,67 @@ function InfoTile({
     );
   }
   return <div className={className}>{body}</div>;
+}
+
+/**
+ * Qui d'autre, chez cette organisation, est déjà dans la base.
+ *
+ * Le bandeau ne bloque pas l'appel et ne le déconseille pas : deux agences
+ * d'un même groupe ont deux dirigeants, et les appeler tous les deux est
+ * légitime. Il rend seulement impossible de le faire sans le savoir — et
+ * affiche donc ce dont la décision a besoin : qui, quel statut, quand.
+ */
+function OrgBanner({ org, onOpenLead }: { org: OrgLink; onOpenLead?: (lead: Lead) => void }) {
+  const alerte = org.recent !== null;
+
+  return (
+    <div
+      className={cn(
+        "rounded-xl border p-3.5",
+        alerte
+          ? "border-amber-500/30 bg-amber-500/10"
+          : "border-[var(--border-subtle)] bg-[var(--surface-base)]/50",
+      )}
+    >
+      <p
+        className={cn(
+          "flex items-center gap-1.5 text-[12.5px] font-medium",
+          alerte ? "text-amber-700 dark:text-amber-300" : "text-[var(--text-secondary)]",
+        )}
+      >
+        {alerte ? <AlertTriangle className="size-3.5" /> : <Users2 className="size-3.5" />}
+        {alerte
+          ? `${org.recent?.full_name ?? "Un contact"} a été travaillé il y a ${org.daysSince} j chez la même organisation`
+          : `${org.siblings.length + 1} contacts rattachés à la même organisation`}
+      </p>
+
+      <ul className="mt-2.5 space-y-1">
+        {org.siblings.map((sibling) => (
+          <li key={sibling.id}>
+            <button
+              type="button"
+              onClick={() => onOpenLead?.(sibling)}
+              className="group flex w-full items-center gap-2 rounded-[8px] px-2 py-1.5 text-left transition-colors hover:bg-[var(--surface-hover)]"
+            >
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[12.5px] font-medium">
+                  {sibling.full_name ?? "Sans nom"}
+                </span>
+                <span className="block truncate text-[11px] text-[var(--text-muted)]">
+                  {sibling.company_name ?? "—"} · {formatRelative(sibling.last_touched_at ?? sibling.status_changed_at)}
+                </span>
+              </span>
+              <Badge tone={LEAD_STATUS[sibling.status].tone}>{LEAD_STATUS[sibling.status].label}</Badge>
+              <ArrowRight className="size-3.5 shrink-0 text-[var(--text-muted)] transition-transform group-hover:translate-x-0.5" />
+            </button>
+          </li>
+        ))}
+      </ul>
+
+      <p className="mt-1.5 px-2 text-[11px] leading-relaxed text-[var(--text-muted)]">
+        Rien ne vous empêche d&apos;appeler : deux entités d&apos;un même groupe ont deux
+        décideurs. C&apos;est de le faire sans le savoir qui coûte cher.
+      </p>
+    </div>
+  );
 }
