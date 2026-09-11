@@ -52,7 +52,7 @@ import {
   updateLeads,
   type BulkField,
 } from "@/app/(crm)/leads/actions";
-import { useGridSelection } from "@/lib/use-grid-selection";
+import { useCellSelection, type CellSelection } from "@/lib/use-cell-selection";
 import { ImportLeadsDialog } from "@/components/crm/import-leads-dialog";
 import { buildOrgIndex, spreadByOrg, type OrgLink } from "@/lib/lead-orgs";
 import { LeadDrawer } from "@/components/crm/lead-drawer";
@@ -174,13 +174,11 @@ export function LeadsWorkspace({
   const [selected, setSelected] = useState<Lead | null>(null);
 
   /*
-    Copier une valeur, puis la coller sur les lignes retenues.
+    Copier une valeur, puis la coller sur la plage retenue.
 
-    `activeCell` retient la dernière cellule touchée : c'est elle que ⌘C
-    recopie. On ne mémorise que le champ et sa valeur, jamais la ligne
-    d'origine — ce qu'on colle est une valeur, pas un lien vers une fiche.
+    On ne mémorise que le champ et sa valeur, jamais la ligne d'origine : ce
+    qu'on colle est une valeur, pas un lien vers une fiche.
   */
-  const [activeCell, setActiveCell] = useState<{ field: BulkField; lead: Lead } | null>(null);
   const [copied, setCopied] = useState<{ field: BulkField; value: string | null; label: string } | null>(
     null,
   );
@@ -189,30 +187,77 @@ export function LeadsWorkspace({
   const [creating, setCreating] = useState(false);
   const [importing, setImporting] = useState(false);
 
-  const refresh = () => startTransition(() => router.refresh());
+  /*
+    Mise à jour optimiste.
+
+    Une modification passait par le serveur, une revalidation et un nouveau
+    rendu des 432 lignes avant de s'afficher — une à deux secondes pendant
+    lesquelles la valeur affichée était encore l'ancienne. On applique donc le
+    changement localement tout de suite, et le serveur ne sert plus qu'à
+    confirmer : `overrides` garde la valeur voulue jusqu'à ce que les données
+    fraîches arrivent, moment où il n'a plus de raison d'être.
+  */
+  const [overrides, setOverrides] = useState<Record<string, Partial<Lead>>>({});
+  const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => setOverrides({}), [leads]);
+
+  const applyLocal = useCallback((ids: string[], patch: Partial<Lead>) => {
+    setOverrides((current) => {
+      const next = { ...current };
+      for (const id of ids) next[id] = { ...next[id], ...patch };
+      return next;
+    });
+  }, []);
+
+  /*
+    Le rafraîchissement est différé et groupé.
+
+    Puisque l'écran est déjà juste, rien ne presse : enchaîner dix statuts
+    déclenchait dix rendus complets du serveur, chacun ralentissant le
+    suivant. Un seul, une seconde après le dernier geste, suffit à réconcilier.
+  */
+  const refresh = useCallback(() => {
+    if (refreshTimer.current) clearTimeout(refreshTimer.current);
+    refreshTimer.current = setTimeout(() => {
+      startTransition(() => router.refresh());
+    }, 1000);
+    // `startTransition` et `router` sont stables.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => () => {
+    if (refreshTimer.current) clearTimeout(refreshTimer.current);
+  }, []);
+
+  /** Les leads tels qu'ils doivent s'afficher : données du serveur, corrections en attente par-dessus. */
+  const rows = useMemo(
+    () => leads.map((lead) => (overrides[lead.id] ? { ...lead, ...overrides[lead.id] } : lead)),
+    [leads, overrides],
+  );
 
   // Permet d'ouvrir un lead directement depuis un lien (?lead=…).
   useEffect(() => {
     const id = params.get("lead");
     if (!id) return;
-    const match = leads.find((lead) => lead.id === id);
+    const match = rows.find((lead) => lead.id === id);
     if (match) setSelected(match);
-  }, [params, leads]);
+  }, [params, rows]);
 
   const regions = useMemo(
-    () => [...new Set(leads.map((lead) => lead.region).filter(Boolean))].sort() as string[],
-    [leads],
+    () => [...new Set(rows.map((lead) => lead.region).filter(Boolean))].sort() as string[],
+    [rows],
   );
   const segments = useMemo(
-    () => [...new Set(leads.map((lead) => lead.segment).filter(Boolean))].sort() as string[],
-    [leads],
+    () => [...new Set(rows.map((lead) => lead.segment).filter(Boolean))].sort() as string[],
+    [rows],
   );
 
   const counts = useMemo(() => {
     const map = new Map<LeadStatus, number>();
-    for (const lead of leads) map.set(lead.status, (map.get(lead.status) ?? 0) + 1);
+    for (const lead of rows) map.set(lead.status, (map.get(lead.status) ?? 0) + 1);
     return map;
-  }, [leads]);
+  }, [rows]);
 
   const today = todayIso();
 
@@ -224,20 +269,20 @@ export function LeadsWorkspace({
     la semaine dernière. C'est précisément celui qu'on ne verrait pas.
   */
   const orgIndex = useMemo(
-    () => buildOrgIndex(leads, orgCooldownDays),
-    [leads, orgCooldownDays],
+    () => buildOrgIndex(rows, orgCooldownDays),
+    [rows, orgCooldownDays],
   );
 
   const grouped = useMemo(
-    () => leads.filter((lead) => orgIndex.has(lead.id)).length,
-    [leads, orgIndex],
+    () => rows.filter((lead) => orgIndex.has(lead.id)).length,
+    [rows, orgIndex],
   );
 
   const filtered = useMemo(() => {
     const needle = normalize(search.trim());
     const wanted = new Set(statuses);
 
-    const base = leads.filter((lead) => {
+    const base = rows.filter((lead) => {
       if (wanted.size > 0 && !wanted.has(lead.status)) return false;
       if (region !== "toutes" && lead.region !== region) return false;
       if (segment !== "tous" && lead.segment !== segment) return false;
@@ -279,23 +324,23 @@ export function LeadsWorkspace({
     // Deux dirigeants d'un même groupe ne s'enchaînent jamais : c'est là, en
     // descendant la file sans réfléchir, qu'on rappelle la même boîte deux fois.
     return spreadByOrg(queue, orgIndex);
-  }, [leads, search, statuses, region, segment, owner, currentUserId, view, showOverdue, today, onlyGrouped, phoneFilter, orgIndex]);
+  }, [rows, search, statuses, region, segment, owner, currentUserId, view, showOverdue, today, onlyGrouped, phoneFilter, orgIndex]);
 
   const dueToday = useMemo(
-    () => leads.filter((lead) => lead.follow_up_on === today).length,
-    [leads, today],
+    () => rows.filter((lead) => lead.follow_up_on === today).length,
+    [rows, today],
   );
   const overdue = useMemo(
-    () => leads.filter((lead) => lead.follow_up_on && lead.follow_up_on < today).length,
-    [leads, today],
+    () => rows.filter((lead) => lead.follow_up_on && lead.follow_up_on < today).length,
+    [rows, today],
   );
   const undated = useMemo(
-    () => leads.filter((lead) => !lead.follow_up_on && RELANCE_SANS_DATE.includes(lead.status)).length,
-    [leads],
+    () => rows.filter((lead) => !lead.follow_up_on && RELANCE_SANS_DATE.includes(lead.status)).length,
+    [rows],
   );
   const jamaisAppeles = useMemo(
-    () => leads.filter((lead) => JAMAIS_APPELE.includes(lead.status)).length,
-    [leads],
+    () => rows.filter((lead) => JAMAIS_APPELE.includes(lead.status)).length,
+    [rows],
   );
 
   const size = DENSITIES[density];
@@ -305,7 +350,7 @@ export function LeadsWorkspace({
   // La sélection ne porte que sur les lignes réellement affichées : coller sur
   // une ligne qu'on ne voit pas serait une modification à l'aveugle.
   const pageIds = useMemo(() => page.map((lead) => lead.id), [page]);
-  const grid = useGridSelection(pageIds);
+  const cells = useCellSelection(pageIds);
 
   /** Ce qu'une cellule contient, et comment le dire à l'écran. */
   const readCell = useCallback(
@@ -335,22 +380,38 @@ export function LeadsWorkspace({
     [members],
   );
 
+  /*
+    Coller : la valeur copiée, sur la plage retenue.
+
+    La colonne doit être la même. Voir la colonne « Commentaire » surlignée et
+    des statuts changer serait exactement le genre de surprise qu'on ne peut
+    pas défaire — mieux vaut refuser et le dire.
+  */
   const applyCopied = useCallback(async () => {
-    if (!copied || grid.count === 0) return;
+    if (!copied || cells.count === 0 || !cells.field) return;
+    if (cells.field !== copied.field) {
+      toast("La valeur copiée ne vient pas de cette colonne.", "error");
+      return;
+    }
+
+    const targets = cells.ids;
     setPasting(true);
-    const result = await updateLeads([...grid.selected], copied.field, copied.value);
+    // L'écran suit immédiatement ; le serveur ne fait que confirmer.
+    applyLocal(targets, { [copied.field]: copied.value } as Partial<Lead>);
+    const result = await updateLeads(targets, copied.field, copied.value);
     setPasting(false);
 
     if (!result.ok) {
+      setOverrides({});
       toast(result.error, "error");
       return;
     }
     toast(`${result.data?.updated ?? 0} ligne(s) mises à jour.`);
-    grid.clear();
+    cells.clear();
     refresh();
-    // `refresh` et `toast` sont stables ; les lister ferait boucler l'effet.
+    // `refresh`, `toast` et `applyLocal` sont stables.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [copied, grid]);
+  }, [copied, cells]);
 
   /*
     ⌘C / ⌘V, au clavier plutôt qu'au bouton.
@@ -364,18 +425,23 @@ export function LeadsWorkspace({
       if (!(event.metaKey || event.ctrlKey)) return;
 
       if (event.key === "c" || event.key === "C") {
-        if (!activeCell) return;
+        const source = cells.anchor;
+        if (!source) return;
         if (window.getSelection()?.toString()) return;
-        const { value, label } = readCell(activeCell.lead, activeCell.field);
+        const lead = page.find((entry) => entry.id === source.id);
+        if (!lead) return;
+
+        const field = source.field as BulkField;
+        const { value, label } = readCell(lead, field);
         event.preventDefault();
-        setCopied({ field: activeCell.field, value, label });
+        setCopied({ field, value, label });
         void navigator.clipboard?.writeText(value ?? "").catch(() => {});
         toast(`Copié : ${label}`);
         return;
       }
 
       if (event.key === "v" || event.key === "V") {
-        if (!copied || grid.count === 0) return;
+        if (!copied || cells.count === 0) return;
         event.preventDefault();
         void applyCopied();
       }
@@ -384,7 +450,7 @@ export function LeadsWorkspace({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeCell, copied, grid.count, readCell, applyCopied]);
+  }, [cells.anchor, cells.count, copied, page, readCell, applyCopied]);
 
   // Toute modification des filtres remet la pagination à zéro.
   useEffect(() => setVisible(PAGE_SIZE), [search, statuses, region, segment, owner, view, showOverdue, onlyGrouped, phoneFilter]);
@@ -410,8 +476,14 @@ export function LeadsWorkspace({
   }, [hasMore, visible]);
 
   async function patch(lead: Lead, field: string, value: string | null, silent = false) {
+    // L'écran change d'abord. Si le serveur refuse, on efface la correction
+    // locale et les données du serveur reprennent la main — l'utilisateur voit
+    // sa saisie revenir en arrière, ce qui est le bon signal.
+    applyLocal([lead.id], { [field]: value } as Partial<Lead>);
+
     const result = await updateLead(lead.id, { [field]: value });
     if (!result.ok) {
+      setOverrides({});
       toast(result.error, "error");
       return false;
     }
@@ -426,8 +498,11 @@ export function LeadsWorkspace({
       setSelected(lead);
       return;
     }
+    applyLocal([lead.id], { status: next });
+
     const result = await updateLead(lead.id, { status: next });
     if (!result.ok) {
+      setOverrides({});
       toast(result.error, "error");
       return;
     }
@@ -664,27 +739,12 @@ export function LeadsWorkspace({
                 {page.map((lead, index) => (
                   <tr
                     key={lead.id}
-                    onMouseDown={(event) => grid.onRowMouseDown(index, event)}
-                    onMouseEnter={() => grid.onRowMouseEnter(index)}
-                    onClick={() => {
-                      // Un glissement vient de se terminer : ce clic n'en est
-                      // pas un, il ne doit pas ouvrir la fiche.
-                      if (grid.consumeClickSuppression()) return;
-                      if (grid.count > 0) return grid.clear();
-                      setSelected(lead);
-                    }}
+                    onClick={() => setSelected(lead)}
                     className={cn(
                       size.row,
-                      "cursor-pointer transition-colors duration-150",
-                      grid.isSelected(lead.id)
-                        ? "bg-brand-500/15 ring-1 ring-inset ring-brand-500/30"
-                        : "hover:bg-[var(--surface-hover)]/60",
-                      !grid.isSelected(lead.id) &&
-                        view === "prospection" &&
-                        lead.follow_up_on === today &&
-                        "bg-brand-500/[0.07]",
-                      !grid.isSelected(lead.id) &&
-                        view === "prospection" &&
+                      "cursor-pointer transition-colors duration-150 hover:bg-[var(--surface-hover)]/60",
+                      view === "prospection" && lead.follow_up_on === today && "bg-brand-500/[0.07]",
+                      view === "prospection" &&
                         lead.follow_up_on &&
                         lead.follow_up_on < today &&
                         "bg-rose-500/[0.07]",
@@ -692,14 +752,11 @@ export function LeadsWorkspace({
                   >
                     <td
                       className={cn(
-                        "px-2 text-right font-mono text-[11px] tabular-nums select-none",
-                        grid.isSelected(lead.id)
-                          ? "text-brand-500 dark:text-brand-300"
-                          : "text-[var(--text-muted)]",
+                        "px-2 text-right font-mono text-[11px] text-[var(--text-muted)] tabular-nums select-none",
                         size.cell,
                       )}
                     >
-                      {grid.isSelected(lead.id) ? <Check className="ml-auto size-3" /> : index + 1}
+                      {index + 1}
                     </td>
 
                     <td className={cn("max-w-52 px-2.5", size.cell)}>
@@ -736,8 +793,8 @@ export function LeadsWorkspace({
                     <CopyableCell
                       field="status"
                       lead={lead}
-                      active={activeCell}
-                      onActivate={setActiveCell}
+                      index={index}
+                      cells={cells}
                       className={size.cell}
                     >
                       <StatusSelect lead={lead} onChange={handleStatusChange} />
@@ -754,8 +811,8 @@ export function LeadsWorkspace({
                     <CopyableCell
                       field="follow_up_on"
                       lead={lead}
-                      active={activeCell}
-                      onActivate={setActiveCell}
+                      index={index}
+                      cells={cells}
                       className={size.cell}
                     >
                       <DateField
@@ -770,8 +827,8 @@ export function LeadsWorkspace({
                     <CopyableCell
                       field="owner_id"
                       lead={lead}
-                      active={activeCell}
-                      onActivate={setActiveCell}
+                      index={index}
+                      cells={cells}
                       className={size.cell}
                     >
                       <OwnerSelect
@@ -779,8 +836,15 @@ export function LeadsWorkspace({
                         members={members}
                         avatarSize={size.avatar}
                         onAssign={async (ownerId) => {
+                          const member = members.find((entry) => entry.id === ownerId);
+                          applyLocal([lead.id], {
+                            owner_id: ownerId,
+                            owner_name: member?.full_name ?? member?.email ?? null,
+                          });
+
                           const result = await assignLead(lead.id, ownerId);
                           if (!result.ok) {
+                            setOverrides({});
                             toast(result.error, "error");
                             return;
                           }
@@ -792,8 +856,8 @@ export function LeadsWorkspace({
                     <CopyableCell
                       field="comment"
                       lead={lead}
-                      active={activeCell}
-                      onActivate={setActiveCell}
+                      index={index}
+                      cells={cells}
                       className={cn("w-56", size.cell)}
                     >
                       <InlineComment
@@ -839,13 +903,12 @@ export function LeadsWorkspace({
       </Card>
 
       <SelectionBar
-        count={grid.count}
-        total={page.length}
+        count={cells.count}
+        field={cells.field}
         copied={copied}
         pasting={pasting}
         onPaste={applyCopied}
-        onSelectAll={() => grid.selectAll(pageIds)}
-        onClear={grid.clear}
+        onClear={cells.clear}
       />
 
       <LeadDrawer
@@ -933,14 +996,6 @@ function OrgChip({ link }: { link?: OrgLink }) {
 
 
 /**
- * Une cellule dont la valeur peut être reprise ailleurs.
- *
- * Elle ne fait rien de plus que se signaler : c'est la dernière touchée qui
- * sert de source à ⌘C. Le liseré n'est donc pas décoratif, il répond à la seule
- * question qui compte avant de copier — laquelle, au juste ?
- */
-
-/**
  * Ce que la sélection permet, dit au moment où elle existe.
  *
  * Une barre plutôt qu'une aide dans un menu : les raccourcis ⌘C / ⌘V ne
@@ -949,63 +1004,65 @@ function OrgChip({ link }: { link?: OrgLink }) {
  */
 function SelectionBar({
   count,
-  total,
+  field,
   copied,
   pasting,
   onPaste,
-  onSelectAll,
   onClear,
 }: {
   count: number;
-  total: number;
+  field: string | null;
   copied: { field: BulkField; value: string | null; label: string } | null;
   pasting: boolean;
   onPaste: () => void;
-  onSelectAll: () => void;
   onClear: () => void;
 }) {
   if (count === 0) return null;
 
-  const FIELD_LABEL: Record<BulkField, string> = {
+  const FIELD_LABEL: Record<string, string> = {
     status: "Statut",
     follow_up_on: "Relance",
     owner_id: "Assigné",
     comment: "Commentaire",
   };
 
+  const memeColonne = copied !== null && copied.field === field;
+
   return (
     <div className="pointer-events-none fixed inset-x-0 bottom-5 z-40 flex justify-center px-4">
       <div className="pointer-events-auto flex max-w-full flex-wrap items-center gap-2.5 rounded-full border border-[var(--border-subtle)] bg-[var(--surface-overlay)] py-2 pr-2 pl-4 shadow-[var(--shadow-card)] backdrop-blur animate-fade-up">
         <span className="text-[12.5px] font-medium whitespace-nowrap">
-          {count} ligne{count > 1 ? "s" : ""} sélectionnée{count > 1 ? "s" : ""}
+          {count} cellule{count > 1 ? "s" : ""}
+          {field ? ` · ${FIELD_LABEL[field] ?? field}` : ""}
         </span>
-
-        {count < total ? (
-          <button
-            type="button"
-            onClick={onSelectAll}
-            className="text-[11.5px] whitespace-nowrap text-brand-400 transition-colors hover:text-brand-300"
-          >
-            tout prendre ({total})
-          </button>
-        ) : null}
 
         <span className="h-4 w-px bg-[var(--border-subtle)]" aria-hidden />
 
         {copied ? (
           <>
             <span className="max-w-64 truncate text-[11.5px] text-[var(--text-muted)]">
-              {FIELD_LABEL[copied.field]} : <span className="text-[var(--text-secondary)]">{copied.label}</span>
+              {FIELD_LABEL[copied.field] ?? copied.field} :{" "}
+              <span className="text-[var(--text-secondary)]">{copied.label}</span>
             </span>
-            <Button size="sm" variant="primary" loading={pasting} onClick={onPaste}>
+            {/* Le bouton reste visible mais inerte quand les colonnes diffèrent :
+                le désactiver explique mieux qu'un refus au moment du clic. */}
+            <Button
+              size="sm"
+              variant="primary"
+              loading={pasting}
+              disabled={!memeColonne}
+              title={memeColonne ? undefined : "La valeur copiée vient d'une autre colonne"}
+              onClick={onPaste}
+            >
               <ClipboardPaste className="size-3.5" />
               Coller ({count})
             </Button>
           </>
         ) : (
           <span className="text-[11.5px] text-[var(--text-muted)]">
-            Cliquez une cellule (statut, relance, assigné, commentaire) puis <Kbd>⌘</Kbd>
-            <Kbd>C</Kbd> pour copier sa valeur
+            <Kbd>⌘</Kbd>
+            <Kbd>C</Kbd> copie la cellule de départ, <Kbd>⌘</Kbd>
+            <Kbd>V</Kbd> l&apos;applique à la plage
           </span>
         )}
 
@@ -1030,34 +1087,60 @@ function Kbd({ children }: { children: React.ReactNode }) {
   );
 }
 
+/**
+ * Une cellule sélectionnable, comme dans un tableur.
+ *
+ * La sélection s'arrête à la cellule : surligner la ligne entière pour copier
+ * un statut laisserait croire que tout va être écrasé. Le cadre se dessine sur
+ * les bords de la plage — traits pleins en haut et en bas, continus sur les
+ * côtés — pour qu'on lise un bloc et non une suite de cases teintées.
+ */
 function CopyableCell({
   field,
   lead,
-  active,
-  onActivate,
+  index,
+  cells,
   className,
   children,
 }: {
   field: BulkField;
   lead: Lead;
-  active: { field: BulkField; lead: Lead } | null;
-  onActivate: (cell: { field: BulkField; lead: Lead }) => void;
+  index: number;
+  cells: CellSelection;
   className?: string;
   children: React.ReactNode;
 }) {
-  const isActive = active?.field === field && active.lead.id === lead.id;
+  const selected = cells.isSelected(lead.id, field);
+  const { first, last } = cells.edge(lead.id, field);
+  const isAnchor = cells.anchor?.id === lead.id && cells.anchor.field === field;
 
   return (
     <td
       // En capture : le repère se pose même quand l'enfant arrête l'événement.
-      onMouseDownCapture={() => onActivate({ field, lead })}
+      onMouseDownCapture={(event) => cells.onCellMouseDown({ id: lead.id, field, index }, event)}
+      onMouseEnter={() => cells.onCellMouseEnter({ id: lead.id, field, index })}
       onClick={(event) => event.stopPropagation()}
       className={cn(
-        "px-2.5",
-        isActive && "ring-1 ring-inset ring-brand-400/70",
+        "relative px-2.5",
+        selected && "bg-brand-500/12",
         className,
       )}
     >
+      {/* Le cadre est peint par-dessus, sans bordure sur le <td> : une bordure
+          décalerait le contenu d'un pixel à chaque sélection. */}
+      {selected ? (
+        <span
+          aria-hidden
+          className={cn(
+            "pointer-events-none absolute inset-0 border-x-2 border-brand-500",
+            first && "border-t-2",
+            last && "border-b-2",
+          )}
+        />
+      ) : null}
+      {isAnchor && cells.count === 1 ? (
+        <span aria-hidden className="pointer-events-none absolute inset-0 border-2 border-brand-500" />
+      ) : null}
       {children}
     </td>
   );
