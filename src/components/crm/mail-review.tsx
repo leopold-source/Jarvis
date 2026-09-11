@@ -213,10 +213,14 @@ export function MailReview({
         </Card>
       ) : null}
 
-      <p className="flex items-center gap-1.5 text-[11.5px] text-[var(--text-muted)]">
-        <ShieldCheck className="size-3.5 text-emerald-500" />
-        Un expéditeur déjà dans le CRM n&apos;est jamais mis à la corbeille. Et la corbeille
-        n&apos;est pas une suppression : Gmail garde trente jours.
+      <p className="flex items-start gap-1.5 text-[11.5px] leading-relaxed text-[var(--text-muted)]">
+        <ShieldCheck className="mt-0.5 size-3.5 shrink-0 text-emerald-500" />
+        <span>
+          Tout ce qui est trié sort de ta boîte de réception et se range dans son dossier Gmail
+          — cet écran devient donc l&apos;endroit où tu vois ce qui attend une réponse. Un
+          expéditeur déjà dans le CRM n&apos;est jamais mis à la corbeille, et la corbeille
+          n&apos;est pas une suppression : Gmail garde trente jours.
+        </span>
       </p>
 
       {mails.length === 0 ? (
@@ -519,7 +523,7 @@ function RecapModal({
     {
       clef: "etiquete",
       titre: "Classés",
-      note: "Sortis de la boîte de réception, retrouvables par leur étiquette.",
+      note: "Rangés dans leur dossier, hors de la boîte de réception.",
       mails: (mails ?? []).filter((m) => m.action === "etiquete"),
     },
   ];

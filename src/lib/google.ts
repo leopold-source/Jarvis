@@ -281,17 +281,34 @@ export function messageText(message: GmailFullMessage, maxChars = 4000): string 
 
 export type GmailLabel = { id: string; name: string };
 
-/** Retourne l'identifiant de l'étiquette, en la créant à la première utilisation. */
+/**
+ * Retourne l'identifiant de l'étiquette, en la créant à la première utilisation.
+ *
+ * La création peut échouer alors que tout va bien : Gmail réserve certains noms
+ * et refuse un doublon créé entre-temps. Comme cette fonction est appelée au
+ * début du tri, l'erreur emporterait tout le passage — on relit donc la liste
+ * avant d'abandonner.
+ */
 export async function ensureLabel(accessToken: string, name: string): Promise<string> {
-  const { labels } = await gmail<{ labels?: GmailLabel[] }>("/labels", accessToken);
-  const existante = labels?.find((label) => label.name === name);
-  if (existante) return existante.id;
+  const trouver = async () => {
+    const { labels } = await gmail<{ labels?: GmailLabel[] }>("/labels", accessToken);
+    return labels?.find((label) => label.name.toLowerCase() === name.toLowerCase())?.id ?? null;
+  };
 
-  const creee = await gmail<GmailLabel>("/labels", accessToken, undefined, {
-    method: "POST",
-    body: { name, labelListVisibility: "labelShow", messageListVisibility: "show" },
-  });
-  return creee.id;
+  const existante = await trouver();
+  if (existante) return existante;
+
+  try {
+    const creee = await gmail<GmailLabel>("/labels", accessToken, undefined, {
+      method: "POST",
+      body: { name, labelListVisibility: "labelShow", messageListVisibility: "show" },
+    });
+    return creee.id;
+  } catch (caught) {
+    const seconde = await trouver();
+    if (seconde) return seconde;
+    throw caught;
+  }
 }
 
 export function addLabel(accessToken: string, messageId: string, labelId: string) {

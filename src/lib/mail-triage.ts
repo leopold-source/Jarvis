@@ -51,26 +51,22 @@ const SEUILS_CORBEILLE: Record<string, number> = {
 /** Une boîte normale reçoit moins que cela ; au-delà, c'est un rattrapage. */
 const MAX_MAILS = 60;
 
-const ETIQUETTES: Record<string, string> = {
-  spam: "IA/Spam",
-  prospection_etrangere: "IA/Démarchage",
-  notification: "IA/Notifications",
-  facture: "IA/Factures",
-  a_repondre: "IA/À répondre",
-  information: "IA/Info",
-  incertain: "IA/À vérifier",
-};
-
 /*
-  Ce qui sort de la boîte de réception sans partir à la corbeille.
+  Les dossiers, tels qu'ils apparaissent dans Gmail.
 
-  « Ranger » ne voulait rien dire tant que le message restait sous les yeux
-  avec une étiquette de plus. Ranger, c'est classer ailleurs : ces deux
-  catégories quittent la boîte et se retrouvent par leur étiquette. Ce qui
-  attend une décision — une réponse à écrire, un classement incertain — reste
-  où on le verra.
+  Sans préfixe : ce sont les dossiers de Léopold, pas ceux d'un robot, et un
+  « IA/ » devant chacun n'apprenait rien à personne. « Indésirables » plutôt que
+  « Spam » parce que Gmail réserve ce nom-là et refuse de créer l'étiquette.
 */
-const A_ARCHIVER = new Set(["facture", "information"]);
+const ETIQUETTES: Record<string, string> = {
+  spam: "Indésirables",
+  prospection_etrangere: "Démarchage",
+  notification: "Notifications",
+  facture: "Factures",
+  a_repondre: "À répondre",
+  information: "Info",
+  incertain: "À vérifier",
+};
 
 const Verdict = z.object({
   categorie: z.enum([
@@ -354,11 +350,23 @@ export async function trierMails(userId: string): Promise<TriageOutcome> {
         // quelque part où personne ne le reverra.
         action = "a_traiter";
         bilan.a_traiter += 1;
-      } else if (A_ARCHIVER.has(verdict.categorie)) {
-        // Ranger, c'est classer ailleurs. Le message quitte la boîte de
-        // réception et se retrouve par son étiquette.
-        await archiveMessage(access_token, id);
       }
+
+      /*
+        Tout ce qui a été classé quitte la boîte de réception.
+
+        C'est le geste qui donne son sens au tri : un dossier dans lequel on
+        range sans retirer de la pile ne range rien. La corbeille s'en charge
+        déjà pour ce qui est écarté ; le reste est archivé — il reste dans
+        « Tous les messages » et sous son dossier, simplement plus dans la vue
+        principale.
+
+        Ce qui attend une réponse part aussi. C'est un choix, et il a un prix :
+        la boîte de réception n'est plus l'endroit où l'on constate qu'on doit
+        répondre — l'application l'est, et elle le rappelle sur le tableau de
+        bord, dans le brief du matin et à la voix.
+      */
+      if (!corbeille) await archiveMessage(access_token, id);
 
       if (verdict.categorie === "facture") bilan.factures += 1;
       if (verdict.categorie === "incertain") bilan.incertains += 1;

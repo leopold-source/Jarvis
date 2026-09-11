@@ -85,7 +85,7 @@ export function GmailConnection({
             Compte Google
           </span>
         }
-        description="Rattache vos échanges aux affaires, permet le tri quotidien de la boîte, et affiche vos rendez-vous du jour sur le tableau de bord."
+        description="Rattache vos échanges aux affaires, range la boîte chaque matin dans des dossiers Gmail, et affiche vos rendez-vous du jour sur le tableau de bord."
         action={
           account ? (
             <Badge tone="emerald">
