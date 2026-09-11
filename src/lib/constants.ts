@@ -280,6 +280,7 @@ export const DEAL_HEALTH: Record<string, { label: string; tone: Tone; hint: stri
 export const MAIL_CATEGORY: Record<MailCategory, { label: string; tone: Tone }> = {
   spam: { label: "Spam", tone: "stone" },
   prospection_etrangere: { label: "Démarchage", tone: "amber" },
+  notification: { label: "Notification", tone: "stone" },
   facture: { label: "Facture", tone: "cyan" },
   a_repondre: { label: "À répondre", tone: "violet" },
   information: { label: "Info", tone: "sky" },
@@ -292,12 +293,15 @@ export const MAIL_CATEGORY_ORDER: MailCategory[] = [
   "facture",
   "information",
   "prospection_etrangere",
+  "notification",
   "spam",
 ];
 
 export const MAIL_ACTION: Record<MailAction, { label: string; tone: Tone }> = {
-  corbeille: { label: "Mis à la corbeille", tone: "stone" },
-  etiquete: { label: "Rangé", tone: "sky" },
+  corbeille: { label: "Corbeille", tone: "stone" },
+  // « Rangé » veut dire sorti de la boîte de réception et classé sous son
+  // étiquette — pas simplement étiqueté et laissé sous les yeux.
+  etiquete: { label: "Classé", tone: "sky" },
   brouillon_pret: { label: "Réponse prête", tone: "emerald" },
   a_traiter: { label: "Pour toi", tone: "amber" },
 };

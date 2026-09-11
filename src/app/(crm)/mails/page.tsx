@@ -18,7 +18,7 @@ export default async function MailsPage() {
   const profile = await requireStaff();
   const supabase = await createClient();
 
-  const [{ data: mails }, { data: passages }, { data: compte }] = await Promise.all([
+  const [{ data: mails }, { data: signales }, { data: passages }, { data: compte }] = await Promise.all([
     supabase
       .from("mail_triage")
       .select("*")
@@ -26,6 +26,16 @@ export default async function MailsPage() {
       .eq("review", "en_attente")
       .order("received_at", { ascending: false })
       .limit(60),
+    // Écartés mais dignes d'être sus : ils ont quitté la file de relecture, on
+    // les rappelle donc explicitement.
+    supabase
+      .from("mail_triage")
+      .select("*")
+      .eq("user_id", profile.id)
+      .eq("a_signaler", true)
+      .gte("created_at", new Date(Date.now() - 3 * 86_400_000).toISOString())
+      .order("received_at", { ascending: false })
+      .limit(10),
     supabase
       .from("mail_runs")
       .select("*")
@@ -47,6 +57,7 @@ export default async function MailsPage() {
       />
       <MailReview
         mails={(mails ?? []) as MailTriage[]}
+        signales={(signales ?? []) as MailTriage[]}
         dernierPassage={((passages ?? [])[0] as MailRun | undefined) ?? null}
         compteConnecte={compte?.email ?? null}
         perimetre={compte?.scope ?? ""}

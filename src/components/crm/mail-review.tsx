@@ -52,11 +52,13 @@ import {
  */
 export function MailReview({
   mails,
+  signales,
   dernierPassage,
   compteConnecte,
   perimetre,
 }: {
   mails: MailTriage[];
+  signales: MailTriage[];
   dernierPassage: MailRun | null;
   compteConnecte: string | null;
   perimetre: string;
@@ -119,6 +121,9 @@ export function MailReview({
     );
   }
 
+  // Écartés mais signalés : ils ne sont plus dans la file, donc il faut les
+  // remonter ici — sinon « je te le fais savoir » ne veut rien dire.
+  const aSavoir = signales;
   const aRepondre = mails.filter((mail) => mail.action === "brouillon_pret");
   const pourToi = mails.filter((mail) => mail.action !== "brouillon_pret");
 
@@ -181,6 +186,32 @@ export function MailReview({
           </div>
         </Card>
       )}
+
+      {aSavoir.length > 0 ? (
+        <Card className="border-amber-500/30 bg-amber-500/8 p-4">
+          <p className="flex items-center gap-1.5 text-[12.5px] font-medium text-amber-700 dark:text-amber-300">
+            <AlertTriangle className="size-3.5" />
+            {aSavoir.length} message{aSavoir.length > 1 ? "s" : ""} écarté
+            {aSavoir.length > 1 ? "s" : ""}, mais à savoir
+          </p>
+          <ul className="mt-2 space-y-1">
+            {aSavoir.slice(0, 4).map((mail) => (
+              <li key={mail.id} className="truncate text-[12px] text-[var(--text-secondary)]">
+                <span className="font-medium">{mail.from_name || mail.from_email}</span>
+                {" — "}
+                {mail.subject}
+              </li>
+            ))}
+          </ul>
+          <button
+            type="button"
+            onClick={() => setRecap(true)}
+            className="mt-2 text-[11.5px] text-brand-500 hover:text-brand-400 dark:text-brand-300"
+          >
+            Voir et restaurer si besoin
+          </button>
+        </Card>
+      ) : null}
 
       <p className="flex items-center gap-1.5 text-[11.5px] text-[var(--text-muted)]">
         <ShieldCheck className="size-3.5 text-emerald-500" />
@@ -462,10 +493,16 @@ function RecapModal({
 
   const groupes: Array<{ clef: string; titre: string; note: string; mails: MailTriage[] }> = [
     {
+      clef: "signale",
+      titre: "À savoir",
+      note: "Écartés, mais tu dois être au courant.",
+      mails: (mails ?? []).filter((m) => m.a_signaler),
+    },
+    {
       clef: "corbeille",
       titre: "Écartés",
       note: "À la corbeille — Gmail les garde trente jours.",
-      mails: (mails ?? []).filter((m) => m.action === "corbeille"),
+      mails: (mails ?? []).filter((m) => m.action === "corbeille" && !m.a_signaler),
     },
     {
       clef: "brouillon_pret",
@@ -481,8 +518,8 @@ function RecapModal({
     },
     {
       clef: "etiquete",
-      titre: "Rangés",
-      note: "Étiquetés et laissés en boîte, aucune action attendue.",
+      titre: "Classés",
+      note: "Sortis de la boîte de réception, retrouvables par leur étiquette.",
       mails: (mails ?? []).filter((m) => m.action === "etiquete"),
     },
   ];
@@ -519,7 +556,12 @@ function RecapModal({
             .filter((groupe) => groupe.mails.length > 0)
             .map((groupe) => (
               <section key={groupe.clef}>
-                <h4 className="flex flex-wrap items-baseline gap-2 text-[13px] font-medium">
+                <h4
+                  className={cn(
+                    "flex flex-wrap items-baseline gap-2 text-[13px] font-medium",
+                    groupe.clef === "signale" && "text-amber-600 dark:text-amber-300",
+                  )}
+                >
                   {groupe.titre}
                   <span className="text-[11.5px] font-normal text-[var(--text-muted)]">
                     {groupe.mails.length} · {groupe.note}

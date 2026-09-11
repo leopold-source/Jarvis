@@ -478,3 +478,17 @@ export function untrashMessage(accessToken: string, messageId: string) {
     body: {},
   });
 }
+
+/**
+ * Sort un message de la boîte de réception sans l'effacer.
+ *
+ * Gmail n'a pas de dossier « archive » : ranger consiste à retirer l'étiquette
+ * INBOX, ce qui fait disparaître le message de la boîte tout en le laissant
+ * dans « Tous les messages » et sous ses propres étiquettes.
+ */
+export function archiveMessage(accessToken: string, messageId: string) {
+  return gmail<unknown>(`/messages/${messageId}/modify`, accessToken, undefined, {
+    method: "POST",
+    body: { removeLabelIds: ["INBOX"] },
+  });
+}

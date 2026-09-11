@@ -617,6 +617,8 @@ export type DealHealth = {
 export type MailCategory =
   | "spam"
   | "prospection_etrangere"
+  /** Transactionnel et automatique : rien à répondre, rien à décider. */
+  | "notification"
   | "facture"
   | "a_repondre"
   | "information"
@@ -647,6 +649,8 @@ export type MailTriage = {
    * jamais, quelle que soit la confiance annoncée.
    */
   known_contact: boolean;
+  /** Écarté, mais à porter à la connaissance : alerte de sécurité, impayé. */
+  a_signaler: boolean;
   draft_id: string | null;
   draft_subject: string | null;
   draft_body: string | null;
@@ -713,7 +717,7 @@ type Defaulted =
   | "quote_review" | "review" | "ok"
   | "started_on" | "starts_on" | "target_value" | "current_value" | "source"
   | "org_key" | "phone_key" | "utile"
-  | "started_at" | "confidence" | "known_contact" | "action" | "lus" | "spams"
+  | "started_at" | "confidence" | "known_contact" | "action" | "a_signaler" | "lus" | "spams"
   | "factures" | "brouillons" | "a_traiter" | "incertains" | "cout_centimes" | "annonce";
 
 type TableDef<Row, RequiredKeys extends keyof Row = never> = {
