@@ -124,45 +124,87 @@ export function buildOrgIndex(
 }
 
 /**
- * Éloigne les leads d'une même organisation dans la file d'appel.
+ * L'identité d'un groupe : les identifiants de ses membres, triés.
  *
- * L'ordre de prospection reste celui qui a été calculé ; on se contente de
- * repousser un lead dont l'organisation vient d'être appelée quelques rangs
- * plus loin. Deux fiches du même groupe ne se suivent donc jamais, et le lead
- * repoussé n'est pas perdu pour autant.
+ * Stable d'un rendu à l'autre et indépendante de celui qu'on affiche, ce qui
+ * en fait la clé sous laquelle retenir la rotation. Nulle pour un lead seul —
+ * un groupe d'un n'en est pas un.
  */
-export function spreadByOrg(ordered: LeadListe[], index: Map<string, OrgLink>): LeadListe[] {
-  // L'identité d'un groupe : les identifiants de ses membres, triés. Calculée
-  // une fois — la recomposer à chaque comparaison coûterait plus cher que le
-  // problème qu'elle règle.
-  const groupOf = new Map<string, string>();
-  for (const lead of ordered) {
-    const link = index.get(lead.id);
-    if (!link) continue;
-    groupOf.set(
-      lead.id,
-      [lead.id, ...link.siblings.map((sibling) => sibling.id)].sort().join("|"),
-    );
-  }
+export function groupIdOf(lead: LeadListe, index: Map<string, OrgLink>): string | null {
+  const link = index.get(lead.id);
+  if (!link) return null;
+  return [lead.id, ...link.siblings.map((sibling) => sibling.id)].sort().join("|");
+}
 
-  const remaining = [...ordered];
-  const out: LeadListe[] = [];
-  let lastGroup: string | undefined;
+export type FileEntry = {
+  /** Le lead à appeler, celui qui occupe la ligne. */
+  lead: LeadListe;
+  /** La clé du groupe, ou null si la fiche est seule. */
+  groupId: string | null;
+  /**
+   * Les appelables du groupe, dans l'ordre où la rotation les propose. Un seul
+   * élément — le lead lui-même — quand il n'y a personne d'autre à proposer.
+   */
+  candidats: LeadListe[];
+};
 
-  while (remaining.length > 0) {
-    let pick = 0;
-    // Le prochain appartient au groupe qu'on vient d'appeler : on prend le
-    // suivant qui n'en est pas, et celui-ci attend un rang. S'il n'y a rien
-    // d'autre à appeler, il passe quand même — mieux vaut un enchaînement
-    // visible qu'une file vide.
-    if (lastGroup !== undefined && groupOf.get(remaining[0].id) === lastGroup) {
-      const alt = remaining.findIndex((lead) => groupOf.get(lead.id) !== lastGroup);
-      if (alt > 0) pick = alt;
+/**
+ * Une ligne par organisation, et de quoi changer d'interlocuteur.
+ *
+ * Montrer les trois dirigeants d'une même boîte dans la file d'appel était une
+ * mauvaise idée honnêtement signalée : la pastille disait bien « contacté il y
+ * a 10 jours chez la même organisation », mais il fallait la lire, la
+ * comprendre, et décider — trois fois par groupe, en descendant une liste de
+ * deux cents lignes. Ce n'est pas une décision qu'on veut prendre deux cents
+ * fois par jour.
+ *
+ * La file n'affiche donc qu'un interlocuteur par organisation. Les autres ne
+ * sont pas perdus : ils sont derrière le bouton de rotation, qui fait défiler
+ * les membres du groupe sur la même ligne et revient au premier. Le choix par
+ * défaut va à celui qui a un portable — un numéro direct décroche, un standard
+ * filtre — puis, à égalité, à celui que la file avait déjà placé en tête.
+ *
+ * `rotation` compte les clics par groupe. Le modulo fait le cercle, et comme
+ * l'ordre des candidats ne dépend pas de la rotation, revenir au point de
+ * départ ramène exactement la fiche du début.
+ */
+export function collapseByOrg(
+  queue: LeadListe[],
+  index: Map<string, OrgLink>,
+  rotation: Map<string, number> = new Map(),
+): FileEntry[] {
+  const parGroupe = new Map<string, LeadListe[]>();
+  // L'ordre de sortie est celui de la file : un groupe prend le rang de son
+  // premier membre, sinon collapser reviendrait à reclasser.
+  const sortie: Array<{ groupId: string | null; lead: LeadListe }> = [];
+
+  for (const lead of queue) {
+    const groupId = groupIdOf(lead, index);
+    if (groupId === null) {
+      sortie.push({ groupId: null, lead });
+      continue;
     }
-    const [lead] = remaining.splice(pick, 1);
-    out.push(lead);
-    lastGroup = groupOf.get(lead.id);
+    const membres = parGroupe.get(groupId);
+    if (membres) {
+      membres.push(lead);
+      continue;
+    }
+    parGroupe.set(groupId, [lead]);
+    sortie.push({ groupId, lead });
   }
 
-  return out;
+  return sortie.map(({ groupId, lead }) => {
+    if (groupId === null) return { lead, groupId, candidats: [lead] };
+
+    // Le portable d'abord ; à défaut, l'ordre de la file, qui porte déjà le
+    // retard des relances. `sort` étant stable, il suffit de ne comparer que
+    // sur ce critère pour que le reste de l'ordre survive.
+    const candidats = [...(parGroupe.get(groupId) ?? [lead])].sort(
+      (a, b) => Number(Boolean(b.phone)) - Number(Boolean(a.phone)),
+    );
+
+    const tours = rotation.get(groupId) ?? 0;
+    const choisi = candidats[((tours % candidats.length) + candidats.length) % candidats.length];
+    return { lead: choisi, groupId, candidats };
+  });
 }

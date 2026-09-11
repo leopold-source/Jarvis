@@ -21,6 +21,7 @@ import {
   Table2,
   Upload,
   UserRound,
+  RotateCw,
   Users2,
   ClipboardPaste,
   X,
@@ -54,7 +55,7 @@ import {
 } from "@/app/(crm)/leads/actions";
 import { useCellSelection, type CellSelection } from "@/lib/use-cell-selection";
 import { ImportLeadsDialog } from "@/components/crm/import-leads-dialog";
-import { buildOrgIndex, spreadByOrg, type OrgLink } from "@/lib/lead-orgs";
+import { buildOrgIndex, collapseByOrg, type FileEntry, type OrgLink } from "@/lib/lead-orgs";
 import { LeadDrawer } from "@/components/crm/lead-drawer";
 
 const PAGE_SIZE = 60;
@@ -273,12 +274,31 @@ export function LeadsWorkspace({
     [rows, orgCooldownDays],
   );
 
+  /*
+    Combien de fois on a demandé à changer d'interlocuteur, par organisation.
+
+    Un compteur et non l'identifiant du lead retenu : le cercle vient du
+    modulo, donc revenir au point de départ ne demande aucune mémoire de ce
+    qu'était le point de départ. Volontairement non persisté — c'est un geste
+    de session, pas une préférence, et le retrouver le lendemain sur une file
+    entre-temps réordonnée surprendrait plus qu'il n'aiderait.
+  */
+  const [rotation, setRotation] = useState<Map<string, number>>(() => new Map());
+
+  const tourner = useCallback((groupId: string) => {
+    setRotation((courant) => {
+      const suivant = new Map(courant);
+      suivant.set(groupId, (courant.get(groupId) ?? 0) + 1);
+      return suivant;
+    });
+  }, []);
+
   const grouped = useMemo(
     () => rows.filter((lead) => orgIndex.has(lead.id)).length,
     [rows, orgIndex],
   );
 
-  const filtered = useMemo(() => {
+  const entrees: FileEntry[] = useMemo(() => {
     const needle = normalize(search.trim());
     const wanted = new Set(statuses);
 
@@ -298,7 +318,7 @@ export function LeadsWorkspace({
       ).includes(needle);
     });
 
-    if (view === "lecture") return base;
+    if (view === "lecture") return base.map((lead) => ({ lead, groupId: null, candidats: [lead] }));
 
     // Mode prospection : la file d'appel. Les retards d'abord, puis le jour
     // même, puis les relances orphelines, puis les fiches jamais appelées.
@@ -321,10 +341,25 @@ export function LeadsWorkspace({
         return keyA < keyB ? -1 : keyA > keyB ? 1 : 0;
       });
 
-    // Deux dirigeants d'un même groupe ne s'enchaînent jamais : c'est là, en
-    // descendant la file sans réfléchir, qu'on rappelle la même boîte deux fois.
-    return spreadByOrg(queue, orgIndex);
-  }, [rows, search, statuses, region, segment, owner, currentUserId, view, showOverdue, today, onlyGrouped, phoneFilter, orgIndex]);
+    // Un interlocuteur par organisation. Les autres restent à un clic, sur la
+    // même ligne — c'est là, en descendant la file sans réfléchir, qu'on
+    // rappelait la même boîte deux fois.
+    return collapseByOrg(queue, orgIndex, rotation);
+  }, [rows, search, statuses, region, segment, owner, currentUserId, view, showOverdue, today, onlyGrouped, phoneFilter, orgIndex, rotation]);
+
+  // Les lignes, et ce qu'il faut pour en changer l'occupant. Deux vues d'une
+  // même liste : le rendu ne connaît que des leads, le bouton que des groupes.
+  const page = entrees.slice(0, visible);
+  const pageLeads = useMemo(() => page.map((entree) => entree.lead), [page]);
+  const alternatives = useMemo(
+    () => new Map(page.map((entree) => [entree.lead.id, entree])),
+    [page],
+  );
+
+  const replies = useMemo(
+    () => entrees.reduce((total, entree) => total + entree.candidats.length - 1, 0),
+    [entrees],
+  );
 
   const dueToday = useMemo(
     () => rows.filter((lead) => lead.follow_up_on === today).length,
@@ -344,12 +379,11 @@ export function LeadsWorkspace({
   );
 
   const size = DENSITIES[density];
-  const page = filtered.slice(0, visible);
-  const hasMore = visible < filtered.length;
+  const hasMore = visible < entrees.length;
 
   // La sélection ne porte que sur les lignes réellement affichées : coller sur
   // une ligne qu'on ne voit pas serait une modification à l'aveugle.
-  const pageIds = useMemo(() => page.map((lead) => lead.id), [page]);
+  const pageIds = useMemo(() => pageLeads.map((lead) => lead.id), [pageLeads]);
   const cells = useCellSelection(pageIds);
 
   /** Ce qu'une cellule contient, et comment le dire à l'écran. */
@@ -428,7 +462,7 @@ export function LeadsWorkspace({
         const source = cells.anchor;
         if (!source) return;
         if (window.getSelection()?.toString()) return;
-        const lead = page.find((entry) => entry.id === source.id);
+        const lead = pageLeads.find((entry) => entry.id === source.id);
         if (!lead) return;
 
         const field = source.field as BulkField;
@@ -699,9 +733,18 @@ export function LeadsWorkspace({
       <Card className="overflow-hidden">
         <div className="flex items-center justify-between border-b border-[var(--border-subtle)] px-4 py-2.5">
           <p className="text-[12.5px] text-[var(--text-muted)]">
-            <span className="font-medium text-[var(--text-primary)]">{filtered.length}</span> lead
-            {filtered.length > 1 ? "s" : ""}
-            {filtered.length !== leads.length ? ` sur ${leads.length}` : ""}
+            <span className="font-medium text-[var(--text-primary)]">{entrees.length}</span>{" "}
+            {view === "prospection" ? "ligne" : "lead"}
+            {entrees.length > 1 ? "s" : ""}
+            {entrees.length !== leads.length ? ` sur ${leads.length}` : ""}
+            {/* Dire combien de fiches sont derrière la rotation : sans cela, le
+                compte semble avoir perdu des leads en cours de route. */}
+            {replies > 0 ? (
+              <span className="ml-1.5">
+                · {replies} autre{replies > 1 ? "s" : ""} interlocuteur
+                {replies > 1 ? "s" : ""} sous la rotation
+              </span>
+            ) : null}
           </p>
           <p className="hidden text-[11.5px] text-[var(--text-muted)] sm:block">
             Statut, téléphone, relance et commentaire s&apos;éditent directement dans le tableau.
@@ -736,7 +779,7 @@ export function LeadsWorkspace({
                 </tr>
               </thead>
               <tbody className="divide-y divide-[var(--border-subtle)]">
-                {page.map((lead, index) => (
+                {pageLeads.map((lead, index) => (
                   <tr
                     key={lead.id}
                     onClick={() => setSelected(lead)}
@@ -786,7 +829,11 @@ export function LeadsWorkspace({
                     <td className={cn("max-w-52 px-2.5", size.cell)}>
                       <p className="flex items-center gap-1.5 truncate" title={lead.company_activity ?? undefined}>
                         <span className="truncate">{lead.company_name ?? "—"}</span>
-                        <OrgChip link={orgIndex.get(lead.id)} />
+                        <OrgChip
+                          link={orgIndex.get(lead.id)}
+                          entree={alternatives.get(lead.id)}
+                          onTourner={tourner}
+                        />
                       </p>
                     </td>
 
@@ -895,7 +942,7 @@ export function LeadsWorkspace({
               </p>
             ) : (
               <p className="py-2.5 text-center text-[11.5px] text-[var(--text-muted)]">
-                Fin de la liste — {filtered.length} lead{filtered.length > 1 ? "s" : ""}.
+                Fin de la liste — {entrees.length} ligne{entrees.length > 1 ? "s" : ""}.
               </p>
             )}
           </div>
@@ -961,36 +1008,84 @@ export function LeadsWorkspace({
 /**
  * La pastille qui dit « vous n'êtes pas seul sur cette boîte ».
  *
- * Discrète tant que le voisin est ancien, ambrée dès qu'il a été travaillé
- * récemment — c'est le seul moment où elle doit accrocher l'œil. Elle
- * n'empêche rien : appeler deux dirigeants d'un même groupe est parfois la
- * bonne décision, encore faut-il la prendre.
+ * Elle a deux vies. En lecture, elle informe : discrète tant que le voisin est
+ * ancien, ambrée dès qu'il a été travaillé récemment. En prospection, elle
+ * agit : un clic passe à l'interlocuteur suivant de la même organisation, et
+ * le tour d'après revient au premier.
+ *
+ * C'est le même objet parce que c'est la même information — qui d'autre est
+ * là — et qu'un second bouton à côté d'un badge qui dit déjà « 2 » aurait
+ * demandé de comprendre lequel des deux fait quoi.
  */
-function OrgChip({ link }: { link?: OrgLink }) {
-  if (!link) return null;
+function OrgChip({
+  link,
+  entree,
+  onTourner,
+}: {
+  link?: OrgLink;
+  entree?: FileEntry;
+  onTourner?: (groupId: string) => void;
+}) {
+  const rotatif = Boolean(entree && entree.groupId && entree.candidats.length > 1 && onTourner);
+  if (!link && !rotatif) return null;
 
-  const alerte = link.recent !== null;
-  const qui = link.siblings
+  const alerte = link?.recent != null;
+  const voisins = (link?.siblings ?? [])
     .map((sibling) => `${sibling.full_name ?? "sans nom"} — ${LEAD_STATUS[sibling.status].label}`)
     .join("\n");
 
+  const total = entree ? entree.candidats.length : (link?.siblings.length ?? 0) + 1;
+
+  const classe = cn(
+    "flex shrink-0 items-center gap-0.5 rounded-full px-1.5 py-px text-[10px] font-medium ring-1 ring-inset",
+    alerte
+      ? "bg-amber-500/15 text-amber-700 ring-amber-500/30 dark:text-amber-300"
+      : "bg-[var(--surface-hover)] text-[var(--text-muted)] ring-[var(--border-subtle)]",
+  );
+
+  if (!rotatif) {
+    return (
+      <span
+        title={
+          (alerte
+            ? `Contacté il y a ${link?.daysSince} j chez la même organisation.\n\n`
+            : `Même organisation.\n\n`) + voisins
+        }
+        className={classe}
+      >
+        <Users2 className="size-2.5" />
+        {(link?.siblings.length ?? 0) + 1}
+      </span>
+    );
+  }
+
+  const rang = entree!.candidats.findIndex((candidat) => candidat.id === entree!.lead.id) + 1;
+  const suivant = entree!.candidats[rang % entree!.candidats.length];
+
   return (
-    <span
+    <button
+      type="button"
+      // La ligne entière ouvre le tiroir du lead : sans cela, changer
+      // d'interlocuteur ouvrirait la fiche de celui qu'on vient de quitter.
+      onClick={(event) => {
+        event.stopPropagation();
+        onTourner!(entree!.groupId!);
+      }}
       title={
-        (alerte
-          ? `Contacté il y a ${link.daysSince} j chez la même organisation.\n\n`
-          : `Même organisation.\n\n`) + qui
+        `Interlocuteur ${rang} sur ${total} chez cette organisation.\n` +
+        `Cliquer pour passer à ${suivant.full_name ?? "la fiche suivante"}` +
+        `${suivant.phone ? " (portable)" : ""}.` +
+        (alerte ? `\n\nQuelqu'un a été contacté il y a ${link?.daysSince} j chez eux.` : "") +
+        (voisins ? `\n\n${voisins}` : "")
       }
       className={cn(
-        "flex shrink-0 items-center gap-0.5 rounded-full px-1.5 py-px text-[10px] font-medium ring-1 ring-inset",
-        alerte
-          ? "bg-amber-500/15 text-amber-700 ring-amber-500/30 dark:text-amber-300"
-          : "bg-[var(--surface-hover)] text-[var(--text-muted)] ring-[var(--border-subtle)]",
+        classe,
+        "cursor-pointer transition-colors hover:bg-brand-500/15 hover:text-brand-600 hover:ring-brand-500/30 dark:hover:text-brand-300",
       )}
     >
-      <Users2 className="size-2.5" />
-      {link.siblings.length + 1}
-    </span>
+      <RotateCw className="size-2.5" />
+      {rang}/{total}
+    </button>
   );
 }
 

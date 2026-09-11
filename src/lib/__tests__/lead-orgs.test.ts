@@ -7,7 +7,7 @@
  * décrocher deux fois.
  */
 import type { LeadListe } from "@/lib/database.types";
-import { buildOrgIndex, spreadByOrg } from "@/lib/lead-orgs";
+import { buildOrgIndex, collapseByOrg } from "@/lib/lead-orgs";
 
 const NOW = Date.parse("2026-09-10T12:00:00Z");
 const daysAgo = (n: number) => new Date(NOW - n * 86_400_000).toISOString();
@@ -26,6 +26,7 @@ function lead(partial: Partial<LeadListe> & { id: string }): LeadListe {
     id: partial.id,
     full_name: partial.full_name ?? `Lead ${seq}`,
     org_key: partial.org_key ?? null,
+    phone: partial.phone ?? null,
     phone_key: partial.phone_key ?? null,
     last_touched_at: partial.last_touched_at ?? null,
     status_changed_at: partial.status_changed_at ?? daysAgo(400),
@@ -90,36 +91,73 @@ check("le dernier mouvement fait foi", jamais.get("j2")?.daysSince, 2);
 
 /* --- File d'appel -------------------------------------------------------- */
 
-console.log("\n--- file d'appel ---");
+console.log("\n--- une ligne par organisation ---");
 
+const ids = (entrees: ReturnType<typeof collapseByOrg>) => entrees.map((e) => e.lead.id);
+
+// Trois dirigeants chez Auddice, un ailleurs : trois lignes ne doivent plus
+// en faire qu'une.
 const file = [
   lead({ id: "a1", org_key: "auddice.com" }),
   lead({ id: "a2", org_key: "auddice.com" }),
   lead({ id: "b1", org_key: "autre.fr" }),
 ];
-const ordre = spreadByOrg(file, buildOrgIndex(file, 30, NOW)).map((l) => l.id);
-check("deux fiches du même groupe ne se suivent pas", ordre, ["a1", "b1", "a2"]);
-check("aucune fiche n'est perdue", ordre.length, 3);
+const collapse = collapseByOrg(file, buildOrgIndex(file, 30, NOW));
+check("une seule ligne par organisation", ids(collapse), ["a1", "b1"]);
+check("le groupe garde le rang de son premier membre", ids(collapse)[0], "a1");
+check("les autres restent joignables", collapse[0].candidats.length, 2);
+check("une fiche seule n'a pas d'alternative", collapse[1].candidats.length, 1);
+check("une fiche seule n'a pas de groupe", collapse[1].groupId, null);
 
-// Rien d'autre à appeler : la file ne se vide pas pour autant.
-const duo = [lead({ id: "d1", org_key: "z.fr" }), lead({ id: "d2", org_key: "z.fr" })];
+// Le portable décroche, le standard filtre : c'est lui qu'on propose d'abord,
+// même s'il arrive plus loin dans la file.
+const avecPortable = [
+  lead({ id: "std", org_key: "z.fr" }),
+  lead({ id: "mobile", org_key: "z.fr", phone: "+33 6 12 34 56 78" }),
+];
 check(
-  "sans alternative, l'ordre est conservé",
-  spreadByOrg(duo, buildOrgIndex(duo, 30, NOW)).map((l) => l.id),
-  ["d1", "d2"],
+  "le portable passe devant",
+  ids(collapseByOrg(avecPortable, buildOrgIndex(avecPortable, 30, NOW))),
+  ["mobile"],
 );
 
-// Un lead sans clé ne doit ni bloquer ni être déplacé.
+console.log("\n--- la rotation ---");
+
+const trio = [
+  lead({ id: "t1", org_key: "trio.fr" }),
+  lead({ id: "t2", org_key: "trio.fr" }),
+  lead({ id: "t3", org_key: "trio.fr" }),
+];
+const indexTrio = buildOrgIndex(trio, 30, NOW);
+const groupe = collapseByOrg(trio, indexTrio)[0].groupId!;
+const apres = (tours: number) => ids(collapseByOrg(trio, indexTrio, new Map([[groupe, tours]])))[0];
+
+check("sans clic, le premier", apres(0), "t1");
+check("un clic, le deuxième", apres(1), "t2");
+check("deux clics, le troisième", apres(2), "t3");
+check("trois clics, retour au départ", apres(3), "t1");
+check("le cercle tient au-delà d'un tour", apres(7), "t2");
+
+// La rotation d'un groupe ne doit pas déplacer les autres lignes.
 const melange = [
   lead({ id: "m1", org_key: "y.fr" }),
   lead({ id: "m2", org_key: "y.fr" }),
   lead({ id: "libre" }),
   lead({ id: "m3", org_key: "y.fr" }),
 ];
+const indexMelange = buildOrgIndex(melange, 30, NOW);
+const groupeY = collapseByOrg(melange, indexMelange)[0].groupId!;
 check(
-  "les fiches sans clé restent à leur place",
-  spreadByOrg(melange, buildOrgIndex(melange, 30, NOW)).map((l) => l.id),
-  ["m1", "libre", "m2", "m3"],
+  "tourner un groupe ne bouge pas le reste",
+  ids(collapseByOrg(melange, indexMelange, new Map([[groupeY, 1]]))),
+  ["m2", "libre"],
+);
+
+// Une rotation qui pointe un groupe absent de la file ne casse rien.
+check(
+  "une rotation orpheline est sans effet",
+  ids(collapseByOrg(melange, indexMelange, new Map([["groupe-inconnu", 3]]))),
+  ["m1", "libre"],
 );
 
 console.log(`\n${pass} succès, ${fail} échec(s).`);
