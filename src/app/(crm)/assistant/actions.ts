@@ -8,6 +8,7 @@ import {
   describeAnthropicError,
 } from "@/lib/anthropic";
 import { READ_TOOLS, runReadTool } from "@/app/(crm)/assistant/tools";
+import type { ActionProposee } from "@/app/(crm)/assistant/ecriture";
 
 /**
  * L'assistant vocal, côté serveur.
@@ -95,6 +96,36 @@ tour. Deux allers-retours prennent deux fois plus de temps, et on t'entend atten
   dis simplement que tu ne sais pas encore le faire.
 - Si tu n'as pas l'information, dis-le en une phrase. Ne devine pas.
 
+## Agir, et la retenue que ça demande
+
+Tu peux proposer une écriture avec proposer_action : planifier une relance, changer un
+statut ou une étape, ajouter une note, assigner, créer une tâche ou un chantier. Tu ne la
+fais jamais — c'est Léopold qui valide. Dis donc « je te propose », jamais « c'est fait ».
+
+Avant de proposer, va chercher l'identifiant de la fiche par chercher ou etat_projets.
+Sans lui tu écrirais sur un homonyme, et c'est le genre d'erreur qu'on ne voit pas passer.
+
+Quand proposer :
+- il te le demande — « note que », « passe-le en », « rappelle-moi de » ;
+- ou il vient de raconter un appel dont la suite est évidente : « il m'a dit de rappeler en
+  janvier » appelle une relance, sans qu'il ait à le formuler.
+
+Quand ne pas proposer, et c'est le cas le plus fréquent :
+- il pose une question. Une question veut une réponse, pas une action.
+- tu n'es pas sûr de la fiche, de la date ou de la valeur. Demande, ou tais-toi.
+- tu en as déjà proposé une dans cette réponse. Une seule à la fois, toujours.
+
+Ne propose jamais de gagner ou perdre une affaire, ni de passer un lead en « call pris » :
+ces gestes créent ou ferment des dossiers et se font à l'écran.
+
+## Poser une question
+
+Tu peux poser UNE question quand il manque vraiment quelque chose pour agir — la date, la
+personne, le projet. Une seule, courte, à la fin de ta réponse. Si tu peux déduire la
+réponse sans risque, déduis-la plutôt que de demander : chaque aller-retour coûte du temps
+et de l'argent. Et ne pose jamais de question de politesse ou de relance du type « tu veux
+que je regarde autre chose ? » — s'il veut, il demandera.
+
 Quand tu annonces le tri des mails, sois nominatif : « Nicolas de BM2S t'a écrit, je t'ai
 préparé une réponse » vaut mieux que « trois mails attendent ». Au plus trois noms, et dis
 franchement ce que tu n'as pas su traiter.`;
@@ -102,7 +133,14 @@ franchement ce que tu n'as pas su traiter.`;
 export type AssistantTurn = { role: "user" | "assistant"; content: string };
 
 export type AssistantReply =
-  | { ok: true; texte: string; outils: string[]; cout_centimes: number }
+  | {
+      ok: true;
+      texte: string;
+      outils: string[];
+      cout_centimes: number;
+      /** Une écriture attend un « oui ». Elle n'a rien changé pour l'instant. */
+      action?: ActionProposee | null;
+    }
   | { ok: false; error: string };
 
 export async function demanderAssistant(
@@ -117,6 +155,7 @@ export async function demanderAssistant(
 
   const client = anthropicClient();
   const outilsUtilises: string[] = [];
+  let proposition: ActionProposee | null = null;
 
   // On ne renvoie que les derniers échanges : une conversation parlée se
   // souvient de son contexte immédiat, pas de la séance d'hier.
@@ -160,6 +199,7 @@ export async function demanderAssistant(
           ok: true,
           texte: texte || "Je n'ai pas de réponse à te donner là-dessus.",
           outils: outilsUtilises,
+          action: proposition,
           // Haiku 4.5 : 1 $ / million en entrée, 5 $ en sortie. Converti en
           // centimes d'euro à la louche, pour surveiller la dérive, pas pour
           // tenir une comptabilité.
@@ -178,6 +218,13 @@ export async function demanderAssistant(
           bloc.input as Record<string, unknown>,
           profile.id,
         );
+
+        // La dernière proposition l'emporte : la consigne n'en autorise qu'une,
+        // et en garder deux laisserait l'écran en proposer une que le modèle a
+        // déjà abandonnée.
+        if (bloc.name === "proposer_action" && "action" in donnees) {
+          proposition = donnees.action as ActionProposee;
+        }
         resultats.push({
           type: "tool_result" as const,
           tool_use_id: bloc.id,

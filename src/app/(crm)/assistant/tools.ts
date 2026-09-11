@@ -106,6 +106,55 @@ export const READ_TOOLS = [
     },
   },
   {
+    name: "proposer_action",
+    description:
+      "Propose une écriture dans la base. N'EXÉCUTE RIEN : la proposition est affichée à " +
+      "Léopold qui valide ou refuse. À n'utiliser que lorsqu'une action est explicitement " +
+      "demandée, ou qu'elle découle si évidemment de la conversation qu'il serait absurde de " +
+      "ne pas la proposer. Une seule à la fois. Tu dois d'abord avoir obtenu l'identifiant de " +
+      "la fiche visée par « chercher » ou « etat_projets » : sans lui, tu écrirais sur un homonyme.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        type: {
+          type: "string",
+          enum: [
+            "creer_tache",
+            "planifier_relance",
+            "changer_statut_lead",
+            "changer_etape_affaire",
+            "ajouter_note_lead",
+            "assigner_lead",
+            "creer_chantier",
+          ],
+        },
+        cible_id: {
+          type: "string",
+          description:
+            "Identifiant exact de la fiche : lead, affaire, ou projet pour une tâche. " +
+            "Inutile seulement pour creer_chantier.",
+        },
+        valeur: {
+          type: "string",
+          description:
+            "Selon le type : une date AAAA-MM-JJ pour une relance, un statut " +
+            "(nrp, nrp2, nrp3, a_recontacter, raccroche_avant_pitch, pas_interesse, non_qualifie), " +
+            "une étape (demande_rdv_envoyee, r1, r2, propale_envoyee, no_show, nurturing), " +
+            "un prénom pour une assignation, ou un intitulé pour une tâche ou un chantier.",
+        },
+        detail: { type: "string", description: "Texte de la note, ou description." },
+        resume: {
+          type: "string",
+          description:
+            "La phrase lue à voix haute avant validation, à la première personne et sans " +
+            "jargon. Exemple : « Je passe Verdi en NRP 2 et je te le remets dans quinze jours. »",
+        },
+      },
+      required: ["type", "resume"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "agenda",
     description:
       "Les rendez-vous à venir : aujourd'hui et demain, avec l'heure, les participants et " +
@@ -257,12 +306,12 @@ export async function runReadTool(
       const [{ data: leads }, { data: deals }, { data: companies }] = await Promise.all([
         supabase
           .from("leads")
-          .select("full_name, company_name, job_title, status, phone, phone_standard, email, follow_up_on, comment")
+          .select("id, full_name, company_name, job_title, status, phone, phone_standard, email, follow_up_on, comment")
           .or(`full_name.ilike.${motif},company_name.ilike.${motif},email.ilike.${motif}`)
           .limit(6),
         supabase
           .from("deals")
-          .select("name, stage, amount, expected_close_on, next_step")
+          .select("id, name, stage, amount, expected_close_on, next_step")
           .ilike("name", motif)
           .limit(6),
         supabase.from("companies").select("name, sector, region").ilike("name", motif).limit(4),
@@ -270,6 +319,9 @@ export async function runReadTool(
 
       return {
         leads: (leads ?? []).map((l) => ({
+          // L'identifiant voyage : c'est lui qu'une proposition d'action devra
+          // citer, pour qu'on écrive sur la bonne fiche et pas sur un homonyme.
+          id: l.id,
           nom: l.full_name,
           entreprise: l.company_name,
           poste: l.job_title,
@@ -280,6 +332,7 @@ export async function runReadTool(
           note: l.comment,
         })),
         affaires: (deals ?? []).map((d) => ({
+          id: d.id,
           nom: d.name,
           etape: DEAL_STAGE[d.stage as DealStage]?.label ?? d.stage,
           montant: d.amount,
@@ -336,6 +389,30 @@ export async function runReadTool(
           relance_prevue: l.follow_up_on,
           note: l.comment,
         })),
+      };
+    }
+
+    /*
+      Proposer n'est pas faire.
+
+      Cet « outil » n'écrit rien : il renvoie la proposition au modèle, qui la
+      formule, et l'application l'affiche pour validation. L'exécution se joue
+      ensuite entre l'écran et le serveur, sans repasser par le modèle — c'est
+      ce qui rend la confirmation gratuite et le geste vérifiable.
+    */
+    case "proposer_action": {
+      return {
+        proposition_enregistree: true,
+        rappel:
+          "Annonce la proposition et demande la validation. Ne dis jamais que c'est fait : " +
+          "rien ne le sera tant que Léopold n'aura pas confirmé.",
+        action: {
+          type: String(input.type ?? ""),
+          cible_id: input.cible_id ? String(input.cible_id) : null,
+          valeur: input.valeur ? String(input.valeur) : null,
+          detail: input.detail ? String(input.detail) : null,
+          resume: String(input.resume ?? ""),
+        },
       };
     }
 
@@ -480,6 +557,7 @@ export async function runReadTool(
           const siennes = (taches ?? []).filter((t) => t.project_id === projet.id);
           const avance = (avancement ?? []).find((a) => a.project_id === projet.id);
           return {
+            id: projet.id,
             nom: projet.name,
             code: projet.code,
             statut: projet.status,

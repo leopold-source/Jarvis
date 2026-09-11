@@ -1,13 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AudioLines, Mic, MicOff, Send, Sparkles, Square, X } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { AudioLines, Check, Mic, MicOff, Send, Sparkles, Square, X } from "lucide-react";
 
 import { Orb, type OrbeEtat } from "@/components/assistant/orb";
 import { Button, Input } from "@/components/ui";
 import { cn } from "@/lib/utils";
 import { useVoice } from "@/lib/use-voice";
 import { demanderAssistant, type AssistantTurn } from "@/app/(crm)/assistant/actions";
+import { executerAction, type ActionProposee } from "@/app/(crm)/assistant/ecriture";
 
 /**
  * Le mode vocal.
@@ -22,20 +24,77 @@ import { demanderAssistant, type AssistantTurn } from "@/app/(crm)/assistant/act
  * inaccessible un jour sur deux.
  */
 export function AssistantOverlay({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const router = useRouter();
   const [etat, setEtat] = useState<OrbeEtat>("repos");
   const [reponse, setReponse] = useState("");
   const [historique, setHistorique] = useState<AssistantTurn[]>([]);
   const [saisie, setSaisie] = useState("");
   const [souci, setSouci] = useState<string | null>(null);
   const [cout, setCout] = useState(0);
+  const [action, setAction] = useState<ActionProposee | null>(null);
+  const [applique, setApplique] = useState(false);
   const occupe = useRef(false);
+
+  /*
+    L'accord ou le refus se reconnaissent sur place.
+
+    Renvoyer « oui » au modèle pour qu'il le comprenne coûterait un appel
+    complet là où une comparaison de chaînes suffit. La validation est donc
+    gratuite, et surtout instantanée — ce qui compte quand on parle.
+  */
+  const OUI = /^(oui|ouais|ok|okay|d'accord|daccord|vas[- ]y|valide|confirme|c'est bon|parfait|go)\b/i;
+  const NON = /^(non|nan|annule|laisse|surtout pas|pas maintenant|stop)\b/i;
+
+  /*
+    « Oui mais attends, c'est quel Verdi ? » commence par oui et n'en est pas un.
+
+    L'asymétrie commande la sévérité : un refus mal compris ne fait rien, un
+    accord mal compris écrit en base. Toute marque d'hésitation, et toute
+    question, annulent donc l'accord — la phrase repart alors vers le modèle,
+    qui saura quoi en faire.
+  */
+  const HESITE = /\b(mais|attends?|par contre|sauf|plut[oô]t|enfin|quel|quelle)\b|\?/i;
+  const estAccord = (phrase: string) => OUI.test(phrase) && !HESITE.test(phrase);
+
+  const valider = useCallback(async (proposee: ActionProposee) => {
+    setEtat("reflexion");
+    const resultat = await executerAction(proposee);
+    setAction(null);
+
+    if (!resultat.ok) {
+      setSouci(resultat.error);
+      setEtat("repos");
+      return;
+    }
+    setApplique(true);
+    setReponse(resultat.message);
+    await direRef.current(resultat.message);
+    setEtat("repos");
+    routerRef.current.refresh();
+  }, []);
 
   const traiter = useCallback(async (phrase: string) => {
     if (occupe.current) return;
+
+    // Une proposition attend : « oui » l'exécute, « non » l'écarte. Ni l'un ni
+    // l'autre ne repasse par le modèle.
+    if (action) {
+      if (estAccord(phrase.trim())) return void valider(action);
+      if (NON.test(phrase.trim())) {
+        setAction(null);
+        setReponse("D'accord, je ne touche à rien.");
+        void direRef.current("D'accord, je ne touche à rien.");
+        return;
+      }
+      // Autre chose : la proposition tombe, la phrase redevient une question.
+      setAction(null);
+    }
+
     occupe.current = true;
     setSouci(null);
     setEtat("reflexion");
     setReponse("");
+    setApplique(false);
 
     const resultat = await demanderAssistant(phrase, historique);
     occupe.current = false;
@@ -47,6 +106,7 @@ export function AssistantOverlay({ open, onClose }: { open: boolean; onClose: ()
     }
 
     setReponse(resultat.texte);
+    setAction(resultat.action ?? null);
     setCout((total) => total + resultat.cout_centimes);
     setHistorique((tours) => [
       ...tours.slice(-4),
@@ -56,16 +116,34 @@ export function AssistantOverlay({ open, onClose }: { open: boolean; onClose: ()
 
     await direRef.current(resultat.texte);
     setEtat("repos");
+
+    /*
+      Rendre la parole quand elle est attendue.
+
+      Une question posée ou une validation demandée appellent une réponse : se
+      taire et attendre un clic casserait la conversation. On ne relance
+      l'écoute que dans ces deux cas — le faire systématiquement ferait tourner
+      le micro pour rien.
+    */
+    const attendUneReponse =
+      Boolean(resultat.action) || /\?\s*$/.test(resultat.texte.trim());
+    if (attendUneReponse && ecouteRef.current.supporte) {
+      void ecouteRef.current.demarrer();
+    }
     // `historique` est lu à l'appel ; le lister relancerait la fonction à
     // chaque échange et couperait la dictée en cours.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [historique]);
+  }, [historique, action, valider]);
 
   const voix = useVoice({ onPhrase: traiter, onEtat: setEtat });
 
-  // La synthèse est appelée depuis `traiter`, qui est défini avant elle.
+  // La synthèse et l'écoute sont appelées depuis `traiter`, défini avant elles.
   const direRef = useRef(voix.dire);
   direRef.current = voix.dire;
+  const ecouteRef = useRef({ supporte: voix.supporte, demarrer: voix.demarrerEcoute });
+  ecouteRef.current = { supporte: voix.supporte, demarrer: voix.demarrerEcoute };
+  const routerRef = useRef(router);
+  routerRef.current = router;
 
   // Échap ferme, et coupe la parole en cours : rester coincé à écouter une
   // réponse qu'on ne veut plus entendre est le premier réflexe d'agacement.
@@ -140,6 +218,47 @@ export function AssistantOverlay({ open, onClose }: { open: boolean; onClose: ()
         </p>
       ) : null}
 
+      {/*
+        La proposition, écrite noir sur blanc.
+
+        Elle est lue à voix haute, mais un « oui » se donne sur ce qu'on voit :
+        entendre « Verdi » et lire « Verdi Nord de France » n'est pas la même
+        chose, et c'est exactement là que se logent les erreurs qu'on ne
+        rattrape pas.
+      */}
+      {action ? (
+        <div className="mt-5 w-full max-w-xl animate-fade-up rounded-2xl border border-brand-500/35 bg-brand-500/8 p-4">
+          <p className="text-[13.5px] leading-relaxed">{action.resume}</p>
+          <p className="mt-1 text-[11.5px] text-[var(--text-muted)]">
+            Rien n&apos;est encore modifié. Dis « oui » ou appuie.
+          </p>
+
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button size="sm" variant="primary" onClick={() => void valider(action)}>
+              <Check className="size-3.5" />
+              Valider
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                setAction(null);
+                setReponse("D'accord, je ne touche à rien.");
+              }}
+            >
+              Laisser tomber
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
+      {applique ? (
+        <p className="mt-3 flex items-center gap-1.5 text-[12.5px] text-emerald-600 dark:text-emerald-400">
+          <Check className="size-3.5" />
+          Enregistré.
+        </p>
+      ) : null}
+
       {message ? (
         <p className="mt-4 max-w-md rounded-xl border border-amber-500/30 bg-amber-500/10 px-3.5 py-2 text-center text-[12.5px] text-amber-700 dark:text-amber-300">
           {message}
@@ -211,10 +330,10 @@ export function AssistantOverlay({ open, onClose }: { open: boolean; onClose: ()
 
       <div className="mt-4 flex flex-wrap justify-center gap-1.5">
         {[
-          "Qu'est-ce que j'ai à faire aujourd'hui ?",
+          "Fais-moi le point",
+          "J'ai quoi cet après-midi ?",
           "Qui je dois rappeler ?",
-          "Tu as trié mes mails ?",
-          "Où en est le pipeline ?",
+          "Où en est BM2S ?",
         ].map((exemple) => (
           <button
             key={exemple}
