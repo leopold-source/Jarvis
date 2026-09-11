@@ -4,7 +4,7 @@ import { useState } from "react";
 import { AlertTriangle, Check, ChevronDown, FileSpreadsheet, Linkedin, MapPin, Sparkles, Upload, Wand2 } from "lucide-react";
 
 import { Badge, Button, Input, Modal, useToast } from "@/components/ui";
-import { fetchImportIndex, importLeads } from "@/app/(crm)/leads/actions";
+import { fetchImportIndex, importLeads, syncLeadsFromCsv } from "@/app/(crm)/leads/actions";
 import { cleanRowsWithAi } from "@/app/(crm)/leads/ai-actions";
 import {
   buildLookup,
@@ -12,7 +12,7 @@ import {
   VERDICT_STYLE,
   type DedupeVerdict,
 } from "@/lib/leads-dedupe";
-import { parseLeadsCsv, type ParsedLeadsCsv } from "@/lib/leads-csv";
+import { parseLeadsCsv, type ParsedLeadsCsv, type ParseOptions } from "@/lib/leads-csv";
 import { cn } from "@/lib/utils";
 
 type Row = Record<string, string | number | null>;
@@ -33,7 +33,7 @@ export function ImportLeadsDialog({
 }: {
   open: boolean;
   onClose: () => void;
-  onImported: (inserted: number, skipped: number) => void;
+  onImported: (inserted: number, skipped: number, updated?: number) => void;
 }) {
   const toast = useToast();
   const [parsed, setParsed] = useState<ParsedLeadsCsv | null>(null);
@@ -42,6 +42,24 @@ export function ImportLeadsDialog({
   const [busy, setBusy] = useState<"analyse" | "ia" | "import" | null>(null);
   const [aiChanges, setAiChanges] = useState<Array<{ label: string; changes: string[] }>>([]);
   const [aiInstruction, setAiInstruction] = useState("");
+  /*
+    Le texte du fichier, gardé après lecture.
+
+    Les deux exclusions sont des choix, pas des règles : les rouvrir doit
+    relire le fichier, pas obliger à le resélectionner. C'est aussi ce qui
+    permet de voir l'effet de la case en la cochant.
+  */
+  const [source, setSource] = useState("");
+  const [options, setOptions] = useState<ParseOptions>({});
+  /*
+    Corriger ce qui est déjà en base.
+
+    Décoché par défaut : un import ajoute, il n'écrase pas. Mais quand le CSV
+    est la table de prospection elle-même — et c'est le cas ici — il porte la
+    vérité sur les statuts, et rien d'autre ne permet de réparer une fiche
+    entrée de travers.
+  */
+  const [majDoublons, setMajDoublons] = useState(false);
 
   function reset() {
     setParsed(null);
@@ -72,8 +90,14 @@ export function ImportLeadsDialog({
 
     setFileName(file.name);
     setAiChanges([]);
+    const texte = await file.text();
+    setSource(texte);
+    await relire(texte, options);
+  }
+
+  async function relire(texte: string, choix: ParseOptions) {
     try {
-      const result = parseLeadsCsv(await file.text());
+      const result = parseLeadsCsv(texte, choix);
       setParsed(result);
       await analyse(result.rows);
     } catch (caught) {
@@ -81,6 +105,12 @@ export function ImportLeadsDialog({
       setParsed(null);
       setAnalysed(null);
     }
+  }
+
+  function basculer(cle: keyof ParseOptions) {
+    const suivant = { ...options, [cle]: !options[cle] };
+    setOptions(suivant);
+    if (source) void relire(source, suivant);
   }
 
   async function runAi() {
@@ -114,15 +144,30 @@ export function ImportLeadsDialog({
 
     setBusy("import");
     const result = await importLeads(keepers);
-    setBusy(null);
 
     if (!result.ok) {
+      setBusy(null);
       toast(result.error, "error");
       return;
     }
+
+    // La mise à jour porte sur tout le fichier, doublons compris : ce sont eux
+    // qu'elle vise, et les lignes qui viennent d'être insérées sont déjà à jour.
+    let updated = 0;
+    if (majDoublons) {
+      const sync = await syncLeadsFromCsv(analysed.map((entry) => entry.row));
+      if (!sync.ok) {
+        setBusy(null);
+        toast(`Import fait, mise à jour impossible : ${sync.error}`, "error");
+        return;
+      }
+      updated = sync.data!.updated;
+    }
+
+    setBusy(null);
     const duplicates = analysed.length - keepers.length;
     reset();
-    onImported(result.data!.inserted, duplicates + result.data!.skipped);
+    onImported(result.data!.inserted, duplicates + result.data!.skipped, updated);
   }
 
   const tally = analysed
@@ -196,6 +241,67 @@ export function ImportLeadsDialog({
                 {tally.doublon > 0 ? <Badge tone="rose">{tally.doublon} doublon(s)</Badge> : null}
               </span>
             ) : null}
+          </div>
+
+          {/*
+            Les statuts qu'on n'a pas su traduire.
+
+            Un libellé inconnu devient « À contacter », ce qui remet à appeler
+            une fiche déjà travaillée. Le dire au moment de l'import est la
+            seule occasion de s'en apercevoir : une fois en base, la fiche est
+            indistinguable d'un vrai nouveau lead.
+          */}
+          {parsed.unknownStatuses.length > 0 ? (
+            <div className="rounded-lg border border-amber-500/30 bg-amber-500/8 px-3 py-2 text-[11.5px]">
+              <p className="flex items-center gap-1.5 font-medium text-amber-700 dark:text-amber-300">
+                <AlertTriangle className="size-3.5" />
+                {parsed.unknownStatuses.reduce((total, statut) => total + statut.count, 0)} fiche(s)
+                avec un statut inconnu — elles arriveront en « À contacter »
+              </p>
+              <p className="mt-1 text-[var(--text-muted)]">
+                {parsed.unknownStatuses
+                  .map((statut) => `${statut.label} (${statut.count})`)
+                  .join(" · ")}
+              </p>
+            </div>
+          ) : null}
+
+          {/* Les deux exclusions, dites avec leur compte et réversibles sur
+              place : une case à cocher qui n'annonce pas ce qu'elle change
+              n'aide pas à décider. */}
+          <div className="space-y-1.5 rounded-lg border border-[var(--border-subtle)] px-3 py-2.5 text-[11.5px]">
+            <Exclusion
+              coche={Boolean(options.inclureHorsCible)}
+              onChange={() => basculer("inclureHorsCible")}
+              compte={parsed.excluded.horsCible}
+              titre="fiche(s) hors cible ou en reconversion"
+              detail="« Hors cible », « A changer de métier »"
+            />
+            <Exclusion
+              coche={Boolean(options.inclureSansContact)}
+              onChange={() => basculer("inclureSansContact")}
+              compte={parsed.excluded.sansContact}
+              titre="fiche(s) sans téléphone ni e-mail"
+              detail="rien pour les joindre"
+            />
+
+            <label className="flex cursor-pointer items-center gap-2 border-t border-[var(--border-subtle)] pt-1.5 text-[var(--text-muted)]">
+              <input
+                type="checkbox"
+                checked={majDoublons}
+                onChange={() => setMajDoublons((valeur) => !valeur)}
+                className="size-3.5 accent-[var(--brand-500,theme(colors.sky.500))]"
+              />
+              <span>
+                <span className="text-[var(--text-secondary)]">
+                  Corriger les {tally?.doublon ?? 0} fiche(s) déjà en base
+                </span>
+                <span className="ml-1 opacity-70">
+                  — statut, relance et commentaire repris du fichier ; l&apos;ancienneté du
+                  lead n&apos;est pas remise à zéro
+                </span>
+              </span>
+            </label>
           </div>
 
           <ColumnReport parsed={parsed} />
@@ -322,6 +428,48 @@ export function ImportLeadsDialog({
  * « colonnes ignorées » où figuraient aussi bien le SIRET, réellement perdu,
  * que des identifiants Hubspot dont personne ne veut.
  */
+/**
+ * Une exclusion, son compte, et de quoi la lever.
+ *
+ * Affichée même à zéro : « 0 fiche hors cible » dit que la règle a tourné,
+ * alors qu'une ligne absente laisse croire qu'elle n'existe pas.
+ */
+function Exclusion({
+  coche,
+  onChange,
+  compte,
+  titre,
+  detail,
+}: {
+  coche: boolean;
+  onChange: () => void;
+  compte: number;
+  titre: string;
+  detail: string;
+}) {
+  return (
+    <label className="flex cursor-pointer items-center gap-2 text-[var(--text-muted)]">
+      <input
+        type="checkbox"
+        checked={coche}
+        onChange={onChange}
+        className="size-3.5 accent-[var(--brand-500,theme(colors.sky.500))]"
+      />
+      <span>
+        {coche ? (
+          <span className="text-[var(--text-secondary)]">Importer les {titre}</span>
+        ) : (
+          <>
+            <span className="font-medium text-[var(--text-secondary)]">{compte}</span> {titre} écartée
+            {compte > 1 ? "s" : ""}
+          </>
+        )}
+        <span className="ml-1 opacity-70">— {detail}</span>
+      </span>
+    </label>
+  );
+}
+
 function ColumnReport({ parsed }: { parsed: ParsedLeadsCsv }) {
   const [open, setOpen] = useState(false);
 

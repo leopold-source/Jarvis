@@ -1,3 +1,4 @@
+import { LEAD_STATUS } from "@/lib/constants";
 import type { LeadStatus } from "@/lib/database.types";
 import { regionFromAddress } from "@/lib/french-regions";
 
@@ -132,21 +133,75 @@ const IGNORED_COLUMNS: Record<string, string> = {
   civilité: "non conservée : elle ne change rien à la façon d'appeler",
 };
 
+/*
+  Le vocabulaire réel, ramené aux neuf statuts de l'application.
+
+  Il y a vingt-deux libellés dans les exports, et neuf statuts ici. Ce n'est
+  pas un accident à corriger : neuf tiennent dans une tête et dans un filtre,
+  vingt-deux non. Mais la traduction se paie — « Numéro pas bon » et « Déjà
+  accompagné » finissent tous deux « Non qualifié » — alors le libellé
+  d'origine est reporté dans le commentaire de la fiche. Rien de ce qui a été
+  observé au téléphone ne disparaît ; seul le tri s'en trouve simplifié.
+
+  Ce qui manque à cette table est plus grave que ce qui s'y trouve mal : un
+  libellé inconnu retombait sur « À contacter », sans un mot. Cinq cent
+  soixante-dix-huit fiches déjà travaillées sont ainsi revenues à appeler.
+  L'import les compte et les nomme désormais.
+*/
 const STATUS_MAP: Record<string, LeadStatus> = {
   "": "a_contacter",
   nouveau: "a_contacter",
   "a contacter": "a_contacter",
+
+  // Une ancienne approche LinkedIn : le téléphone, lui, n'a jamais sonné.
+  contacte: "a_contacter",
+  linkedin: "a_contacter",
+  // Un secteur noté dans la colonne statut. Pas tout à fait la cible, mais
+  // rien n'a été tenté : la fiche reste à appeler.
+  conception: "a_contacter",
+
   nrp: "nrp",
+  "repondeur direct": "nrp",
   nrp2: "nrp2",
   "nrp 2": "nrp2",
   nrp3: "nrp3",
   "nrp 3": "nrp3",
+
   "raccroche avant pitch": "raccroche_avant_pitch",
+
   "a recontacter": "a_recontacter",
+  nurturing: "a_recontacter",
+  "a relancer mais non pour l'instant": "a_recontacter",
+  "mail envoye": "a_recontacter",
+  "arret maladie": "a_recontacter",
+  "call rate": "a_recontacter",
+  // Le numéro ne répond pas, mais l'entreprise reste une cible : c'est le
+  // canal qu'il faut changer, pas la fiche qu'il faut écarter.
+  "numero sans reponse - changer canal": "a_recontacter",
+
   "pas interesse": "pas_interesse",
+
   "non qualifie": "non_qualifie",
+  "hors cible": "non_qualifie",
+  "a changer de metier": "non_qualifie",
+  "deja accompagne": "non_qualifie",
+  // Un numéro faux rend la fiche inutilisable telle quelle. Elle reste en
+  // base, hors de la file d'appel, en attendant qu'on retrouve la ligne.
+  "numero pas bon": "non_qualifie",
+
   "call pris": "call_pris",
 };
+
+/*
+  Ce qu'on n'importe pas, sauf à le demander.
+
+  Une entreprise hors cible ou dont le dirigeant change de métier n'a pas
+  vocation à entrer dans le CRM : l'y faire entrer pour la marquer « non
+  qualifiée » revient à la compter dans un total qu'elle fausse. Les autres
+  libellés qui aboutissent à « Non qualifié » sont, eux, importés — « Déjà
+  accompagné » dit quelque chose du marché, et « Numéro pas bon » se rattrape.
+*/
+const STATUTS_ECARTES = new Set(["hors cible", "a changer de metier"]);
 
 export interface ParsedLeadsCsv {
   rows: Array<Record<string, string | number | null>>;
@@ -161,7 +216,30 @@ export interface ParsedLeadsCsv {
   profile: "pharow" | "interne";
   /** Régions déduites du code postal, faute d'une colonne région. */
   regionsDerived: number;
+  /**
+   * Les libellés de statut qu'on n'a pas su traduire, et combien de fois.
+   *
+   * Le silence sur ce point a coûté cher : un libellé inconnu retombait sur
+   * « À contacter » sans rien dire, et cinq cent soixante-dix-huit fiches déjà
+   * travaillées sont revenues à appeler. Une liste vide est désormais une
+   * information ; une liste pleine, un avertissement.
+   */
+  unknownStatuses: Array<{ label: string; count: number }>;
+  /** Ce qui a été laissé de côté, et pourquoi. */
+  excluded: {
+    /** Hors cible, ou dirigeant en reconversion. */
+    horsCible: number;
+    /** Ni téléphone ni e-mail : rien pour les joindre. */
+    sansContact: number;
+  };
 }
+
+export type ParseOptions = {
+  /** Importer quand même les fiches hors cible. Faux par défaut. */
+  inclureHorsCible?: boolean;
+  /** Importer quand même les fiches sans aucun moyen de contact. Faux par défaut. */
+  inclureSansContact?: boolean;
+};
 
 /** Découpe une ligne CSV en respectant les guillemets et les doublages `""`. */
 function splitCsv(text: string): string[][] {
@@ -277,7 +355,7 @@ export function normalizePhone(raw: string | null | undefined): string | null {
   return `+33 ${national[0]} ${pairs.join(" ")}`;
 }
 
-export function parseLeadsCsv(text: string): ParsedLeadsCsv {
+export function parseLeadsCsv(text: string, options: ParseOptions = {}): ParsedLeadsCsv {
   const table = splitCsv(text.replace(/^\ufeff/, "")).filter((row) =>
     row.some((cell) => cell.trim() !== ""),
   );
@@ -313,9 +391,15 @@ export function parseLeadsCsv(text: string): ParsedLeadsCsv {
   const rows: Array<Record<string, string | number | null>> = [];
   let skipped = 0;
   let regionsDerived = 0;
+  const statutsInconnus = new Map<string, number>();
+  const excluded = { horsCible: 0, sansContact: 0 };
 
   for (const line of table.slice(1)) {
     const record: Record<string, string | number | null> = {};
+    // Le libellé tel qu'il était écrit. Il sert à trois choses : écarter les
+    // hors-cible, signaler ce qu'on n'a pas su lire, et garder trace de la
+    // nuance que la traduction efface.
+    let statutBrut = "";
 
     keys.forEach((key, index) => {
       const raw = (line[index] ?? "").trim();
@@ -346,15 +430,46 @@ export function parseLeadsCsv(text: string): ParsedLeadsCsv {
           if (iso) record[key] = key === "created_at" ? `${iso}T09:00:00Z` : iso;
           break;
         }
-        case "status":
-          record.status = STATUS_MAP[headerKey(raw)] ?? "a_contacter";
+        case "status": {
+          statutBrut = raw;
+          const connu = STATUS_MAP[headerKey(raw)];
+          if (connu === undefined) {
+            statutsInconnus.set(raw, (statutsInconnus.get(raw) ?? 0) + 1);
+          }
+          record.status = connu ?? "a_contacter";
           break;
+        }
         default:
           // Le premier en-tête qui alimente un champ gagne : « Nom commercial »
           // arrive avant « Nom légal », et c'est le nom d'usage qu'on veut voir.
           if (record[key] == null) record[key] = raw;
       }
     });
+
+    /*
+      Ce qui n'entre pas dans la base.
+
+      Écarté avant l'insertion et non marqué après : une fiche hors cible
+      importée puis rangée en « Non qualifié » reste comptée dans les totaux,
+      apparaît dans les recherches et gonfle le nombre de leads d'un tiers.
+      Elle n'aide personne à vendre.
+    */
+    if (!options.inclureHorsCible && STATUTS_ECARTES.has(headerKey(statutBrut))) {
+      excluded.horsCible += 1;
+      continue;
+    }
+
+    // Ni portable, ni standard, ni e-mail : il n'y a aucun geste à poser sur
+    // cette fiche. La plupart viennent d'une approche LinkedIn abandonnée.
+    if (
+      !options.inclureSansContact &&
+      !record.phone &&
+      !record.phone_standard &&
+      !record.email
+    ) {
+      excluded.sansContact += 1;
+      continue;
+    }
 
     const fullName =
       (record.full_name as string | undefined) ??
@@ -383,6 +498,21 @@ export function parseLeadsCsv(text: string): ParsedLeadsCsv {
     }
 
     record.status ??= "a_contacter";
+
+    /*
+      La nuance que la traduction efface, gardée en clair.
+
+      « Numéro pas bon » et « Déjà accompagné » deviennent tous deux « Non
+      qualifié » : le statut sert à trier, le commentaire à comprendre. Sans
+      cette ligne, la raison de la non-qualification serait perdue à l'import,
+      et c'est précisément ce qu'on aurait voulu relire six mois plus tard.
+    */
+    const traduit = LEAD_STATUS[record.status as LeadStatus].label;
+    if (statutBrut && headerKey(statutBrut) !== headerKey(traduit)) {
+      const existant = typeof record.comment === "string" ? record.comment : "";
+      record.comment = existant ? `${statutBrut} — ${existant}` : statutBrut;
+    }
+
     rows.push(record);
   }
 
@@ -394,5 +524,9 @@ export function parseLeadsCsv(text: string): ParsedLeadsCsv {
     unknownColumns: [...new Set(unknownColumns)],
     profile,
     regionsDerived,
+    unknownStatuses: [...statutsInconnus.entries()]
+      .map(([label, count]) => ({ label, count }))
+      .sort((a, b) => b.count - a.count),
+    excluded,
   };
 }

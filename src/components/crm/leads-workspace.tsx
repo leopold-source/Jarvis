@@ -989,12 +989,16 @@ export function LeadsWorkspace({
       <ImportLeadsDialog
         open={importing}
         onClose={() => setImporting(false)}
-        onImported={(inserted, skipped) => {
+        onImported={(inserted, skipped, updated) => {
           setImporting(false);
           toast(
-            skipped > 0
-              ? `${inserted} lead(s) importé(s), ${skipped} doublon(s) ignoré(s).`
-              : `${inserted} lead(s) importé(s).`,
+            [
+              `${inserted} lead(s) importé(s)`,
+              updated ? `${updated} corrigé(s)` : null,
+              skipped > 0 ? `${skipped} doublon(s) ignoré(s)` : null,
+            ]
+              .filter(Boolean)
+              .join(", ") + ".",
           );
           refresh();
         }}

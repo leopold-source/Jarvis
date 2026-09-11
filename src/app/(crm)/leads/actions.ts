@@ -264,6 +264,148 @@ export async function fetchImportIndex(): Promise<ImportIndex> {
 }
 
 /**
+ * Remet à jour, depuis le CSV, les leads déjà en base.
+ *
+ * L'import écarte les doublons — c'est son rôle — mais cela rendait
+ * incorrigible ce qui était entré faux. Cinq cent soixante-dix-huit fiches
+ * avaient perdu leur statut faute d'une traduction, et aucun passage du même
+ * fichier ne pouvait les rattraper : elles étaient déjà là.
+ *
+ * Trois champs seulement, ceux dont l'export de prospection est la source de
+ * vérité : le statut, la date de relance, le compte rendu. Ni le nom, ni
+ * l'e-mail, ni le téléphone — le CSV est parfois plus pauvre que la base, et
+ * une synchronisation qui appauvrit est pire qu'une absence de synchronisation.
+ */
+export async function syncLeadsFromCsv(
+  rows: Array<Record<string, string | number | null>>,
+): Promise<ActionResult<{ updated: number; matched: number }>> {
+  const profile = await requireStaff();
+  if (profile.role !== "admin") return { ok: false, error: "Réservé aux administrateurs." };
+  if (rows.length === 0) return { ok: false, error: "Aucune ligne à synchroniser." };
+  if (rows.length > 5000) return { ok: false, error: "Limité à 5 000 lignes par fichier." };
+
+  const supabase = await createClient();
+
+  type Existant = {
+    id: string;
+    first_name: string | null; last_name: string | null; full_name: string | null;
+    email: string | null; company_name: string | null;
+    status: LeadStatus; comment: string | null; follow_up_on: string | null;
+    status_changed_at: string; last_touched_at: string | null; touch_count: number | null;
+  };
+
+  const existants: Existant[] = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await supabase
+      .from("leads")
+      .select(
+        "id, first_name, last_name, full_name, email, company_name, status, comment, follow_up_on, status_changed_at, last_touched_at, touch_count",
+      )
+      .range(from, from + 999);
+    if (error) return { ok: false, error: error.message };
+    const page = (data ?? []) as Existant[];
+    existants.push(...page);
+    if (page.length < 1000) break;
+  }
+
+  // Les mêmes clés que la détection de doublons, pour que « reconnu comme
+  // doublon » et « retrouvé pour mise à jour » désignent exactement le même
+  // ensemble. Deux règles voisines mais distinctes laisseraient un résidu de
+  // fiches ni importées ni corrigées.
+  const parEmail = new Map<string, Existant>();
+  const parPersonne = new Map<string, Existant>();
+  for (const lead of existants) {
+    const email = emailKey(lead.email);
+    if (email && !parEmail.has(email)) parEmail.set(email, lead);
+    const personne = personKey(lead.first_name, lead.last_name, lead.full_name);
+    const entreprise = companyKey(lead.company_name);
+    const paire = `${personne}@${entreprise}`;
+    if (personne && entreprise && !parPersonne.has(paire)) parPersonne.set(paire, lead);
+  }
+
+  const asText = (value: unknown) => (typeof value === "string" && value.trim() ? value : null);
+
+  type Correction = { lead: Existant; patch: Record<string, unknown>; statutChange: boolean };
+  const corrections: Correction[] = [];
+  let matched = 0;
+
+  for (const row of rows) {
+    const cible =
+      parEmail.get(emailKey(asText(row.email))) ??
+      parPersonne.get(
+        `${personKey(asText(row.first_name), asText(row.last_name), asText(row.full_name))}@${companyKey(asText(row.company_name))}`,
+      );
+    if (!cible) continue;
+    matched += 1;
+
+    const patch: Record<string, unknown> = {};
+    const statut = asText(row.status);
+    if (statut && statut !== cible.status) patch.status = statut;
+
+    const relance = asText(row.follow_up_on);
+    if (relance && relance !== cible.follow_up_on) patch.follow_up_on = relance;
+
+    const commentaire = asText(row.comment);
+    if (commentaire && commentaire !== cible.comment) patch.comment = commentaire;
+
+    if (Object.keys(patch).length > 0) {
+      corrections.push({ lead: cible, patch, statutChange: "status" in patch });
+    }
+  }
+
+  if (corrections.length === 0) {
+    return { ok: true, data: { updated: 0, matched } };
+  }
+
+  /*
+    Une correction n'est pas une activité.
+
+    `leads_track_activity` remet `status_changed_at` et `last_touched_at` à
+    maintenant dès que le statut bouge — ce qui est juste quand quelqu'un
+    raccroche, et faux quand on répare un import. Sans la remise en place qui
+    suit, six cents fiches paraîtraient travaillées aujourd'hui, aucune ne
+    serait jamais dormante, et la file d'appel mentirait pendant un mois.
+
+    Deux passages sont nécessaires : le déclencheur écrase la valeur qu'on
+    donnerait dans le même ordre. Le second ne touche pas au statut, donc il ne
+    le réveille pas. L'événement reste inscrit dans `lead_events` : la
+    correction est tracée, elle n'est simplement pas comptée comme un appel.
+  */
+  let updated = 0;
+  for (let start = 0; start < corrections.length; start += 25) {
+    const lot = corrections.slice(start, start + 25);
+
+    const resultats = await Promise.all(
+      lot.map(({ lead, patch }) =>
+        supabase.from("leads").update(patch as never).eq("id", lead.id),
+      ),
+    );
+    const echec = resultats.find((r) => r.error);
+    if (echec?.error) return { ok: false, error: echec.error.message };
+
+    await Promise.all(
+      lot
+        .filter((correction) => correction.statutChange)
+        .map(({ lead }) =>
+          supabase
+            .from("leads")
+            .update({
+              status_changed_at: lead.status_changed_at,
+              last_touched_at: lead.last_touched_at,
+              touch_count: lead.touch_count ?? 0,
+            } as never)
+            .eq("id", lead.id),
+        ),
+    );
+
+    updated += lot.length;
+  }
+
+  revalidatePath("/leads");
+  return { ok: true, data: { updated, matched } };
+}
+
+/**
  * Import en masse depuis un CSV déjà découpé côté navigateur.
  *
  * L'index est reconstruit ici plutôt que repris du navigateur : entre l'aperçu
