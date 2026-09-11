@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils";
  * centaines de millisecondes et n'a aucune raison de retarder l'affichage du
  * pipeline. La page arrive complète, cette carte se remplit ensuite.
  */
-export async function AgendaDuJour({ userId }: { userId: string }) {
+export async function AgendaDuJour({ userId, className }: { userId: string; className?: string }) {
   const resultat = await agendaDe(userId, { jours: 1 });
 
   if (!resultat.ok) {
@@ -51,9 +51,9 @@ export async function AgendaDuJour({ userId }: { userId: string }) {
   const demain = resultat.rendezVous.filter((rdv) => !duJour.includes(rdv));
 
   return (
-    <Card glow className="p-5">
+    <Card glow className={cn("flex flex-col p-5", className)}>
       <SectionTitle
-        title="Ton agenda"
+        title="Rendez-vous à venir"
         description={
           duJour.length === 0
             ? "Plus aucun rendez-vous aujourd'hui"
@@ -66,7 +66,7 @@ export async function AgendaDuJour({ userId }: { userId: string }) {
           Rien d&apos;ici demain soir. C&apos;est le moment de passer des appels.
         </p>
       ) : (
-        <ul className="mt-4 space-y-1.5">
+        <ul className="mt-4 max-h-72 flex-1 space-y-1.5 overflow-y-auto pr-1">
           {duJour.map((rdv, index) => (
             <Rendez
               key={rdv.id}

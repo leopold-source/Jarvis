@@ -38,11 +38,13 @@ export function DailySuggestions({
   items,
   done,
   generatedAt,
+  className,
 }: {
   focus: string | null;
   items: SuggestionItemType[];
   done: string[];
   generatedAt: string | null;
+  className?: string;
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -81,12 +83,12 @@ export function DailySuggestions({
   const remaining = items.filter((item) => !checked.has(item.key)).length;
 
   return (
-    <Card glow className="p-5">
+    <Card glow className={cn("flex flex-col p-5", className)}>
       <SectionTitle
         title={
           <span className="flex items-center gap-2">
             <ListChecks className="size-4 text-brand-500 dark:text-brand-300" />
-            Suggestions du jour
+            À faire aujourd'hui
           </span>
         }
         description={focus ?? "Les gestes à faire aujourd'hui, tirés de l'état du CRM."}
@@ -117,7 +119,7 @@ export function DailySuggestions({
           </Button>
         </div>
       ) : (
-        <ol className="mt-4 space-y-1.5">
+        <ol className="mt-4 max-h-72 flex-1 space-y-1.5 overflow-y-auto pr-1">
           {items.map((item, index) => {
             const isDone = checked.has(item.key);
             const kind = KIND[item.kind] ?? KIND.administratif;
@@ -201,7 +203,7 @@ export function DailySuggestions({
       )}
 
       {generatedAt ? (
-        <p className="mt-3 text-[11px] text-[var(--text-muted)]">
+        <p className="mt-3 shrink-0 text-[11px] text-[var(--text-muted)]">
           Préparé le{" "}
           {new Date(generatedAt).toLocaleString("fr-FR", {
             day: "numeric",
