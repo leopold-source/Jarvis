@@ -6,6 +6,7 @@ import {
   Compass,
   FolderKanban,
   Handshake,
+  Inbox,
   MoonStar,
   Target,
 } from "lucide-react";
@@ -27,7 +28,7 @@ import {
 } from "@/lib/constants";
 import { requireStaff } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
-import { cn, daysUntil, formatDate, formatMoney, pluralize } from "@/lib/utils";
+import { cn, daysUntil, formatDate, formatMoney, formatRelative, pluralize } from "@/lib/utils";
 
 export const metadata = { title: "Tableau de bord" };
 
@@ -95,6 +96,14 @@ export default async function DashboardPage() {
         .limit(4),
       supabase.from("objectifs").select("chantier_id, title, target_value, current_value, source, due_on"),
     ]);
+
+  // La RLS restreint déjà ces deux tables au propriétaire de la boîte : on ne
+  // voit jamais le courrier de l'autre, même sur un tableau de bord partagé.
+  const [{ data: passages }, mailsEnAttente] = await Promise.all([
+    supabase.from("mail_runs").select("*").order("started_at", { ascending: false }).limit(1),
+    supabase.from("mail_triage").select("id", { count: "exact", head: true }).eq("review", "en_attente"),
+  ]);
+  const dernierTri = (passages ?? [])[0] ?? null;
 
   /*
     Actif ou dormant : la lecture qui manquait.
@@ -195,6 +204,34 @@ export default async function DashboardPage() {
         done={(doneRows ?? []).map((row) => row.item_key)}
         generatedAt={suggestions?.created_at ?? null}
       />
+
+      {/* --- Boîte mail ------------------------------------------------ */}
+      {dernierTri || (mailsEnAttente.count ?? 0) > 0 ? (
+        <Link href="/mails" className="block">
+          <Card interactive glow className="p-4">
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="grid size-9 shrink-0 place-items-center rounded-[10px] bg-linear-to-br from-brand-500/15 to-accent-500/10 text-brand-400 ring-1 ring-[var(--border-subtle)]">
+                <Inbox className="size-4.5" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="text-[13px] font-medium">
+                  {(mailsEnAttente.count ?? 0) > 0
+                    ? `${mailsEnAttente.count} mail(s) attendent ta décision`
+                    : "Boîte mail triée, rien ne t'attend"}
+                </p>
+                <p className="mt-0.5 truncate text-[11.5px] text-[var(--text-muted)]">
+                  {dernierTri
+                    ? `Dernier tri ${formatRelative(dernierTri.started_at)} · ${dernierTri.lus} lu(s)` +
+                      (dernierTri.spams > 0 ? ` · ${dernierTri.spams} écarté(s)` : "") +
+                      (dernierTri.brouillons > 0 ? ` · ${dernierTri.brouillons} réponse(s) prête(s)` : "")
+                    : "Le tri ne s'est encore jamais exécuté"}
+                </p>
+              </div>
+              <ArrowUpRight className="size-4 shrink-0 text-[var(--text-muted)]" />
+            </div>
+          </Card>
+        </Link>
+      ) : null}
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {stats.map(({ label, value, hint, icon: Icon, href }, index) => (

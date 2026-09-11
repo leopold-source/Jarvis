@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Mic, MicOff, Send, Sparkles, Square, X } from "lucide-react";
+import { AudioLines, Mic, MicOff, Send, Sparkles, Square, X } from "lucide-react";
 
 import { Orb, type OrbeEtat } from "@/components/assistant/orb";
 import { Button, Input } from "@/components/ui";
@@ -185,12 +185,36 @@ export function AssistantOverlay({ open, onClose }: { open: boolean; onClose: ()
         ) : null}
       </form>
 
-      <div className="mt-5 flex flex-wrap justify-center gap-1.5">
+      {/* Choix de la voix. Les navigateurs en proposent plusieurs, de qualité
+          très inégale : la meilleure ne se devine pas, elle s'écoute. */}
+      {voix.voixDisponibles.length > 1 ? (
+        <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
+          <AudioLines className="size-3.5 text-[var(--text-muted)]" />
+          <select
+            value={voix.voixChoisie ?? ""}
+            onChange={(event) => {
+              voix.choisirVoix(event.target.value);
+              // Un essai immédiat : c'est le seul moyen de comparer.
+              window.setTimeout(() => void voix.dire("Salut, c'est moi. Ça te va, cette voix ?"), 60);
+            }}
+            className="rounded-full border border-[var(--border-subtle)] bg-transparent px-2.5 py-1 text-[11.5px] text-[var(--text-muted)] outline-none"
+            aria-label="Choisir la voix"
+          >
+            {voix.voixDisponibles.map((disponible) => (
+              <option key={disponible.name} value={disponible.name}>
+                {disponible.name.replace(/\s*\(.*\)$/, "")}
+              </option>
+            ))}
+          </select>
+        </div>
+      ) : null}
+
+      <div className="mt-4 flex flex-wrap justify-center gap-1.5">
         {[
           "Qu'est-ce que j'ai à faire aujourd'hui ?",
-          "Où en est le pipeline ?",
           "Qui je dois rappeler ?",
-          "Où en sont nos chantiers ?",
+          "Tu as trié mes mails ?",
+          "Où en est le pipeline ?",
         ].map((exemple) => (
           <button
             key={exemple}

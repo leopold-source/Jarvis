@@ -25,6 +25,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 type Etat = "repos" | "ecoute" | "reflexion" | "parole";
 
+const VOIX_STORAGE_KEY = "antichaos.assistant.voix";
+
 type Reconnaissance = {
   lang: string;
   continuous: boolean;
@@ -187,50 +189,128 @@ export function useVoice({
     setAmplitude(0);
   }, []);
 
+  /*
+    Choix de la voix.
+
+    Le premier jet préférait les voix locales — c'était l'erreur : ce sont
+    justement les plus robotiques. Les voix réseau de Google et les voix
+    « Premium » ou « Enhanced » d'Apple sont d'une tout autre qualité, et
+    gratuites ; elles sont simplement plus loin dans la liste que le navigateur
+    renvoie, et la première venue est presque toujours la moins bonne.
+
+    On classe donc explicitement, et on retient le choix : c'est une préférence
+    d'oreille, pas une décision à reprendre chaque matin.
+  */
+  const classerVoix = useCallback((voix: SpeechSynthesisVoice[]) => {
+    const note = (v: SpeechSynthesisVoice) => {
+      const nom = v.name.toLowerCase();
+      if (nom.includes("google")) return 5;
+      if (nom.includes("premium") || nom.includes("enhanced")) return 4;
+      if (nom.includes("siri")) return 4;
+      // Les voix « compact » d'Apple sont les plus métalliques du lot.
+      if (nom.includes("compact")) return 0;
+      return v.localService ? 1 : 3;
+    };
+    return [...voix]
+      .filter((v) => v.lang.toLowerCase().startsWith("fr"))
+      .sort((a, b) => note(b) - note(a));
+  }, []);
+
+  const [voixDisponibles, setVoixDisponibles] = useState<SpeechSynthesisVoice[]>([]);
+  const [voixChoisie, setVoixChoisie] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.speechSynthesis) return;
+
+    // La liste arrive de façon asynchrone sur Chrome : elle est vide au premier
+    // appel, d'où l'écoute de `voiceschanged` en plus de la lecture directe.
+    const charger = () => {
+      const triees = classerVoix(window.speechSynthesis.getVoices());
+      if (triees.length === 0) return;
+      setVoixDisponibles(triees);
+      setVoixChoisie((actuelle) => {
+        if (actuelle && triees.some((v) => v.name === actuelle)) return actuelle;
+        const retenue = window.localStorage.getItem(VOIX_STORAGE_KEY);
+        if (retenue && triees.some((v) => v.name === retenue)) return retenue;
+        return triees[0].name;
+      });
+    };
+
+    charger();
+    window.speechSynthesis.addEventListener("voiceschanged", charger);
+    return () => window.speechSynthesis.removeEventListener("voiceschanged", charger);
+  }, [classerVoix]);
+
+  const choisirVoix = useCallback((nom: string) => {
+    setVoixChoisie(nom);
+    window.localStorage.setItem(VOIX_STORAGE_KEY, nom);
+  }, []);
+
   const dire = useCallback(
     (texte: string) =>
       new Promise<void>((resoudre) => {
         if (typeof window === "undefined" || !window.speechSynthesis) return resoudre();
 
         window.speechSynthesis.cancel();
-        const enonce = new SpeechSynthesisUtterance(texte);
-        enonce.lang = "fr-FR";
-        enonce.rate = 1.05;
-        enonce.pitch = 1;
 
-        // La meilleure voix française disponible, à défaut celle par défaut.
         const voix = window.speechSynthesis
           .getVoices()
-          .filter((v) => v.lang.startsWith("fr"))
-          .sort((a, b) => Number(b.localService) - Number(a.localService))[0];
-        if (voix) enonce.voice = voix;
+          .find((v) => v.name === voixChoisie) ?? classerVoix(window.speechSynthesis.getVoices())[0];
 
-        enonce.onstart = () => {
-          setParle(true);
-          onEtat?.("parole");
+        /*
+          Découpage en phrases, pour deux raisons.
+
+          La première est un défaut connu de Chrome : au-delà d'une quinzaine de
+          secondes, une énonciation est coupée net, sans erreur. La seconde est
+          d'oreille — une suite de phrases courtes respire, là où un bloc unique
+          est débité d'un trait.
+        */
+        const phrases = texte
+          .split(/(?<=[.!?…])\s+/)
+          .map((phrase) => phrase.trim())
+          .filter(Boolean);
+        if (phrases.length === 0) return resoudre();
+
+        setParle(true);
+        onEtat?.("parole");
+
+        let index = 0;
+        const enoncerSuivante = () => {
+          if (index >= phrases.length) {
+            if (pulse.current) clearTimeout(pulse.current);
+            setParle(false);
+            setAmplitude(0);
+            return resoudre();
+          }
+
+          const enonce = new SpeechSynthesisUtterance(phrases[index]);
+          index += 1;
+          enonce.lang = "fr-FR";
+          // Légèrement en dessous de la vitesse par défaut : les voix de
+          // synthèse françaises avalent les liaisons quand on les presse.
+          enonce.rate = 0.98;
+          enonce.pitch = 1.02;
+          if (voix) enonce.voice = voix;
+
+          // Un mot prononcé, une impulsion : l'orbe respire au rythme du débit
+          // plutôt qu'au hasard. Faute de flux audio, c'est le signal le plus
+          // proche de la parole que le navigateur nous donne.
+          enonce.onboundary = () => {
+            setAmplitude(0.55 + Math.random() * 0.35);
+            if (pulse.current) clearTimeout(pulse.current);
+            pulse.current = setTimeout(() => setAmplitude(0.2), 110);
+          };
+
+          enonce.onend = enoncerSuivante;
+          // Une phrase qui échoue ne doit pas emporter les suivantes.
+          enonce.onerror = enoncerSuivante;
+
+          window.speechSynthesis.speak(enonce);
         };
 
-        // Un mot prononcé, une impulsion : l'orbe respire au rythme du débit
-        // plutôt qu'au hasard. Faute de flux audio, c'est le signal le plus
-        // proche de la parole que le navigateur nous donne.
-        enonce.onboundary = () => {
-          setAmplitude(0.55 + Math.random() * 0.35);
-          if (pulse.current) clearTimeout(pulse.current);
-          pulse.current = setTimeout(() => setAmplitude(0.2), 110);
-        };
-
-        const finir = () => {
-          if (pulse.current) clearTimeout(pulse.current);
-          setParle(false);
-          setAmplitude(0);
-          resoudre();
-        };
-        enonce.onend = finir;
-        enonce.onerror = finir;
-
-        window.speechSynthesis.speak(enonce);
+        enoncerSuivante();
       }),
-    [onEtat],
+    [classerVoix, onEtat, voixChoisie],
   );
 
   useEffect(() => {
@@ -254,5 +334,8 @@ export function useVoice({
     arreterEcoute,
     dire,
     taire,
+    voixDisponibles,
+    voixChoisie,
+    choisirVoix,
   };
 }
