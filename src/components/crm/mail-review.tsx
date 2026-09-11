@@ -1,17 +1,21 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useCallback, useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
   Archive,
   Check,
+  ExternalLink,
   Inbox,
+  ListChecks,
   Mail,
   RefreshCw,
+  RotateCcw,
   Send,
   ShieldCheck,
   Sparkles,
+  Trash2,
 } from "lucide-react";
 
 import {
@@ -20,6 +24,7 @@ import {
   Card,
   EmptyState,
   Input,
+  Modal,
   SectionTitle,
   Textarea,
   useToast,
@@ -29,9 +34,11 @@ import { MAIL_ACTION, MAIL_CATEGORY } from "@/lib/constants";
 import type { MailRun, MailTriage } from "@/lib/database.types";
 import { cn, formatRelative } from "@/lib/utils";
 import {
+  basculerCorbeille,
   classerSansSuite,
   enregistrerBrouillon,
   envoyerBrouillon,
+  fetchBilanTri,
   trierMaintenant,
 } from "@/app/(crm)/mails/actions";
 
@@ -58,6 +65,7 @@ export function MailReview({
   const toast = useToast();
   const [, startTransition] = useTransition();
   const [busy, setBusy] = useState(false);
+  const [recap, setRecap] = useState(false);
 
   const refresh = () => startTransition(() => router.refresh());
 
@@ -142,10 +150,16 @@ export function MailReview({
                   : ""}
               </p>
             </div>
-            <Button variant="ghost" size="sm" loading={busy} onClick={trier}>
-              <RefreshCw className="size-3.5" />
-              Trier maintenant
-            </Button>
+            <span className="flex shrink-0 items-center gap-2">
+              <Button variant="secondary" size="sm" onClick={() => setRecap(true)}>
+                <ListChecks className="size-3.5" />
+                Ce que j&apos;ai fait
+              </Button>
+              <Button variant="ghost" size="sm" loading={busy} onClick={trier}>
+                <RefreshCw className="size-3.5" />
+                Trier
+              </Button>
+            </span>
           </div>
 
           {dernierPassage.erreur ? (
@@ -196,6 +210,8 @@ export function MailReview({
         </section>
       ) : null}
 
+      <RecapModal open={recap} onClose={() => setRecap(false)} onChange={refresh} />
+
       {pourToi.length > 0 ? (
         <section>
           <SectionTitle
@@ -220,13 +236,13 @@ function MailCard({ mail, onDone }: { mail: MailTriage; onDone: () => void }) {
   const [objet, setObjet] = useState(
     mail.draft_subject ?? (mail.subject ? `Re: ${mail.subject}` : ""),
   );
-  const [busy, setBusy] = useState<"enregistre" | "envoi" | "ignore" | null>(null);
+  const [busy, setBusy] = useState<"enregistre" | "envoi" | "ignore" | "corbeille" | null>(null);
 
   const categorie = MAIL_CATEGORY[mail.category];
   const action = MAIL_ACTION[mail.action];
 
   async function agir(
-    quoi: "enregistre" | "envoi" | "ignore",
+    quoi: "enregistre" | "envoi" | "ignore" | "corbeille",
     run: () => Promise<{ ok: boolean; error?: string }>,
     message: string,
   ) {
@@ -365,6 +381,26 @@ function MailCard({ mail, onDone }: { mail: MailTriage; onDone: () => void }) {
               Sans suite
             </Button>
 
+            {/* La corbeille de Gmail garde trente jours : le geste est donc
+                offert d'un clic, et son contraire l'est aussi depuis le
+                récapitulatif. */}
+            <Button
+              size="sm"
+              variant="ghost"
+              loading={busy === "corbeille"}
+              onClick={() =>
+                agir(
+                  "corbeille",
+                  () => basculerCorbeille(mail.id, true),
+                  "À la corbeille. Récupérable trente jours.",
+                )
+              }
+              className="text-rose-500 hover:bg-rose-500/10"
+            >
+              <Trash2 className="size-3.5" />
+              Supprimer
+            </Button>
+
             {mail.draft_body ? (
               <AiVerdict kind="mail_brouillon" refId={mail.id} className="ml-1" />
             ) : null}
@@ -376,5 +412,185 @@ function MailCard({ mail, onDone }: { mail: MailTriage; onDone: () => void }) {
         </div>
       ) : null}
     </Card>
+  );
+}
+
+/**
+ * Ce que le tri a fait, mail par mail.
+ *
+ * L'écran principal ne montre que ce qui attend une décision. Tout le reste —
+ * rangé, écarté, répondu — disparaissait sans qu'on puisse le vérifier, ce qui
+ * revenait à demander une confiance aveugle à un système dont on découvre à
+ * peine le jugement.
+ *
+ * Les mails écartés viennent en premier : ce sont eux qu'on veut relire, et
+ * eux seuls qui portent un bouton pour revenir en arrière.
+ */
+function RecapModal({
+  open,
+  onClose,
+  onChange,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onChange: () => void;
+}) {
+  const toast = useToast();
+  const [mails, setMails] = useState<MailTriage[] | null>(null);
+  const [passage, setPassage] = useState<MailRun | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+
+  const charger = useCallback(async () => {
+    const bilan = await fetchBilanTri();
+    setMails(bilan.mails);
+    setPassage(bilan.passage);
+  }, []);
+
+  useEffect(() => {
+    if (open) void charger();
+  }, [open, charger]);
+
+  async function restaurer(mail: MailTriage) {
+    setBusy(mail.id);
+    const resultat = await basculerCorbeille(mail.id, false);
+    setBusy(null);
+    if (!resultat.ok) return toast(resultat.error, "error");
+    toast("Remis dans la boîte.");
+    await charger();
+    onChange();
+  }
+
+  const groupes: Array<{ clef: string; titre: string; note: string; mails: MailTriage[] }> = [
+    {
+      clef: "corbeille",
+      titre: "Écartés",
+      note: "À la corbeille — Gmail les garde trente jours.",
+      mails: (mails ?? []).filter((m) => m.action === "corbeille"),
+    },
+    {
+      clef: "brouillon_pret",
+      titre: "Réponses préparées",
+      note: "Étiquetés, avec un brouillon qui attend ta relecture.",
+      mails: (mails ?? []).filter((m) => m.action === "brouillon_pret"),
+    },
+    {
+      clef: "a_traiter",
+      titre: "Laissés pour toi",
+      note: "Classement incertain, ou réponse impossible sans information.",
+      mails: (mails ?? []).filter((m) => m.action === "a_traiter"),
+    },
+    {
+      clef: "etiquete",
+      titre: "Rangés",
+      note: "Étiquetés et laissés en boîte, aucune action attendue.",
+      mails: (mails ?? []).filter((m) => m.action === "etiquete"),
+    },
+  ];
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      size="lg"
+      title="Ce que j'ai fait de tes mails"
+      description={
+        passage
+          ? `Passage ${formatRelative(passage.started_at)} · ${passage.lus} mail(s) examinés` +
+            (Number(passage.cout_centimes) > 0
+              ? ` · ${Number(passage.cout_centimes).toFixed(1)} centime(s)`
+              : "")
+          : "Le tri ne s'est encore jamais exécuté."
+      }
+      footer={
+        <Button variant="ghost" onClick={onClose}>
+          Fermer
+        </Button>
+      }
+    >
+      {mails === null ? (
+        <p className="text-[12.5px] text-[var(--text-muted)]">Chargement…</p>
+      ) : mails.length === 0 ? (
+        <p className="text-[12.5px] text-[var(--text-muted)]">
+          Aucun mail traité lors du dernier passage.
+        </p>
+      ) : (
+        <div className="space-y-5">
+          {groupes
+            .filter((groupe) => groupe.mails.length > 0)
+            .map((groupe) => (
+              <section key={groupe.clef}>
+                <h4 className="flex flex-wrap items-baseline gap-2 text-[13px] font-medium">
+                  {groupe.titre}
+                  <span className="text-[11.5px] font-normal text-[var(--text-muted)]">
+                    {groupe.mails.length} · {groupe.note}
+                  </span>
+                </h4>
+
+                <ul className="mt-2 space-y-1">
+                  {groupe.mails.map((mail) => {
+                    const categorie = MAIL_CATEGORY[mail.category];
+                    return (
+                      <li
+                        key={mail.id}
+                        className="flex flex-wrap items-center gap-2 rounded-[10px] border border-[var(--border-subtle)] px-3 py-2"
+                      >
+                        <span className="min-w-40 flex-1">
+                          <span className="flex flex-wrap items-center gap-1.5">
+                            <span className="truncate text-[12.5px] font-medium">
+                              {mail.from_name || mail.from_email || "Inconnu"}
+                            </span>
+                            <Badge tone={categorie.tone}>{categorie.label}</Badge>
+                            {mail.known_contact ? (
+                              <ShieldCheck
+                                className="size-3 text-emerald-500"
+                                aria-label="Déjà dans le CRM"
+                              />
+                            ) : null}
+                          </span>
+                          <span className="block truncate text-[11.5px] text-[var(--text-muted)]">
+                            {mail.subject || "(sans objet)"}
+                          </span>
+                          {/* La raison du classement, pour pouvoir le contester. */}
+                          {mail.reason ? (
+                            <span className="mt-0.5 block text-[11px] text-[var(--text-muted)] italic">
+                              {mail.reason}
+                            </span>
+                          ) : null}
+                        </span>
+
+                        <span className="flex shrink-0 items-center gap-1">
+                          <AiVerdict kind="mail_tri" refId={mail.id} />
+
+                          {mail.action === "corbeille" ? (
+                            <button
+                              type="button"
+                              disabled={busy === mail.id}
+                              onClick={() => void restaurer(mail)}
+                              title="Remettre dans la boîte"
+                              className="rounded-md p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--surface-hover)] hover:text-emerald-500 disabled:opacity-40"
+                            >
+                              <RotateCcw className="size-3.5" />
+                            </button>
+                          ) : null}
+
+                          <a
+                            href={`https://mail.google.com/mail/u/0/#all/${mail.provider_message_id}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            title="Ouvrir dans Gmail"
+                            className="rounded-md p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--surface-hover)] hover:text-brand-500"
+                          >
+                            <ExternalLink className="size-3.5" />
+                          </a>
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </section>
+            ))}
+        </div>
+      )}
+    </Modal>
   );
 }

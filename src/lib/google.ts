@@ -465,3 +465,16 @@ export function eventVideoLink(event: CalendarEvent): string | null {
   const entree = event.conferenceData?.entryPoints?.find((e) => e.entryPointType === "video");
   return entree?.uri ?? null;
 }
+
+/**
+ * Sort un message de la corbeille.
+ *
+ * Le pendant indispensable de `trashMessage` : proposer d'écarter un mail sans
+ * offrir de le récupérer reviendrait à ne pas assumer que le tri se trompe.
+ */
+export function untrashMessage(accessToken: string, messageId: string) {
+  return gmail<unknown>(`/messages/${messageId}/untrash`, accessToken, undefined, {
+    method: "POST",
+    body: {},
+  });
+}

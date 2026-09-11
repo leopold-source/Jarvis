@@ -3,7 +3,15 @@
 import { revalidatePath } from "next/cache";
 
 import { requireStaff } from "@/lib/auth";
-import { createDraft, refreshAccessToken, sendDraft, updateDraft } from "@/lib/google";
+import {
+  createDraft,
+  refreshAccessToken,
+  sendDraft,
+  trashMessage,
+  untrashMessage,
+  updateDraft,
+} from "@/lib/google";
+import type { MailRun, MailTriage } from "@/lib/database.types";
 import { trierMails } from "@/lib/mail-triage";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
@@ -157,6 +165,94 @@ export async function classerSansSuite(id: string): Promise<ActionResult> {
 
   revalidatePath("/mails");
   return { ok: true };
+}
+
+/**
+ * Met un message à la corbeille, ou l'en sort.
+ *
+ * La corbeille de Gmail n'est pas une suppression : trente jours de sursis, et
+ * le périmètre OAuth demandé ne permettrait de toute façon rien de plus. C'est
+ * ce qui autorise à proposer le geste d'un clic — et à proposer son contraire
+ * juste à côté.
+ */
+export async function basculerCorbeille(id: string, versLaCorbeille: boolean): Promise<ActionResult> {
+  const profile = await requireStaff();
+  const supabase = await createClient();
+
+  const { data: ligne } = await supabase
+    .from("mail_triage")
+    .select("provider_message_id")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (!ligne) return { ok: false, error: "Mail introuvable." };
+
+  const acces = await jeton(profile.id);
+  if ("erreur" in acces) return { ok: false, error: acces.erreur };
+
+  try {
+    if (versLaCorbeille) {
+      await trashMessage(acces.token, ligne.provider_message_id);
+    } else {
+      await untrashMessage(acces.token, ligne.provider_message_id);
+    }
+  } catch (caught) {
+    return { ok: false, error: caught instanceof Error ? caught.message : "Gmail a refusé." };
+  }
+
+  await supabase
+    .from("mail_triage")
+    .update({
+      action: versLaCorbeille ? "corbeille" : "etiquete",
+      review: versLaCorbeille ? "traite" : "en_attente",
+      handled_at: new Date().toISOString(),
+      handled_by: profile.id,
+    })
+    .eq("id", id);
+
+  revalidatePath("/mails");
+  return { ok: true };
+}
+
+/**
+ * Tout ce que le dernier passage a fait, et pas seulement ce qu'il a laissé.
+ *
+ * L'écran ne montrait que les mails en attente de décision : le reste — rangé,
+ * écarté, répondu — disparaissait sans qu'on puisse le vérifier. Un tri qu'on
+ * ne peut pas relire est un tri auquel on ne peut pas se fier.
+ */
+export async function fetchBilanTri(): Promise<{
+  mails: MailTriage[];
+  passage: MailRun | null;
+}> {
+  const profile = await requireStaff();
+  const supabase = await createClient();
+
+  const [{ data: passages }, { data: mails }] = await Promise.all([
+    supabase
+      .from("mail_runs")
+      .select("*")
+      .eq("user_id", profile.id)
+      .order("started_at", { ascending: false })
+      .limit(1),
+    supabase
+      .from("mail_triage")
+      .select("*")
+      .eq("user_id", profile.id)
+      .order("created_at", { ascending: false })
+      .limit(80),
+  ]);
+
+  const passage = ((passages ?? [])[0] as MailRun | undefined) ?? null;
+
+  // On borne au dernier passage : revoir le tri d'avant-hier n'apprend rien, et
+  // la liste doit rester parcourable d'un coup d'œil.
+  const depuis = passage ? new Date(passage.started_at).getTime() - 60_000 : 0;
+  const retenus = (mails ?? []).filter(
+    (mail) => new Date(mail.created_at).getTime() >= depuis,
+  ) as MailTriage[];
+
+  return { mails: retenus, passage };
 }
 
 /** Relance le tri à la demande, sans attendre le passage du lendemain. */
