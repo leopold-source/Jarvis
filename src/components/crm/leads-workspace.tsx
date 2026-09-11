@@ -42,7 +42,7 @@ import {
 } from "@/components/ui";
 import { DateField } from "@/components/ui/date-field";
 import { LEAD_STATUS, LEAD_STATUS_ORDER, TONE_CLASSES, TONE_DOT } from "@/lib/constants";
-import type { Lead, LeadStatus } from "@/lib/database.types";
+import type { LeadListe, LeadStatus } from "@/lib/database.types";
 import { cn, daysUntil, formatDate, formatMoney, normalize } from "@/lib/utils";
 import {
   assignLead,
@@ -102,9 +102,9 @@ type ViewMode = "lecture" | "prospection";
  */
 const PHONE_FILTERS = {
   tous: { label: "Téléphone : indifférent", keep: () => true },
-  renseigne: { label: "Téléphone renseigné", keep: (lead: Lead) => Boolean(lead.phone ?? lead.phone_standard) },
-  portable: { label: "Portable uniquement", keep: (lead: Lead) => Boolean(lead.phone) },
-  vide: { label: "Téléphone vide", keep: (lead: Lead) => !lead.phone && !lead.phone_standard },
+  renseigne: { label: "Téléphone renseigné", keep: (lead: LeadListe) => Boolean(lead.phone ?? lead.phone_standard) },
+  portable: { label: "Portable uniquement", keep: (lead: LeadListe) => Boolean(lead.phone) },
+  vide: { label: "Téléphone vide", keep: (lead: LeadListe) => !lead.phone && !lead.phone_standard },
 } as const;
 
 type PhoneFilter = keyof typeof PHONE_FILTERS;
@@ -117,7 +117,7 @@ type PhoneFilter = keyof typeof PHONE_FILTERS;
  * fiches jamais travaillées. Sans ce dernier rang, les 239 leads d'un import
  * noieraient les quelques rappels réellement dus.
  */
-function prospectionRank(lead: Lead, today: string): number {
+function prospectionRank(lead: LeadListe, today: string): number {
   if (lead.follow_up_on && lead.follow_up_on < today) return 0;
   if (lead.follow_up_on === today) return 1;
   if (JAMAIS_APPELE.includes(lead.status)) return 3;
@@ -136,7 +136,7 @@ export function LeadsWorkspace({
   orgCooldownDays,
   isAdmin,
 }: {
-  leads: Lead[];
+  leads: LeadListe[];
   members: MemberLite[];
   currentUserId: string;
   orgCooldownDays: number;
@@ -171,7 +171,7 @@ export function LeadsWorkspace({
     window.localStorage.setItem(DENSITY_STORAGE_KEY, next);
   }
 
-  const [selected, setSelected] = useState<Lead | null>(null);
+  const [selected, setSelected] = useState<LeadListe | null>(null);
 
   /*
     Copier une valeur, puis la coller sur la plage retenue.
@@ -197,12 +197,12 @@ export function LeadsWorkspace({
     confirmer : `overrides` garde la valeur voulue jusqu'à ce que les données
     fraîches arrivent, moment où il n'a plus de raison d'être.
   */
-  const [overrides, setOverrides] = useState<Record<string, Partial<Lead>>>({});
+  const [overrides, setOverrides] = useState<Record<string, Partial<LeadListe>>>({});
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => setOverrides({}), [leads]);
 
-  const applyLocal = useCallback((ids: string[], patch: Partial<Lead>) => {
+  const applyLocal = useCallback((ids: string[], patch: Partial<LeadListe>) => {
     setOverrides((current) => {
       const next = { ...current };
       for (const id of ids) next[id] = { ...next[id], ...patch };
@@ -354,7 +354,7 @@ export function LeadsWorkspace({
 
   /** Ce qu'une cellule contient, et comment le dire à l'écran. */
   const readCell = useCallback(
-    (lead: Lead, field: BulkField): { value: string | null; label: string } => {
+    (lead: LeadListe, field: BulkField): { value: string | null; label: string } => {
       switch (field) {
         case "status":
           return { value: lead.status, label: LEAD_STATUS[lead.status].label };
@@ -397,7 +397,7 @@ export function LeadsWorkspace({
     const targets = cells.ids;
     setPasting(true);
     // L'écran suit immédiatement ; le serveur ne fait que confirmer.
-    applyLocal(targets, { [copied.field]: copied.value } as Partial<Lead>);
+    applyLocal(targets, { [copied.field]: copied.value } as Partial<LeadListe>);
     const result = await updateLeads(targets, copied.field, copied.value);
     setPasting(false);
 
@@ -475,11 +475,11 @@ export function LeadsWorkspace({
     return () => observer.disconnect();
   }, [hasMore, visible]);
 
-  async function patch(lead: Lead, field: string, value: string | null, silent = false) {
+  async function patch(lead: LeadListe, field: string, value: string | null, silent = false) {
     // L'écran change d'abord. Si le serveur refuse, on efface la correction
     // locale et les données du serveur reprennent la main — l'utilisateur voit
     // sa saisie revenir en arrière, ce qui est le bon signal.
-    applyLocal([lead.id], { [field]: value } as Partial<Lead>);
+    applyLocal([lead.id], { [field]: value } as Partial<LeadListe>);
 
     const result = await updateLead(lead.id, { [field]: value });
     if (!result.ok) {
@@ -492,7 +492,7 @@ export function LeadsWorkspace({
     return true;
   }
 
-  async function handleStatusChange(lead: Lead, next: LeadStatus) {
+  async function handleStatusChange(lead: LeadListe, next: LeadStatus) {
     // « Call pris » déclenche la conversion, pas un simple changement de statut.
     if (next === "call_pris") {
       setSelected(lead);
@@ -934,7 +934,7 @@ export function LeadsWorkspace({
         onClose={() => setCreating(false)}
         onCreated={() => {
           setCreating(false);
-          toast("Lead ajouté.");
+          toast("LeadListe ajouté.");
           refresh();
         }}
       />
@@ -1104,7 +1104,7 @@ function CopyableCell({
   children,
 }: {
   field: BulkField;
-  lead: Lead;
+  lead: LeadListe;
   index: number;
   cells: CellSelection;
   className?: string;
@@ -1281,8 +1281,8 @@ function StatusSelect({
   lead,
   onChange,
 }: {
-  lead: Lead;
-  onChange: (lead: Lead, status: LeadStatus) => void;
+  lead: LeadListe;
+  onChange: (lead: LeadListe, status: LeadStatus) => void;
 }) {
   return (
     <select
@@ -1389,7 +1389,7 @@ function OwnerSelect({
   onAssign,
   avatarSize = 18,
 }: {
-  lead: Lead;
+  lead: LeadListe;
   members: MemberLite[];
   onAssign: (ownerId: string | null) => Promise<void>;
   avatarSize?: number;

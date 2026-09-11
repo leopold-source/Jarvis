@@ -174,7 +174,25 @@ export async function runReadTool(name: string, input: Record<string, unknown>):
     case "chercher": {
       const terme = String(input.terme ?? "").trim();
       if (terme.length < 2) return { erreur: "Terme de recherche trop court." };
-      const motif = `%${terme}%`;
+
+      /*
+        Le terme est assaini avant de rejoindre un filtre `or`.
+
+        Dans `or(...)`, PostgREST sépare les clauses par des virgules et les
+        groupe par des parenthèses : une valeur qui en contient ne « casse »
+        pas seulement la requête, elle peut y ajouter des conditions. Le terme
+        vient ici du modèle, qui l'a lui-même tiré d'une phrase dictée — donc
+        d'une source qu'on ne maîtrise pas. On ne garde que ce qui a un sens
+        dans un nom propre, et les jokers SQL sont retirés pour qu'une
+        recherche reste une recherche.
+
+        Le point, lui, est conservé : il n'a aucun pouvoir structurant dans une
+        valeur, et le retirer aurait cassé toute recherche par e-mail — ce que
+        le premier jet de ce correctif faisait, sans que rien ne le signale.
+      */
+      const propre = terme.replace(/[,()*%\\"']/g, " ").replace(/\s+/g, " ").trim();
+      if (propre.length < 2) return { erreur: "Terme de recherche inexploitable." };
+      const motif = `%${propre}%`;
 
       const [{ data: leads }, { data: deals }, { data: companies }] = await Promise.all([
         supabase

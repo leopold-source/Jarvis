@@ -153,6 +153,30 @@ export type Lead = {
   updated_at: string;
 }
 
+/**
+ * Les colonnes que l'écran des leads charge réellement.
+ *
+ * La table en compte une quarantaine, dont une bonne part n'est là que pour
+ * l'analyse : description du site, raison sociale, année de fondation. Les
+ * envoyer au navigateur pour 432 fiches coûtait 233 ko à chaque ouverture,
+ * sans que rien ne les affiche. Ce type dit lesquelles voyagent, et le
+ * compilateur refuse qu'on en lise une autre côté client.
+ */
+export type LeadListe = Omit<
+  Lead,
+  | "company_legal_name"
+  | "company_linkedin_url"
+  | "company_description"
+  | "founded_year"
+  | "revenue_year"
+  | "email_quality"
+  | "sector"
+  | "address"
+  | "source"
+  | "converted_contact_id"
+  | "converted_company_id"
+>;
+
 export type Deal = {
   id: string;
   name: string;

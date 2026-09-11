@@ -1,4 +1,4 @@
-import type { Lead } from "@/lib/database.types";
+import type { LeadListe } from "@/lib/database.types";
 
 /**
  * Rattacher les leads qui désignent la même organisation — ou la même personne.
@@ -19,14 +19,14 @@ const MAX_PARTAGE_TELEPHONE = 4;
 
 export type OrgLink = {
   /** Les autres leads rattachés à la même organisation. */
-  siblings: Lead[];
+  siblings: LeadListe[];
   /** Le plus récemment travaillé d'entre eux, s'il l'a été dans la fenêtre. */
-  recent: Lead | null;
+  recent: LeadListe | null;
   /** Jours écoulés depuis ce dernier contact. */
   daysSince: number | null;
 };
 
-function touchedAt(lead: Lead): string {
+function touchedAt(lead: LeadListe): string {
   return lead.last_touched_at ?? lead.status_changed_at;
 }
 
@@ -39,7 +39,7 @@ function daysBetween(iso: string, now: number): number {
  * savoir avant de décrocher : qui d'autre est rattaché, et quand on lui a parlé.
  */
 export function buildOrgIndex(
-  leads: Lead[],
+  leads: LeadListe[],
   cooldownDays: number,
   now: number = Date.now(),
 ): Map<string, OrgLink> {
@@ -66,7 +66,7 @@ export function buildOrgIndex(
     if (rootA !== rootB) parent.set(rootA, rootB);
   };
 
-  const keysOf = (lead: Lead): string[] => {
+  const keysOf = (lead: LeadListe): string[] => {
     const keys: string[] = [];
     if (lead.org_key) keys.push(`org:${lead.org_key}`);
     if (lead.phone_key && (phoneCount.get(lead.phone_key) ?? 0) <= MAX_PARTAGE_TELEPHONE) {
@@ -83,7 +83,7 @@ export function buildOrgIndex(
     for (let i = 1; i < keys.length; i += 1) union(keys[0], keys[i]);
   }
 
-  const groups = new Map<string, Lead[]>();
+  const groups = new Map<string, LeadListe[]>();
   for (const lead of leads) {
     const keys = keysOf(lead);
     if (keys.length === 0) continue;
@@ -101,7 +101,7 @@ export function buildOrgIndex(
 
       // Le voisin travaillé le plus récemment : c'est lui qui peut faire de
       // cet appel un doublon.
-      let recent: Lead | null = null;
+      let recent: LeadListe | null = null;
       let best = Number.POSITIVE_INFINITY;
       for (const sibling of siblings) {
         const days = daysBetween(touchedAt(sibling), now);
@@ -131,7 +131,7 @@ export function buildOrgIndex(
  * plus loin. Deux fiches du même groupe ne se suivent donc jamais, et le lead
  * repoussé n'est pas perdu pour autant.
  */
-export function spreadByOrg(ordered: Lead[], index: Map<string, OrgLink>): Lead[] {
+export function spreadByOrg(ordered: LeadListe[], index: Map<string, OrgLink>): LeadListe[] {
   // L'identité d'un groupe : les identifiants de ses membres, triés. Calculée
   // une fois — la recomposer à chaque comparaison coûterait plus cher que le
   // problème qu'elle règle.
@@ -146,7 +146,7 @@ export function spreadByOrg(ordered: Lead[], index: Map<string, OrgLink>): Lead[
   }
 
   const remaining = [...ordered];
-  const out: Lead[] = [];
+  const out: LeadListe[] = [];
   let lastGroup: string | undefined;
 
   while (remaining.length > 0) {

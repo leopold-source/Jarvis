@@ -6,7 +6,7 @@
  * dirigeant présent dans deux sociétés — parce que ce sont eux qui font
  * décrocher deux fois.
  */
-import type { Lead } from "@/lib/database.types";
+import type { LeadListe } from "@/lib/database.types";
 import { buildOrgIndex, spreadByOrg } from "@/lib/lead-orgs";
 
 const NOW = Date.parse("2026-09-10T12:00:00Z");
@@ -20,7 +20,7 @@ function check(label: string, got: unknown, want: unknown) {
 }
 
 let seq = 0;
-function lead(partial: Partial<Lead> & { id: string }): Lead {
+function lead(partial: Partial<LeadListe> & { id: string }): LeadListe {
   seq += 1;
   return {
     id: partial.id,
@@ -29,7 +29,7 @@ function lead(partial: Partial<Lead> & { id: string }): Lead {
     phone_key: partial.phone_key ?? null,
     last_touched_at: partial.last_touched_at ?? null,
     status_changed_at: partial.status_changed_at ?? daysAgo(400),
-  } as Lead;
+  } as LeadListe;
 }
 
 /* --- Rattachement ------------------------------------------------------- */

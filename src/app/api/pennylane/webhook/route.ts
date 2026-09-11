@@ -32,7 +32,15 @@ export async function POST(request: NextRequest) {
   const raw = await request.text();
   const secret = process.env.PENNYLANE_WEBHOOK_SECRET?.trim();
 
-  if (secret) {
+  // Cet événement date un échéancier et marque un devis comme signé. Sans
+  // secret pour l'authentifier, n'importe qui pourrait déclencher une
+  // facturation : on refuse plutôt que de faire confiance à l'appelant.
+  if (!secret) {
+    await log("webhook", false, safeParse(raw), "PENNYLANE_WEBHOOK_SECRET absente : requête refusée.");
+    return NextResponse.json({ error: "PENNYLANE_WEBHOOK_SECRET absente" }, { status: 503 });
+  }
+
+  {
     const provided =
       request.headers.get("x-pennylane-signature") ??
       request.headers.get("x-hub-signature-256") ??

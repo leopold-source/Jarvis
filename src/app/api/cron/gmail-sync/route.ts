@@ -15,12 +15,31 @@ import { runSuggestions } from "@/app/(crm)/suggestions-actions";
  * échanges de la veille sont rattachés avant la première relance du jour.
  *
  * Vercel signe ses propres invocations d'un `Authorization: Bearer
- * <CRON_SECRET>` dès que cette variable est définie ; on la vérifie pour que
- * la route ne puisse pas être déclenchée depuis l'extérieur.
+ * <CRON_SECRET>`.
+ *
+ * La vérification refuse quand le secret est ABSENT, et pas seulement quand il
+ * est faux. La logique inverse — ne contrôler que si la variable existe —
+ * paraît accommodante et laisse en réalité la route grande ouverte tant que
+ * personne n'a pensé à la renseigner. Or celle-ci met des mails à la corbeille,
+ * crée des brouillons et dépense chez Anthropic : il vaut mille fois mieux
+ * qu'elle échoue bruyamment que de tourner pour un inconnu.
  */
 export async function GET(request: NextRequest) {
-  const secret = process.env.CRON_SECRET;
-  if (secret && request.headers.get("authorization") !== `Bearer ${secret}`) {
+  const secret = process.env.CRON_SECRET?.trim();
+
+  if (!secret) {
+    return NextResponse.json(
+      {
+        error: "CRON_SECRET absente",
+        detail:
+          "Cette route agit sur la boîte mail et appelle un modèle payant. " +
+          "Renseignez CRON_SECRET dans les variables d'environnement Vercel.",
+      },
+      { status: 503 },
+    );
+  }
+
+  if (request.headers.get("authorization") !== `Bearer ${secret}`) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 

@@ -67,7 +67,21 @@ export async function POST(request: NextRequest) {
   const body = await request.text();
   const secret = process.env.CLAAP_WEBHOOK_SECRET?.trim();
 
-  if (secret) {
+  // Pas de secret, pas de webhook. Accepter un appel non signé au prétexte que
+  // la variable n'est pas encore configurée revient à publier une route qui
+  // écrit en base.
+  if (!secret) {
+    await log(
+      "secret_absent",
+      "CLAAP_WEBHOOK_SECRET n'est pas configurée : la requête est refusée sans être traitée.",
+      request,
+      body,
+      safeParse(body),
+    );
+    return NextResponse.json({ error: "CLAAP_WEBHOOK_SECRET absente" }, { status: 503 });
+  }
+
+  {
     const candidates = signatureHeaders(request);
 
     if (candidates.length === 0) {

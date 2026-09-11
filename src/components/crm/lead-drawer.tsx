@@ -6,7 +6,7 @@ import { AlertTriangle, ArrowRight, BriefcaseBusiness, Building2, CalendarClock,
 import { Badge, Button, Drawer, Field, Input, Select, Textarea, useToast } from "@/components/ui";
 import { DateField } from "@/components/ui/date-field";
 import { LEAD_STATUS, LEAD_STATUS_ORDER } from "@/lib/constants";
-import type { Lead, LeadStatus } from "@/lib/database.types";
+import type { LeadListe, LeadStatus } from "@/lib/database.types";
 import { cn, formatDate, formatMoney, formatRelative } from "@/lib/utils";
 import type { OrgLink } from "@/lib/lead-orgs";
 import { updateLead } from "@/app/(crm)/leads/actions";
@@ -19,12 +19,12 @@ export function LeadDrawer({
   onSaved,
   onConvert,
 }: {
-  lead: Lead | null;
+  lead: LeadListe | null;
   org?: OrgLink;
-  onOpenLead?: (lead: Lead) => void;
+  onOpenLead?: (lead: LeadListe) => void;
   onClose: () => void;
   onSaved: () => void;
-  onConvert: (lead: Lead, dealName: string, amount: number | null) => Promise<void>;
+  onConvert: (lead: LeadListe, dealName: string, amount: number | null) => Promise<void>;
 }) {
   const toast = useToast();
   const [status, setStatus] = useState<LeadStatus>("a_contacter");
@@ -62,7 +62,7 @@ export function LeadDrawer({
       toast(result.error, "error");
       return;
     }
-    toast("Lead mis à jour.");
+    toast("LeadListe mis à jour.");
     onSaved();
   }
 
@@ -78,7 +78,7 @@ export function LeadDrawer({
     <Drawer
       open
       onClose={onClose}
-      title={lead.full_name ?? "Lead sans nom"}
+      title={lead.full_name ?? "LeadListe sans nom"}
       subtitle={lead.company_name ?? undefined}
       footer={
         converting ? (
@@ -292,7 +292,7 @@ function InfoTile({
  * légitime. Il rend seulement impossible de le faire sans le savoir — et
  * affiche donc ce dont la décision a besoin : qui, quel statut, quand.
  */
-function OrgBanner({ org, onOpenLead }: { org: OrgLink; onOpenLead?: (lead: Lead) => void }) {
+function OrgBanner({ org, onOpenLead }: { org: OrgLink; onOpenLead?: (lead: LeadListe) => void }) {
   const alerte = org.recent !== null;
 
   return (
