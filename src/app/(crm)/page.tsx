@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import Link from "next/link";
 import {
   ArrowUpRight,
@@ -12,6 +13,7 @@ import {
 } from "lucide-react";
 
 import { PageHeader } from "@/components/layout/page-header";
+import { AgendaDuJour } from "@/components/crm/agenda-du-jour";
 import { PipelineInsight } from "@/components/crm/pipeline-insight";
 import { DailySuggestions } from "@/components/crm/daily-suggestions";
 import type { SuggestionItemType } from "@/app/(crm)/suggestions-actions";
@@ -195,6 +197,20 @@ export default async function DashboardPage() {
         title={`Bonjour ${profile.full_name?.split(" ")[0] ?? ""}`.trim()}
         description="Ce qui avance, ce qui dort, et ce qui attend une décision."
       />
+
+      {/* L'agenda dans sa propre frontière : l'appel à Google ne retarde pas
+          l'affichage du reste, la carte se remplit une fraction de seconde
+          après. */}
+      <Suspense
+        fallback={
+          <Card className="p-5">
+            <div className="skeleton h-4 w-32" />
+            <div className="skeleton mt-3 h-3 w-48" />
+          </Card>
+        }
+      >
+        <AgendaDuJour userId={profile.id} />
+      </Suspense>
 
       <PipelineInsight insight={insight} />
 

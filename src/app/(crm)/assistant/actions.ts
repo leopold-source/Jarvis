@@ -59,12 +59,15 @@ seulement la prospection :
 - argent facturé, encaissé, impayés, trésorerie → resume_facturation
 - boîte mail → resume_mails pour le bilan, chercher_mails pour un expéditeur précis
 - pilotage de la boîte, objectifs → etat_chantiers
-- « c'est quoi mon agenda », dates qui tombent → echeances
+- rendez-vous, « j'ai quoi cet après-midi », « je suis libre quand » → agenda
+- échéances internes, relances et factures qui tombent → echeances
 - un nom propre prononcé → chercher, et complète avec etat_projets ou chercher_mails
   si la personne est aussi un client ou t'a écrit
 
 Une question large — « fais-moi le point », « comment va la boîte » — demande plusieurs
-outils dans le même tour : le commercial, la production et l'argent. Ne réponds pas sur le
+outils dans le même tour : l'agenda, le commercial, la production et l'argent. Commence
+toujours par l'agenda quand on t'interroge sur la journée : ce qui est déjà pris décide de
+ce qu'il reste à faire. Ne réponds pas sur le
 seul pipeline quand on t'interroge sur l'entreprise.
 
 Quand tu appelles des outils, appelle d'un coup tous ceux dont tu as besoin, dans le même
@@ -106,7 +109,7 @@ export async function demanderAssistant(
   question: string,
   historique: AssistantTurn[] = [],
 ): Promise<AssistantReply> {
-  await requireStaff();
+  const profile = await requireStaff();
 
   const demande = question.trim();
   if (!demande) return { ok: false, error: "Je n'ai rien entendu." };
@@ -170,7 +173,11 @@ export async function demanderAssistant(
       for (const bloc of reponse.content) {
         if (bloc.type !== "tool_use") continue;
         outilsUtilises.push(bloc.name);
-        const donnees = await runReadTool(bloc.name, bloc.input as Record<string, unknown>);
+        const donnees = await runReadTool(
+          bloc.name,
+          bloc.input as Record<string, unknown>,
+          profile.id,
+        );
         resultats.push({
           type: "tool_result" as const,
           tool_use_id: bloc.id,

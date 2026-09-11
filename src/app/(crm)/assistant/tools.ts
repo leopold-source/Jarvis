@@ -2,6 +2,7 @@ import "server-only";
 
 import { DEAL_STAGE, LEAD_STATUS } from "@/lib/constants";
 import type { DealStage } from "@/lib/database.types";
+import { agendaDe } from "@/lib/agenda";
 import { createClient } from "@/lib/supabase/server";
 
 /**
@@ -105,6 +106,20 @@ export const READ_TOOLS = [
     },
   },
   {
+    name: "agenda",
+    description:
+      "Les rendez-vous à venir : aujourd'hui et demain, avec l'heure, les participants et " +
+      "le lien de visio. À utiliser pour « c'est quoi mon prochain rendez-vous », « j'ai quoi " +
+      "cet après-midi », « je suis libre quand », et dans tout récapitulatif du matin.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        jours: { type: "integer", description: "Horizon en jours, 1 à 7. Défaut 1 (aujourd'hui et demain)." },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
     name: "etat_chantiers",
     description:
       "Les chantiers en cours et l'avancement de leurs objectifs chiffrés. " +
@@ -146,7 +161,11 @@ function dateDans(jours: number) {
 }
 
 /** Exécute un outil. Le nom vient du modèle : tout ce qui n'est pas reconnu est refusé. */
-export async function runReadTool(name: string, input: Record<string, unknown>): Promise<ToolResult> {
+export async function runReadTool(
+  name: string,
+  input: Record<string, unknown>,
+  userId: string,
+): Promise<ToolResult> {
   const supabase = await createClient();
 
   switch (name) {
@@ -316,6 +335,36 @@ export async function runReadTool(name: string, input: Record<string, unknown>):
           telephone: l.phone ?? l.phone_standard,
           relance_prevue: l.follow_up_on,
           note: l.comment,
+        })),
+      };
+    }
+
+    case "agenda": {
+      const jours = Math.min(7, Math.max(1, Number(input.jours) || 1));
+      const resultat = await agendaDe(userId, { jours });
+
+      if (!resultat.ok) {
+        return {
+          indisponible: true,
+          pourquoi:
+            resultat.raison === "perimetre"
+              ? "Le compte Google a été connecté avant l'ajout de l'agenda : il faut le reconnecter."
+              : resultat.raison === "non_connecte"
+                ? "Aucun compte Google n'est connecté."
+                : resultat.detail,
+        };
+      }
+
+      return {
+        maintenant: new Date().toISOString(),
+        rendez_vous: resultat.rendezVous.map((rdv) => ({
+          titre: rdv.titre,
+          debut: rdv.debut,
+          fin: rdv.fin,
+          journee_entiere: rdv.journee_entiere,
+          avec: rdv.participants,
+          lieu: rdv.lieu,
+          en_visio: Boolean(rdv.visio),
         })),
       };
     }

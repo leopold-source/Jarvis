@@ -17,6 +17,8 @@ import { disconnectGmail, syncGmail } from "@/app/(crm)/parametres/actions";
 import { formatRelative } from "@/lib/utils";
 
 export type GmailAccountView = {
+  /** Périmètre réellement accordé : il date de la connexion, pas du code. */
+  scope: string | null;
   email: string;
   last_synced_at: string | null;
   last_error: string | null;
@@ -80,10 +82,10 @@ export function GmailConnection({
         title={
           <span className="flex items-center gap-2">
             <Mail className="size-4 text-brand-500 dark:text-brand-300" />
-            Synchronisation Gmail
+            Compte Google
           </span>
         }
-        description="Rattache automatiquement vos échanges aux affaires, en comparant les adresses de vos contacts."
+        description="Rattache vos échanges aux affaires, permet le tri quotidien de la boîte, et affiche vos rendez-vous du jour sur le tableau de bord."
         action={
           account ? (
             <Badge tone="emerald">
@@ -95,6 +97,17 @@ export function GmailConnection({
           )
         }
       />
+
+      {account && !account.scope?.includes("calendar") ? (
+        <p className="mt-3 flex items-start gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-[12.5px] text-amber-600 dark:text-amber-300">
+          <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
+          <span>
+            Ce compte a été connecté quand l&apos;application ne savait que lire les mails.
+            Reconnectez-le pour activer le tri de la boîte et l&apos;agenda — c&apos;est la même
+            opération pour les deux, une seule fois.
+          </span>
+        </p>
+      ) : null}
 
       {notice ? (
         <p className="mt-3 flex items-start gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-[12.5px] text-amber-600 dark:text-amber-300">

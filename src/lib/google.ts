@@ -27,6 +27,10 @@ const GMAIL_BASE = "https://gmail.googleapis.com/gmail/v1/users/me";
 export const GOOGLE_SCOPES = [
   "https://www.googleapis.com/auth/gmail.modify",
   "https://www.googleapis.com/auth/gmail.compose",
+  // Lecture seule sur l'agenda : afficher les rendez-vous du jour n'exige pas
+  // le droit d'en créer, et un jeton qui peut écrire dans un calendrier est un
+  // jeton qui peut effacer une réunion.
+  "https://www.googleapis.com/auth/calendar.readonly",
   "https://www.googleapis.com/auth/userinfo.email",
 ].join(" ");
 
@@ -395,4 +399,69 @@ export function sendDraft(accessToken: string, draftId: string) {
     method: "POST",
     body: { id: draftId },
   });
+}
+
+/* ------------------------------------------------------ Google Agenda */
+
+const CALENDAR_BASE = "https://www.googleapis.com/calendar/v3";
+
+export type CalendarEvent = {
+  id: string;
+  summary?: string;
+  location?: string;
+  hangoutLink?: string;
+  htmlLink?: string;
+  status?: string;
+  start?: { dateTime?: string; date?: string };
+  end?: { dateTime?: string; date?: string };
+  attendees?: Array<{ email?: string; displayName?: string; responseStatus?: string; self?: boolean }>;
+  organizer?: { email?: string; displayName?: string };
+  conferenceData?: { entryPoints?: Array<{ entryPointType?: string; uri?: string }> };
+};
+
+/**
+ * Les rendez-vous d'une fenêtre de temps, sur l'agenda principal.
+ *
+ * `singleEvents` développe les récurrences en occurrences réelles : sans lui,
+ * un point hebdomadaire renverrait sa règle de répétition et non la réunion de
+ * ce matin. `orderBy=startTime` n'est d'ailleurs accepté qu'avec.
+ */
+export async function listCalendarEvents(
+  accessToken: string,
+  from: Date,
+  to: Date,
+  max = 12,
+): Promise<CalendarEvent[]> {
+  const params = new URLSearchParams({
+    timeMin: from.toISOString(),
+    timeMax: to.toISOString(),
+    singleEvents: "true",
+    orderBy: "startTime",
+    maxResults: String(max),
+  });
+
+  const response = await fetch(`${CALENDAR_BASE}/calendars/primary/events?${params}`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(`Agenda ${response.status} : ${detail.slice(0, 200)}`);
+  }
+
+  const payload = (await response.json()) as { items?: CalendarEvent[] };
+  // Une invitation refusée reste dans la liste : l'afficher ferait croire à un
+  // rendez-vous qui n'aura pas lieu.
+  return (payload.items ?? []).filter((event) => {
+    if (event.status === "cancelled") return false;
+    const moi = event.attendees?.find((invite) => invite.self);
+    return moi?.responseStatus !== "declined";
+  });
+}
+
+/** Le lien de visioconférence, quel que soit l'endroit où Google l'a rangé. */
+export function eventVideoLink(event: CalendarEvent): string | null {
+  if (event.hangoutLink) return event.hangoutLink;
+  const entree = event.conferenceData?.entryPoints?.find((e) => e.entryPointType === "video");
+  return entree?.uri ?? null;
 }

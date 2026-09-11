@@ -62,7 +62,7 @@ export default async function ParametresPage({
   // sélectionne donc que les champs d'affichage, jamais l'étoile.
   const { data } = await supabase
     .from("google_accounts")
-    .select("email, last_synced_at, last_error, synced_count, connected_at")
+    .select("email, scope, last_synced_at, last_error, synced_count, connected_at")
     .eq("user_id", profile.id)
     .maybeSingle();
 

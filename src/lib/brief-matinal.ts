@@ -1,3 +1,4 @@
+import { agendaDe } from "@/lib/agenda";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 /**
@@ -29,7 +30,7 @@ async function corps(admin: Admin, userId: string, prenom: string): Promise<stri
   const jour = new Date().toISOString().slice(0, 10);
   const dans7 = new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 10);
 
-  const [{ data: tri }, mailsEnAttente, { data: leads }, { data: taches }, { data: sante }] =
+  const [{ data: tri }, mailsEnAttente, { data: leads }, { data: taches }, { data: sante }, agenda] =
     await Promise.all([
       admin
         .from("mail_runs")
@@ -45,6 +46,7 @@ async function corps(admin: Admin, userId: string, prenom: string): Promise<stri
       admin.from("leads").select("full_name, company_name, follow_up_on").not("follow_up_on", "is", null).lte("follow_up_on", jour).order("follow_up_on").limit(5),
       admin.from("tasks").select("title, due_on").neq("status", "termine").not("due_on", "is", null).lte("due_on", dans7).order("due_on").limit(5),
       admin.from("deal_health").select("sante"),
+      agendaDe(userId, { jours: 0 }),
     ]);
 
   const passage = (tri ?? [])[0];
@@ -53,13 +55,22 @@ async function corps(admin: Admin, userId: string, prenom: string): Promise<stri
   const echeances = taches ?? [];
   const dormantes = (sante ?? []).filter((d) => d.sante === "dormant").length;
 
+  // L'agenda passe en premier dans le message : ce qui est déjà pris décide de
+  // ce qu'il reste de la journée.
+  const rendezVous = agenda.ok ? agenda.rendezVous : [];
+
   // Un brief qui n'annonce rien ne doit pas partir : le courrier quotidien
   // qu'on apprend à ignorer est pire que pas de courrier du tout.
   const rienASignaler =
-    attente === 0 && relances.length === 0 && echeances.length === 0 && !passage?.lus;
+    attente === 0 &&
+    relances.length === 0 &&
+    echeances.length === 0 &&
+    rendezVous.length === 0 &&
+    !passage?.lus;
   if (rienASignaler) return null;
 
   const resume = [
+    rendezVous.length ? ligne(rendezVous.length, "rendez-vous", "rendez-vous") : null,
     passage?.lus ? ligne(passage.lus, "mail trié", "mails triés") : null,
     passage?.spams ? ligne(passage.spams, "spam écarté", "spams écartés") : null,
     attente ? `${attente} en attente de ta décision` : null,
@@ -79,6 +90,19 @@ async function corps(admin: Admin, userId: string, prenom: string): Promise<stri
   <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:560px;margin:0 auto;padding:28px 24px">
     <p style="margin:0;font-size:20px;font-weight:600;color:#16161a">Bonjour ${prenom},</p>
     <p style="margin:6px 0 0;font-size:14px;color:#6b6b75">${resume.join(" · ") || "Rien de neuf ce matin."}</p>
+
+    ${bloc(
+      "Ton agenda",
+      rendezVous.map((rdv) => {
+        const heure = rdv.journee_entiere
+          ? "journée"
+          : rdv.debut
+            ? new Date(rdv.debut).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })
+            : "";
+        const avec = rdv.participants.length ? ` — avec ${rdv.participants.join(", ")}` : "";
+        return `<strong>${heure}</strong> ${rdv.titre}<span style="color:#8b8b93">${avec}</span>`;
+      }),
+    )}
 
     ${bloc(
       "À rappeler",
