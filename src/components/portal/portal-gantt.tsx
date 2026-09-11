@@ -21,6 +21,15 @@ import { cn, formatDate } from "@/lib/utils";
  * retard, et cela se voit sans légende.
  */
 export function PortalGantt({ tasks }: { tasks: Task[] }) {
+  /*
+    La ligne mise en avant — au survol à la souris, à l'appui au doigt.
+
+    Les dates d'une étape n'existaient que dans une infobulle de survol. Sur un
+    téléphone, le survol n'existe pas : le client voyait des barres colorées
+    sans jamais pouvoir lire à quelles dates elles correspondaient. C'est
+    l'écran qu'on montre au client, donc c'est l'endroit où ce genre d'oubli se
+    paie le plus cher.
+  */
   const [survol, setSurvol] = useState<string | null>(null);
 
   const plan = useMemo(() => {
@@ -77,8 +86,11 @@ export function PortalGantt({ tasks }: { tasks: Task[] }) {
     tache.status !== "termine" && tache.due_on !== null && new Date(tache.due_on) < new Date();
 
   return (
-    <div className="overflow-x-auto">
-      <div className="min-w-[620px]">
+    <div className="-mx-1 overflow-x-auto px-1">
+      {/* Un planning se lit dans le temps : il garde une largeur minimale et
+          défile de côté, mais 620 px n'en laissaient rien voir sur un
+          téléphone — la colonne des titres en mangeait déjà le tiers. */}
+      <div className="min-w-[460px] sm:min-w-[620px]">
         {/* Repères de mois, pour situer sans lire les dates une à une. */}
         <div className="relative mb-2 h-4 border-b border-[var(--border-subtle)]">
           {moisEntre(plan.debut, plan.fin).map((mois) => (
@@ -110,9 +122,20 @@ export function PortalGantt({ tasks }: { tasks: Task[] }) {
             return (
               <div
                 key={tache.id}
-                className="relative grid grid-cols-[11rem_1fr] items-center gap-3"
+                role="button"
+                tabIndex={0}
+                aria-label={`${tache.title} — ${formatDate(tache.start_on)} au ${formatDate(tache.due_on)}`}
+                className="relative grid cursor-default grid-cols-[7rem_1fr] items-center gap-2 sm:grid-cols-[11rem_1fr] sm:gap-3"
                 onMouseEnter={() => setSurvol(tache.id)}
                 onMouseLeave={() => setSurvol(null)}
+                // Un appui révèle les dates, un second les referme.
+                onClick={() => setSurvol((courant) => (courant === tache.id ? null : tache.id))}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    setSurvol((courant) => (courant === tache.id ? null : tache.id));
+                  }
+                }}
               >
                 <span className="flex items-center gap-1 truncate text-[11.5px] text-[var(--text-secondary)]">
                   {jalon ? <Flag className="size-3 shrink-0 text-brand-400" /> : null}

@@ -74,7 +74,7 @@ export async function AgendaDuJour({ userId, className }: { userId: string; clas
       ) : null}
 
       {resultat.rendezVous.length > 0 ? (
-        <ul className="mt-4 max-h-72 flex-1 space-y-1.5 overflow-y-auto pr-1">
+        <ul className="mt-4 flex-1 space-y-1.5 pr-1 lg:max-h-72 lg:overflow-y-auto">
           {duJour.map((rdv, index) => (
             <Rendez
               key={rdv.id}

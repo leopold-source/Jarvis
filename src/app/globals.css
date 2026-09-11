@@ -162,6 +162,26 @@ body {
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+
+  /* Le voile gris que WebKit peint sur tout ce qu'on touche. Il arrive avec
+     trois cents millisecondes de retard sur l'animation de la carte, si bien
+     que l'application paraît répondre plus lentement qu'elle ne le fait ;
+     l'état actif de chaque élément dit déjà que le geste est pris en compte. */
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Un appui maintenu sur une carte de kanban sert à la saisir, pas à ouvrir le
+   menu « copier / partager » d'iOS par-dessus le glisser en cours. */
+[class*="select-none"] {
+  -webkit-touch-callout: none;
+}
+
+/* La barre d'adresse mobile se rétracte au défilement : sur une page courte,
+   elle en fait une page qui rebondit sans raison. */
+@media (max-width: 1023px) {
+  html {
+    overscroll-behavior-y: none;
+  }
 }
 
 ::selection {

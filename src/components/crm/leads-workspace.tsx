@@ -45,7 +45,7 @@ import {
 import { DateField } from "@/components/ui/date-field";
 import { LEAD_STATUS, LEAD_STATUS_ORDER, TONE_CLASSES, TONE_DOT } from "@/lib/constants";
 import type { LeadListe, LeadStatus } from "@/lib/database.types";
-import { cn, daysUntil, formatDate, formatMoney, normalize } from "@/lib/utils";
+import { cn, daysUntil, formatDate, formatMoney, normalize, todayIso } from "@/lib/utils";
 import {
   assignLead,
   convertLead,
@@ -126,10 +126,7 @@ function prospectionRank(lead: LeadListe, today: string): number {
   return 2;
 }
 
-function todayIso() {
-  const now = new Date();
-  return new Date(now.getTime() - now.getTimezoneOffset() * 60_000).toISOString().slice(0, 10);
-}
+
 
 export function LeadsWorkspace({
   leads,
@@ -1523,7 +1520,16 @@ function LeadCard({
         </span>
       </button>
 
-      <div className="mt-2.5 flex flex-wrap items-center gap-2 pl-7.5">
+      {/*
+        Deux rangs fixes plutôt qu'un enroulement libre.
+
+        Laissée à elle-même, la ligne coupait à un endroit différent selon la
+        longueur du statut : sur une liste de soixante fiches, aucune commande
+        ne se trouvait deux fois au même endroit, et l'œil devait relire chaque
+        carte au lieu de balayer une colonne. Le statut et la relance en haut,
+        les repères et l'appel en bas — toujours.
+      */}
+      <div className="mt-2.5 flex items-center gap-2 pl-7.5">
         <StatusSelect lead={lead} onChange={onStatut} />
 
         <DateField
@@ -1532,7 +1538,9 @@ function LeadCard({
           onChange={onRelance}
           className="min-w-28"
         />
+      </div>
 
+      <div className="mt-1.5 flex items-center gap-2 pl-7.5">
         <OrgChip link={lien} entree={entree} onTourner={onTourner} />
 
         {lead.linkedin_url ? (

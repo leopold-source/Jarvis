@@ -5,7 +5,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import {
   DndContext,
   DragOverlay,
-  PointerSensor,
+  MouseSensor,
+  TouchSensor,
   useDroppable,
   useSensor,
   useSensors,
@@ -111,9 +112,22 @@ export function DealBoard({
     .filter((deal) => OPEN_STAGES.includes(deal.stage))
     .reduce((sum, deal) => sum + (deal.amount ?? 0), 0);
 
+  /*
+    Deux capteurs, parce que la souris et le doigt ne disent pas la même chose.
+
+    Un `PointerSensor` unique traitait les deux à l'identique, et sur un
+    téléphone c'était la ruine : dès qu'un doigt bougeait de six pixels — ce
+    que fait n'importe quel défilement — la carte se décrochait. Faire défiler
+    la colonne devenait impossible, et chaque tentative déplaçait une affaire.
+
+    À la souris, six pixels séparent toujours le clic du glisser. Au doigt,
+    c'est la durée qui tranche : un balayage rapide fait défiler, un appui
+    maintenu saisit. La tolérance de huit pixels laisse au pouce le droit de
+    trembler pendant l'appui sans annuler la prise.
+  */
   const sensors = useSensors(
-    // Un petit seuil évite qu'un clic sur la carte soit interprété comme un glisser.
-    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 220, tolerance: 8 } }),
   );
 
   function onDragStart(event: DragStartEvent) {
@@ -201,7 +215,10 @@ export function DealBoard({
       ) : (
         <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
           <div className="-mx-4 w-[calc(100%+2rem)] overflow-x-auto overscroll-x-contain px-4 pb-3 sm:-mx-6 sm:w-[calc(100%+3rem)] sm:px-6">
-            <div className="flex min-h-[60vh] w-max gap-3">
+            {/* Aimanté : sur un écran étroit, une colonne à moitié visible ne
+                se lit pas, et relâcher au hasard laisse toujours une bordure
+                dans le champ. */}
+            <div className="flex min-h-[60dvh] w-max snap-x snap-mandatory gap-3 sm:snap-none">
               {columns.map(({ stage, deals: stageDeals }) => (
                 <BoardColumn
                   key={stage}
@@ -278,7 +295,7 @@ function BoardColumn({
     <section
       ref={setNodeRef}
       className={cn(
-        "flex w-[286px] shrink-0 flex-col rounded-xl border transition-colors duration-200",
+        "flex w-[80vw] max-w-[286px] shrink-0 snap-start flex-col rounded-xl border transition-colors duration-200 sm:w-[286px]",
         isOver
           ? "border-brand-500/60 bg-brand-500/5 shadow-[0_0_0_1px_var(--glow-brand)]"
           : "border-[var(--border-subtle)] bg-[var(--surface-raised)]/45",
@@ -339,13 +356,22 @@ function DraggableDeal({
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: deal.id });
 
-  // La carte entière est saisissable : le seuil de 6 px du capteur distingue un
-  // clic (qui ouvre le détail) d'un glisser.
+  /*
+    La carte entière est saisissable. Au clic, le seuil de six pixels distingue
+    l'ouverture du glisser ; au doigt, c'est l'appui maintenu.
+
+    `touch-none` ne vaut qu'à partir de `sm`. En dessous, il disait au
+    navigateur de ne jamais faire défiler quand le doigt part d'une carte —
+    c'est-à-dire presque partout sur un tableau — et le kanban était figé dans
+    les deux directions. Avec un capteur tactile à retardement, la règle
+    s'inverse : on laisse le navigateur défiler, et c'est dnd-kit qui reprend
+    la main une fois la prise établie.
+  */
   return (
     <div
       ref={setNodeRef}
       style={{ ["--i" as string]: index }}
-      className={cn("stagger touch-none", isDragging && "opacity-40")}
+      className={cn("stagger select-none sm:touch-none", isDragging && "opacity-40")}
       {...attributes}
       {...listeners}
     >
@@ -390,7 +416,7 @@ function DealCard({
       <div className="flex items-start gap-1.5">
         {/* Affordance visuelle : le glisser est capté par la carte entière. */}
         <GripVertical
-          className="mt-0.5 size-3.5 shrink-0 text-[var(--text-muted)] opacity-0 transition-opacity group-hover:opacity-100"
+          className="mt-0.5 size-3.5 shrink-0 text-[var(--text-muted)] opacity-40 transition-opacity sm:opacity-0 sm:group-hover:opacity-100"
           aria-hidden
         />
         <div className="min-w-0 flex-1">

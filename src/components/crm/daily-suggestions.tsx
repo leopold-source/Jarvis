@@ -119,7 +119,7 @@ export function DailySuggestions({
           </Button>
         </div>
       ) : (
-        <ol className="mt-4 max-h-72 flex-1 space-y-1.5 overflow-y-auto pr-1">
+        <ol className="mt-4 flex-1 space-y-1.5 pr-1 lg:max-h-72 lg:overflow-y-auto">
           {items.map((item, index) => {
             const isDone = checked.has(item.key);
             const kind = KIND[item.kind] ?? KIND.administratif;
@@ -181,7 +181,7 @@ export function DailySuggestions({
                 <AiVerdict
                   kind="suggestion"
                   refId={item.key}
-                  className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
+                  className="shrink-0 transition-opacity focus-within:opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
                 />
 
                 <Link
@@ -190,7 +190,7 @@ export function DailySuggestions({
                   aria-label="Ouvrir la fiche"
                   className={cn(
                     "mt-0.5 shrink-0 rounded-md p-1 text-[var(--text-muted)] transition-all duration-200",
-                    "opacity-0 group-hover:opacity-100 hover:bg-[var(--surface-hover)] hover:text-brand-500",
+                    "hover:bg-[var(--surface-hover)] hover:text-brand-500 sm:opacity-0 sm:group-hover:opacity-100",
                     "focus-visible:opacity-100 dark:hover:text-brand-300",
                   )}
                 >

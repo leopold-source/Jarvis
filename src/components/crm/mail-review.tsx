@@ -174,24 +174,39 @@ export function MailReview({
                   : ""}
               </p>
             </div>
-            <span className="flex shrink-0 items-center gap-2">
-              <Button variant="secondary" size="sm" onClick={() => setRecap(true)}>
+            {/* Trois libellés côte à côte repassent à la ligne sur un
+                téléphone et poussent le bilan hors de vue ; les icônes
+                suffisent là où la place manque. */}
+            <span className="flex shrink-0 items-center gap-1.5 sm:gap-2">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setRecap(true)}
+                aria-label="Ce que j'ai fait"
+              >
                 <ListChecks className="size-3.5" />
-                Ce que j&apos;ai fait
+                <span className="max-sm:hidden">Ce que j&apos;ai fait</span>
               </Button>
-              <Button variant="ghost" size="sm" loading={busy} onClick={() => trier()}>
+              <Button
+                variant="ghost"
+                size="sm"
+                loading={busy}
+                onClick={() => trier()}
+                aria-label="Trier"
+              >
                 <RefreshCw className="size-3.5" />
-                Trier
+                <span className="max-sm:hidden">Trier</span>
               </Button>
               <Button
                 variant="ghost"
                 size="sm"
                 disabled={busy}
                 onClick={() => trier(true)}
+                aria-label="Réanalyser"
                 title="Reprendre les deux derniers jours depuis le début, y compris les mails déjà rangés"
               >
                 <History className="size-3.5" />
-                Réanalyser
+                <span className="max-sm:hidden">Réanalyser</span>
               </Button>
             </span>
           </div>

@@ -175,15 +175,26 @@ export function AssistantOverlay({ open, onClose }: { open: boolean; onClose: ()
   const enCours = etat === "reflexion";
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-[var(--surface-base)]/92 px-5 backdrop-blur-xl animate-fade-in">
+    /*
+      Centré tant que ça tient, défilant dès que ça déborde.
+
+      Un `justify-center` seul rogne le haut du contenu au lieu de le rendre
+      atteignable : sur un téléphone, l'orbe, la réponse et la proposition
+      d'action dépassent vite la hauteur utile, et le clavier logiciel en
+      reprend encore la moitié. Le conteneur défile donc, et c'est la colonne
+      intérieure qui se centre quand elle en a la place.
+    */
+    <div className="fixed inset-0 z-50 overflow-y-auto overscroll-contain bg-[var(--surface-base)]/92 backdrop-blur-xl animate-fade-in">
       <button
         type="button"
         onClick={onClose}
         aria-label="Fermer"
-        className="absolute top-5 right-5 rounded-full p-2 text-[var(--text-muted)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)]"
+        className="absolute top-[calc(1rem+env(safe-area-inset-top))] right-4 z-10 grid size-10 place-items-center rounded-full text-[var(--text-muted)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)] sm:top-5 sm:right-5"
       >
         <X className="size-5" />
       </button>
+
+      <div className="flex min-h-full flex-col items-center justify-center px-5 py-16 pb-[calc(4rem+env(safe-area-inset-bottom))]">
 
       <button
         type="button"
@@ -340,7 +351,7 @@ export function AssistantOverlay({ open, onClose }: { open: boolean; onClose: ()
             type="button"
             disabled={enCours}
             onClick={() => void traiter(exemple)}
-            className="rounded-full border border-[var(--border-subtle)] px-3 py-1 text-[11.5px] text-[var(--text-muted)] transition-colors hover:border-brand-500/50 hover:text-[var(--text-secondary)] disabled:opacity-40"
+            className="rounded-full border border-[var(--border-subtle)] px-3 py-2 text-[12px] text-[var(--text-muted)] transition-colors hover:border-brand-500/50 hover:text-[var(--text-secondary)] disabled:opacity-40 sm:py-1 sm:text-[11.5px]"
           >
             {exemple}
           </button>
@@ -352,6 +363,7 @@ export function AssistantOverlay({ open, onClose }: { open: boolean; onClose: ()
           {cout.toFixed(2)} centime(s) sur cette session
         </p>
       ) : null}
+      </div>
     </div>
   );
 }

@@ -283,7 +283,9 @@ export default async function DashboardPage() {
       </section>
 
       {/* ------------------------------------------------------- Les chiffres */}
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      {/* Deux tuiles de front dès le plus petit écran : en colonne unique, les
+          quatre chiffres occupaient un écran et demi pour dire quatre nombres. */}
+      <section className="grid grid-cols-2 gap-3 xl:grid-cols-4">
         {stats.map(({ label, value, hint, icon: Icon, href }, index) => (
           <Link key={label} href={href} style={{ ["--i" as string]: index }} className="stagger">
             <Card interactive glow className="h-full p-4">
@@ -320,7 +322,7 @@ export default async function DashboardPage() {
                 description="Toutes les affaires ouvertes ont bougé récemment."
               />
             ) : (
-              <ul className="mt-4 max-h-72 flex-1 divide-y divide-[var(--border-subtle)] overflow-y-auto pr-1">
+              <ul className="mt-4 flex-1 divide-y divide-[var(--border-subtle)] pr-1 lg:max-h-72 lg:overflow-y-auto">
                 {aReveiller.map((deal, index) => {
                   const days = sante.get(deal.id)?.jours_dans_etape ?? 0;
                   return (
@@ -359,7 +361,7 @@ export default async function DashboardPage() {
                 description="Aucune échéance dans les deux prochaines semaines."
               />
             ) : (
-              <ul className="mt-4 max-h-72 flex-1 divide-y divide-[var(--border-subtle)] overflow-y-auto pr-1">
+              <ul className="mt-4 flex-1 divide-y divide-[var(--border-subtle)] pr-1 lg:max-h-72 lg:overflow-y-auto">
                 {echeances.map((entree, index) => {
                   const Icone = GENRE_ICONE[entree.genre];
                   const restant = daysUntil(entree.date);

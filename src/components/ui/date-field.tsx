@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CalendarDays, ChevronLeft, ChevronRight, X } from "lucide-react";
 
-import { cn, daysUntil } from "@/lib/utils";
+import { cn, daysUntil, todayIso } from "@/lib/utils";
 
 /**
  * Sélecteur de date maison.
@@ -82,11 +82,13 @@ export function DateField({
     };
   }, [open]);
 
-  const today = new Date();
-  const todayIso = toIso(today);
+  // Même source que le reste de l'application, et surtout la même des deux
+  // côtés du rendu : c'est ce badge « J-3 » qui faisait échouer l'hydratation
+  // quand le serveur et le téléphone n'étaient pas le même jour.
+  const aujourdhui = todayIso();
   const remaining = daysUntil(value);
   const late = remaining != null && remaining < 0;
-  const isToday = value === todayIso;
+  const isToday = value === aujourdhui;
 
   // Grille du mois : on complète la première semaine avec les jours du mois
   // précédent pour que les colonnes restent alignées.
@@ -222,7 +224,7 @@ export function DateField({
               const iso = toIso(date);
               const outside = date.getMonth() !== cursor.getMonth();
               const isSelected = iso === value;
-              const isNow = iso === todayIso;
+              const isNow = iso === aujourdhui;
 
               return (
                 <button
