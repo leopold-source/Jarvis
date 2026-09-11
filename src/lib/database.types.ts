@@ -676,6 +676,35 @@ export type MailRun = {
   annonce: boolean;
 }
 
+/* --- Retours sur ce que l'IA propose ------------------------------------- */
+
+export type AiKind =
+  | "suggestion"
+  | "insight"
+  | "mail_tri"
+  | "mail_brouillon"
+  | "import_nettoyage";
+
+export type AiFeedback = {
+  id: string;
+  kind: AiKind;
+  /** Identifiant de ce qui est jugé : une ligne, ou la clef d'une suggestion. */
+  ref: string | null;
+  utile: boolean;
+  /** La raison compte plus que le pouce : c'est elle qui dira quoi corriger. */
+  note: string | null;
+  user_id: string;
+  created_at: string;
+}
+
+export type AiFeedbackBilan = {
+  kind: AiKind | null;
+  juges: number | null;
+  utiles: number | null;
+  taux_utile: number | null;
+  dernier: string | null;
+}
+
 /** Colonnes à valeur par défaut côté base, donc optionnelles à l'insertion. */
 type Defaulted =
   | "id" | "created_at" | "updated_at" | "connected_at" | "synced_count"
@@ -683,7 +712,7 @@ type Defaulted =
   | "amount_ttc" | "paid_amount" | "position" | "vat_rate"
   | "quote_review" | "review" | "ok"
   | "started_on" | "starts_on" | "target_value" | "current_value" | "source"
-  | "org_key" | "phone_key"
+  | "org_key" | "phone_key" | "utile"
   | "started_at" | "confidence" | "known_contact" | "action" | "lus" | "spams"
   | "factures" | "brouillons" | "a_traiter" | "incertains" | "cout_centimes" | "annonce";
 
@@ -728,11 +757,13 @@ export type Database = {
       app_settings: TableDef<AppSetting, "key" | "value">;
       mail_triage: TableDef<MailTriage, "user_id" | "provider_message_id" | "category">;
       mail_runs: TableDef<MailRun, "user_id">;
+      ai_feedback: TableDef<AiFeedback, "kind" | "utile" | "user_id">;
     };
     Views: {
       project_progress: { Row: ProjectProgress; Relationships: [] };
       dossier_finance: { Row: DossierFinance; Relationships: [] };
       deal_health: { Row: DealHealth; Relationships: [] };
+      ai_feedback_bilan: { Row: AiFeedbackBilan; Relationships: [] };
     };
     Functions: {
       convert_lead_to_deal: {
@@ -744,6 +775,7 @@ export type Database = {
       is_staff: { Args: Record<string, never>; Returns: boolean };
       my_company_id: { Args: Record<string, never>; Returns: string };
       client_can_see_project: { Args: { p_project_id: string }; Returns: boolean };
+      client_can_see_dossier: { Args: { p_dossier_id: string }; Returns: boolean };
     };
     Enums: {
       app_role: AppRole;
@@ -764,6 +796,7 @@ export type Database = {
       mail_category: MailCategory;
       mail_action: MailAction;
       mail_review: MailReview;
+      ai_kind: AiKind;
     };
     CompositeTypes: Record<string, never>;
   };

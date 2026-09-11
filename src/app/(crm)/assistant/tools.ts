@@ -64,6 +64,47 @@ export const READ_TOOLS = [
     },
   },
   {
+    name: "etat_projets",
+    description:
+      "La production : projets en cours, avancement réel, tâches en retard, prochains jalons, " +
+      "et qui porte quoi. À utiliser pour « où en est le projet X », « on est en retard sur quoi », " +
+      "« qu'est-ce que Romain a sur le feu », « c'est quoi mes livrables ».",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        projet: { type: "string", description: "Nom ou code d'un projet, si la question en vise un" },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "resume_facturation",
+    description:
+      "L'argent réel : ce qui est facturé, encaissé, en attente, en retard de paiement, et les " +
+      "prochaines échéances à émettre. À utiliser pour « combien on a encaissé », « qui me doit " +
+      "de l'argent », « où en est la facturation », « ma trésorerie ».",
+    input_schema: { type: "object" as const, properties: {}, additionalProperties: false },
+  },
+  {
+    name: "chercher_mails",
+    description:
+      "Cherche dans les mails déjà triés : par expéditeur, par objet, ou par catégorie. " +
+      "À utiliser pour « qu'est-ce que m'a écrit Nicolas », « j'ai reçu des factures cette semaine », " +
+      "« il reste quoi à répondre ». Ne lit pas la boîte en direct : seulement ce que le tri a vu.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        terme: { type: "string", description: "Nom d'expéditeur ou mot de l'objet" },
+        categorie: {
+          type: "string",
+          enum: ["spam", "prospection_etrangere", "facture", "a_repondre", "information", "incertain"],
+          description: "Pour ne garder qu'une catégorie",
+        },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
     name: "etat_chantiers",
     description:
       "Les chantiers en cours et l'avancement de leurs objectifs chiffrés. " +
@@ -354,6 +395,127 @@ export async function runReadTool(name: string, input: Record<string, unknown>):
           echeance: f.due_on,
           statut: f.status,
           en_retard: Boolean(f.due_on && f.due_on < jour && f.status === "emise"),
+        })),
+      };
+    }
+
+    case "etat_projets": {
+      const filtre = String(input.projet ?? "").replace(/[,()*%\\"']/g, " ").trim();
+
+      let requete = supabase
+        .from("projects")
+        .select("id, code, name, status, health, start_on, due_on, budget, description")
+        .neq("status", "cloture");
+      if (filtre.length >= 2) requete = requete.or(`name.ilike.%${filtre}%,code.ilike.%${filtre}%`);
+
+      const { data: projets } = await requete.limit(8);
+      const ids = (projets ?? []).map((p) => p.id);
+      if (ids.length === 0) return { projets: [], note: "Aucun projet en cours ne correspond." };
+
+      const [{ data: taches }, { data: avancement }, { data: equipe }] = await Promise.all([
+        supabase
+          .from("tasks")
+          .select("project_id, title, status, kind, due_on, assignee_id, priority")
+          .in("project_id", ids)
+          .neq("status", "termine")
+          .order("due_on", { nullsFirst: false }),
+        supabase.from("project_progress").select("*").in("project_id", ids),
+        supabase.from("profiles").select("id, full_name, email"),
+      ]);
+
+      const nomDe = new Map((equipe ?? []).map((m) => [m.id, m.full_name ?? m.email]));
+      const jour = today();
+
+      return {
+        projets: (projets ?? []).map((projet) => {
+          const siennes = (taches ?? []).filter((t) => t.project_id === projet.id);
+          const avance = (avancement ?? []).find((a) => a.project_id === projet.id);
+          return {
+            nom: projet.name,
+            code: projet.code,
+            statut: projet.status,
+            sante: projet.health,
+            echeance: projet.due_on,
+            budget: projet.budget,
+            avancement_pct: avance?.progress_pct ?? 0,
+            taches_restantes: siennes.length,
+            // Le retard nominatif : c'est l'information qu'on cherche vraiment
+            // quand on demande « on en est où ».
+            en_retard: siennes
+              .filter((t) => t.due_on && t.due_on < jour)
+              .map((t) => ({
+                titre: t.title,
+                echue_le: t.due_on,
+                qui: t.assignee_id ? (nomDe.get(t.assignee_id) ?? null) : null,
+              })),
+            prochains_jalons: siennes
+              .filter((t) => t.kind === "jalon")
+              .slice(0, 3)
+              .map((t) => ({ titre: t.title, date: t.due_on })),
+          };
+        }),
+      };
+    }
+
+    case "resume_facturation": {
+      const [{ data: finance }, { data: factures }] = await Promise.all([
+        supabase.from("dossier_finance").select("*"),
+        supabase
+          .from("invoices")
+          .select("label, amount_ttc, paid_amount, status, issued_on, due_on, paid_on")
+          .in("status", ["prevue", "emise"])
+          .order("due_on", { nullsFirst: false })
+          .limit(12),
+      ]);
+
+      const jour = today();
+      const lignes = finance ?? [];
+      const somme = (clef: "facture_ttc" | "encaisse_ttc" | "en_attente_ttc" | "a_facturer_ttc" | "en_retard_ttc") =>
+        lignes.reduce((total, ligne) => total + Number(ligne[clef] ?? 0), 0);
+
+      return {
+        dossiers: lignes.length,
+        facture_ttc: somme("facture_ttc"),
+        encaisse_ttc: somme("encaisse_ttc"),
+        en_attente_ttc: somme("en_attente_ttc"),
+        reste_a_facturer_ttc: somme("a_facturer_ttc"),
+        en_retard_de_paiement_ttc: somme("en_retard_ttc"),
+        prochaines_echeances: (factures ?? []).map((f) => ({
+          libelle: f.label,
+          montant_ttc: Number(f.amount_ttc),
+          echeance: f.due_on,
+          statut: f.status,
+          en_retard: Boolean(f.due_on && f.due_on < jour && f.status === "emise"),
+        })),
+      };
+    }
+
+    case "chercher_mails": {
+      const terme = String(input.terme ?? "").replace(/[,()*%\\"']/g, " ").trim();
+      const categorie = String(input.categorie ?? "").trim();
+
+      let requete = supabase
+        .from("mail_triage")
+        .select("from_name, from_email, subject, snippet, category, action, received_at, reason, draft_blocked_reason")
+        .order("received_at", { ascending: false })
+        .limit(10);
+
+      if (categorie) requete = requete.eq("category", categorie as never);
+      if (terme.length >= 2) {
+        requete = requete.or(`from_name.ilike.%${terme}%,from_email.ilike.%${terme}%,subject.ilike.%${terme}%`);
+      }
+
+      const { data } = await requete;
+      return {
+        mails: (data ?? []).map((m) => ({
+          de: m.from_name ?? m.from_email,
+          objet: m.subject,
+          extrait: m.snippet,
+          categorie: m.category,
+          traitement: m.action,
+          recu_le: m.received_at,
+          pourquoi_classe_ainsi: m.reason,
+          pourquoi_pas_de_reponse: m.draft_blocked_reason,
         })),
       };
     }

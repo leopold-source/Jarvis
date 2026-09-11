@@ -204,6 +204,11 @@ export function useVoice({
   const classerVoix = useCallback((voix: SpeechSynthesisVoice[]) => {
     const note = (v: SpeechSynthesisVoice) => {
       const nom = v.name.toLowerCase();
+      // Les voix « Natural » de Microsoft sont des voix neuronales servies en
+      // ligne : de loin les meilleures du lot gratuit, et disponibles sur Edge
+      // sous Windows. Elles passent donc devant tout le reste.
+      if (nom.includes("natural")) return 7;
+      if (nom.includes("online")) return 6;
       if (nom.includes("google")) return 5;
       if (nom.includes("premium") || nom.includes("enhanced")) return 4;
       if (nom.includes("siri")) return 4;
