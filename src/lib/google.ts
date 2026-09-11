@@ -290,10 +290,7 @@ export type GmailLabel = { id: string; name: string };
  * avant d'abandonner.
  */
 export async function ensureLabel(accessToken: string, name: string): Promise<string> {
-  const trouver = async () => {
-    const { labels } = await gmail<{ labels?: GmailLabel[] }>("/labels", accessToken);
-    return labels?.find((label) => label.name.toLowerCase() === name.toLowerCase())?.id ?? null;
-  };
+  const trouver = () => findLabel(accessToken, name);
 
   const existante = await trouver();
   if (existante) return existante;
@@ -309,6 +306,18 @@ export async function ensureLabel(accessToken: string, name: string): Promise<st
     if (seconde) return seconde;
     throw caught;
   }
+}
+
+/**
+ * L'identifiant d'une étiquette existante, ou null.
+ *
+ * Distinct de `ensureLabel` parce que tout ne mérite pas d'être créé : pour
+ * retirer un ancien dossier, l'absence est déjà la réponse voulue, et le créer
+ * pour l'ôter aussitôt laisserait un dossier vide derrière soi.
+ */
+export async function findLabel(accessToken: string, name: string): Promise<string | null> {
+  const { labels } = await gmail<{ labels?: GmailLabel[] }>("/labels", accessToken);
+  return labels?.find((label) => label.name.toLowerCase() === name.toLowerCase())?.id ?? null;
 }
 
 export function addLabel(accessToken: string, messageId: string, labelId: string) {
@@ -493,6 +502,19 @@ export function untrashMessage(accessToken: string, messageId: string) {
   return gmail<unknown>(`/messages/${messageId}/untrash`, accessToken, undefined, {
     method: "POST",
     body: {},
+  });
+}
+
+/**
+ * Retire une étiquette d'un message.
+ *
+ * Utile à la réanalyse : un message reclassé qui garderait son ancien dossier
+ * apparaîtrait dans les deux, et l'ancien mentirait.
+ */
+export function removeLabel(accessToken: string, messageId: string, labelId: string) {
+  return gmail<unknown>(`/messages/${messageId}/modify`, accessToken, undefined, {
+    method: "POST",
+    body: { removeLabelIds: [labelId] },
   });
 }
 

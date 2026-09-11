@@ -7,6 +7,7 @@ import {
   Archive,
   Check,
   ExternalLink,
+  History,
   Inbox,
   ListChecks,
   Mail,
@@ -71,9 +72,27 @@ export function MailReview({
 
   const refresh = () => startTransition(() => router.refresh());
 
-  async function trier() {
+  /*
+    Deux gestes, et la distinction compte.
+
+    « Trier » ne revoit jamais un mail déjà vu : c'est ce qui permet de le
+    presser sans y penser. « Réanalyser » reprend les deux derniers jours au
+    complet, y compris ce qui a déjà été rangé — la seule façon de faire
+    profiter l'ancien courrier d'une consigne qui a changé. Elle repaie ce qui
+    a déjà été payé, donc elle se demande.
+  */
+  async function trier(reprise = false) {
+    if (
+      reprise &&
+      !window.confirm(
+        "Reprendre les deux derniers jours depuis le début ? Les mails déjà rangés seront reclassés, et l'analyse leur sera refacturée.",
+      )
+    ) {
+      return;
+    }
+
     setBusy(true);
-    const resultat = await trierMaintenant();
+    const resultat = await trierMaintenant(reprise);
     setBusy(false);
     if (!resultat.ok) return toast(resultat.error, "error");
     toast(
@@ -160,9 +179,19 @@ export function MailReview({
                 <ListChecks className="size-3.5" />
                 Ce que j&apos;ai fait
               </Button>
-              <Button variant="ghost" size="sm" loading={busy} onClick={trier}>
+              <Button variant="ghost" size="sm" loading={busy} onClick={() => trier()}>
                 <RefreshCw className="size-3.5" />
                 Trier
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={busy}
+                onClick={() => trier(true)}
+                title="Reprendre les deux derniers jours depuis le début, y compris les mails déjà rangés"
+              >
+                <History className="size-3.5" />
+                Réanalyser
               </Button>
             </span>
           </div>
@@ -179,7 +208,7 @@ export function MailReview({
             <p className="text-[13px] text-[var(--text-muted)]">
               Le tri ne s&apos;est encore jamais exécuté sur {compteConnecte}.
             </p>
-            <Button variant="secondary" size="sm" loading={busy} onClick={trier}>
+            <Button variant="secondary" size="sm" loading={busy} onClick={() => trier()}>
               <RefreshCw className="size-3.5" />
               Lancer le premier tri
             </Button>

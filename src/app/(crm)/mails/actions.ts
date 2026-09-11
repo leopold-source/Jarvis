@@ -255,10 +255,19 @@ export async function fetchBilanTri(): Promise<{
   return { mails: retenus, passage };
 }
 
-/** Relance le tri à la demande, sans attendre le passage du lendemain. */
-export async function trierMaintenant(): Promise<ActionResult<{ lus: number }>> {
+/**
+ * Relance le tri à la demande, sans attendre le passage du lendemain.
+ *
+ * `reprise` repasse sur les messages déjà triés — à utiliser quand les
+ * consignes ont changé et que le classement d'hier n'est plus le bon. C'est
+ * le seul mode qui redépense des jetons sur du déjà-vu, d'où le fait qu'il
+ * soit un geste séparé et non le comportement par défaut du bouton.
+ */
+export async function trierMaintenant(
+  reprise = false,
+): Promise<ActionResult<{ lus: number }>> {
   const profile = await requireStaff();
-  const resultat = await trierMails(profile.id);
+  const resultat = await trierMails(profile.id, { reprise });
 
   if (resultat.erreur) return { ok: false, error: resultat.erreur };
 

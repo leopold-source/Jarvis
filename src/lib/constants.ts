@@ -282,8 +282,8 @@ export const MAIL_CATEGORY: Record<MailCategory, { label: string; tone: Tone }> 
   prospection_etrangere: { label: "Démarchage", tone: "amber" },
   notification: { label: "Notification", tone: "stone" },
   facture: { label: "Facture", tone: "cyan" },
-  a_repondre: { label: "À répondre", tone: "violet" },
-  information: { label: "Info", tone: "sky" },
+  a_repondre: { label: "Client", tone: "violet" },
+  information: { label: "Newsletter", tone: "sky" },
   incertain: { label: "À vérifier", tone: "rose" },
 };
 
