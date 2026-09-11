@@ -28,15 +28,19 @@ const WATCHED = [
   { name: "GOOGLE_CLIENT_SECRET", secret: true, optional: false },
   // Sans elle, l'URI de retour est déduite de l'origine de la requête.
   { name: "GOOGLE_REDIRECT_URI", secret: false, optional: true },
-  // Protège la route de synchro planifiée /api/cron/gmail-sync.
+  // Vercel l'envoie lui-même en `Authorization: Bearer` sur ses invocations
+  // planifiées : sa valeur n'a donc pas à être connue. Sans elle, la route
+  // refuse en 503 et le tri quotidien ne tourne plus du tout.
   { name: "CRON_SECRET", secret: true, optional: false },
-  // Sans lui, le webhook Claap accepte toute requete : a renseigner en prod.
+  // Sans lui, le webhook Claap refuse toute requête plutôt que de la traiter.
   { name: "CLAAP_WEBHOOK_SECRET", secret: true, optional: false },
   { name: "CLAAP_API_KEY", secret: true, optional: false },
   { name: "PENNYLANE_API_KEY", secret: true, optional: false },
   // Garde-fou : tant qu'il n'est pas à « true », aucun document n'est poussé.
   { name: "PENNYLANE_ENABLED", secret: false, optional: true },
-  { name: "PENNYLANE_WEBHOOK_SECRET", secret: true, optional: true },
+  // Devenu obligatoire : sans lui, le webhook refuse, et une signature de
+  // devis n'arrive jamais jusqu'à l'échéancier.
+  { name: "PENNYLANE_WEBHOOK_SECRET", secret: true, optional: false },
   // Sans elle, les notifications restent en base sans partir par e-mail.
   { name: "RESEND_API_KEY", secret: true, optional: true },
 ] as const;
