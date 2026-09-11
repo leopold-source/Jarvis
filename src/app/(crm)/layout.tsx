@@ -1,6 +1,7 @@
 import { Sidebar } from "@/components/layout/sidebar";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
 import { UserMenu } from "@/components/layout/user-menu";
+import { AssistantButton } from "@/components/assistant/assistant-overlay";
 import { requireStaff } from "@/lib/auth";
 
 export default async function CrmLayout({ children }: { children: React.ReactNode }) {
@@ -17,6 +18,7 @@ export default async function CrmLayout({ children }: { children: React.ReactNod
         </header>
 
         <main className="aurora min-w-0 flex-1 px-4 py-6 sm:px-6 lg:px-8">{children}</main>
+        <AssistantButton />
       </div>
     </div>
   );
