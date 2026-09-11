@@ -106,7 +106,69 @@ export function ContactsTable({
           />
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[760px] text-left text-[13.5px]">
+            {/*
+              Quatre colonnes tiennent presque, mais pas tout à fait : sur un
+              téléphone il faut défiler de côté pour atteindre l'e-mail, qui
+              est la raison d'ouvrir cette page. La carte le met sur sa propre
+              ligne, et rend l'appel et le message cliquables — ce qu'une
+              cellule de tableau ne faisait pas.
+            */}
+            <ul className="divide-y divide-[var(--border-subtle)] sm:hidden">
+              {filtered.map((contact) => {
+                const affaires = dealsByContact.get(contact.id) ?? [];
+                return (
+                  <li key={contact.id} className="px-3 py-3">
+                    <button
+                      type="button"
+                      onClick={() => setSelected(contact)}
+                      className="flex w-full items-center gap-2.5 text-left"
+                    >
+                      <Avatar name={contact.full_name} email={contact.email} size={34} />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[14px] font-medium">
+                          {contact.full_name || "Sans nom"}
+                        </span>
+                        <span className="block truncate text-[12px] text-[var(--text-muted)]">
+                          {[contact.job_title, contact.company_id ? companyById.get(contact.company_id) : null]
+                            .filter(Boolean)
+                            .join(" · ") || "—"}
+                        </span>
+                      </span>
+                      {affaires.slice(0, 1).map((deal) => (
+                        <Badge key={deal.id} tone={DEAL_STAGE[deal.stage].tone}>
+                          {DEAL_STAGE[deal.stage].short}
+                        </Badge>
+                      ))}
+                    </button>
+
+                    {contact.email || contact.phone ? (
+                      <div className="mt-2 flex flex-wrap gap-1.5 pl-11">
+                        {contact.phone ? (
+                          <a
+                            href={`tel:${contact.phone.replace(/\s/g, "")}`}
+                            className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-[var(--surface-hover)] px-2.5 text-[12px] text-[var(--text-secondary)] active:bg-[var(--surface-input)]"
+                          >
+                            <Phone className="size-3.5" />
+                            {contact.phone}
+                          </a>
+                        ) : null}
+                        {contact.email ? (
+                          <a
+                            href={`mailto:${contact.email}`}
+                            className="inline-flex h-9 min-w-0 items-center gap-1.5 rounded-lg bg-[var(--surface-hover)] px-2.5 text-[12px] text-[var(--text-secondary)] active:bg-[var(--surface-input)]"
+                          >
+                            <Mail className="size-3.5 shrink-0" />
+                            <span className="truncate">{contact.email}</span>
+                          </a>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </li>
+                );
+              })}
+            </ul>
+
+            <table className="hidden w-full min-w-[760px] text-left text-[13.5px] sm:table">
               <thead className="text-[11.5px] tracking-wide text-[var(--text-muted)] uppercase">
                 <tr className="border-b border-[var(--border-subtle)]">
                   <th className="px-4 py-2.5 font-medium">Contact</th>

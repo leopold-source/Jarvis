@@ -22,6 +22,7 @@ import {
   Upload,
   UserRound,
   RotateCw,
+  SlidersHorizontal,
   Users2,
   ClipboardPaste,
   X,
@@ -285,6 +286,10 @@ export function LeadsWorkspace({
   */
   const [rotation, setRotation] = useState<Map<string, number>>(() => new Map());
 
+  // Les filtres, repliés par défaut sur téléphone seulement : à partir de
+  // `sm` le bloc est toujours affiché, quel que soit cet état.
+  const [filtresOuverts, setFiltresOuverts] = useState(false);
+
   const tourner = useCallback((groupId: string) => {
     setRotation((courant) => {
       const suivant = new Map(courant);
@@ -380,6 +385,14 @@ export function LeadsWorkspace({
 
   const size = DENSITIES[density];
   const hasMore = visible < entrees.length;
+
+  const filtresActifs =
+    statuses.length +
+    (region !== "toutes" ? 1 : 0) +
+    (segment !== "tous" ? 1 : 0) +
+    (owner !== "tous" ? 1 : 0) +
+    (phoneFilter !== "tous" ? 1 : 0) +
+    (onlyGrouped ? 1 : 0);
 
   // La sélection ne porte que sur les lignes réellement affichées : coller sur
   // une ligne qu'on ne voit pas serait une modification à l'aveugle.
@@ -552,9 +565,39 @@ export function LeadsWorkspace({
             value={search}
             onChange={setSearch}
             placeholder="Nom, entreprise, e-mail…"
-            className="min-w-56 flex-1"
+            className="min-w-0 flex-1 sm:min-w-56"
           />
 
+          {/*
+            Cinq listes déroulantes empilées occupent l'écran entier d'un
+            téléphone, et la liste de leads — la seule chose qu'on est venu
+            voir — commence sous la ligne de flottaison. Elles se replient
+            donc, avec le nombre de filtres actifs sur le bouton : replier
+            sans dire ce qui est replié fait chercher pourquoi la liste est
+            courte.
+          */}
+          <Button
+            variant={filtresOuverts || filtresActifs > 0 ? "secondary" : "subtle"}
+            size="icon"
+            onClick={() => setFiltresOuverts((valeur) => !valeur)}
+            aria-expanded={filtresOuverts}
+            aria-label="Filtres"
+            className="relative shrink-0 sm:hidden"
+          >
+            <SlidersHorizontal className="size-4" />
+            {filtresActifs > 0 ? (
+              <span className="absolute -top-1 -right-1 grid size-4 place-items-center rounded-full bg-brand-500 text-[9.5px] font-semibold text-white">
+                {filtresActifs}
+              </span>
+            ) : null}
+          </Button>
+
+          <div
+            className={cn(
+              "flex w-full flex-wrap items-center gap-2.5 sm:contents",
+              filtresOuverts ? "flex" : "hidden sm:contents",
+            )}
+          >
           <StatusFilter
             selected={statuses}
             counts={counts}
@@ -622,16 +665,18 @@ export function LeadsWorkspace({
             ))}
           </Select>
 
+          </div>
+
           <span className="ml-auto flex items-center gap-2">
             {isAdmin ? (
-              <Button variant="secondary" onClick={() => setImporting(true)}>
+              <Button variant="secondary" onClick={() => setImporting(true)} className="max-sm:size-10 max-sm:px-0">
                 <Upload className="size-4" />
-                Importer
+                <span className="max-sm:hidden">Importer</span>
               </Button>
             ) : null}
-            <Button variant="primary" onClick={() => setCreating(true)}>
+            <Button variant="primary" onClick={() => setCreating(true)} className="max-sm:size-10 max-sm:px-0">
               <Plus className="size-4" />
-              Nouveau lead
+              <span className="max-sm:hidden">Nouveau lead</span>
             </Button>
           </span>
         </div>
@@ -662,7 +707,9 @@ export function LeadsWorkspace({
             ))}
           </div>
 
-          <span className="ml-auto flex items-center gap-1 rounded-[10px] bg-[var(--surface-hover)] p-1">
+          {/* La densité règle la hauteur des lignes du tableau ; sur téléphone
+              il n'y a pas de tableau, donc rien à régler. */}
+          <span className="ml-auto hidden items-center gap-1 rounded-[10px] bg-[var(--surface-hover)] p-1 lg:flex">
             {DENSITY_ORDER.map((key) => (
               <button
                 key={key}
@@ -718,12 +765,12 @@ export function LeadsWorkspace({
                 {showOverdue ? <Eye className="size-3.5" /> : <EyeOff className="size-3.5" />}
                 {showOverdue ? "Retards affichés" : "Retards masqués"}
               </Button>
-              <p className="order-first w-full text-[11.5px] text-[var(--text-muted)] lg:order-none lg:w-auto">
+              <p className="order-first hidden w-full text-[11.5px] text-[var(--text-muted)] sm:block lg:order-none lg:w-auto">
                 Retards, puis relances du jour, puis les NRP et « à recontacter » sans date.
               </p>
             </>
           ) : (
-            <p className="text-[11.5px] text-[var(--text-muted)]">
+            <p className="hidden text-[11.5px] text-[var(--text-muted)] sm:block">
               Toute la base, dans l&apos;ordre d&apos;ajout.
             </p>
           )}
@@ -746,7 +793,7 @@ export function LeadsWorkspace({
               </span>
             ) : null}
           </p>
-          <p className="hidden text-[11.5px] text-[var(--text-muted)] sm:block">
+          <p className="hidden text-[11.5px] text-[var(--text-muted)] lg:block">
             Statut, téléphone, relance et commentaire s&apos;éditent directement dans le tableau.
           </p>
         </div>
@@ -761,8 +808,35 @@ export function LeadsWorkspace({
             description="Ajustez les filtres ou ajoutez un nouveau lead."
           />
         ) : (
-          <div ref={scroller} className="max-h-[calc(100vh-17rem)] min-h-64 overflow-auto">
-            <table className={cn("w-full min-w-[1380px] text-left", size.text)}>
+          <div ref={scroller} className="max-h-[calc(100dvh-17rem)] min-h-64 overflow-auto max-lg:max-h-none max-lg:overflow-visible">
+            {/*
+              Sur téléphone, une liste de cartes ; à partir de `lg`, la table.
+
+              Onze colonnes et 1380 pixels de large ne se lisent pas sur un
+              écran de six pouces : il faudrait défiler de côté pour voir le
+              numéro, puis revenir pour savoir à qui il appartient. La carte
+              montre d'un coup ce qu'il faut pour décider d'appeler — le nom,
+              la boîte, le statut, la relance — et pose l'appel sous le pouce.
+            */}
+            <ul className="divide-y divide-[var(--border-subtle)] lg:hidden">
+              {pageLeads.map((lead, index) => (
+                <LeadCard
+                  key={lead.id}
+                  lead={lead}
+                  rang={index + 1}
+                  aujourdhui={today}
+                  prospection={view === "prospection"}
+                  entree={alternatives.get(lead.id)}
+                  lien={orgIndex.get(lead.id)}
+                  onTourner={tourner}
+                  onOuvrir={() => setSelected(lead)}
+                  onStatut={handleStatusChange}
+                  onRelance={(value) => patch(lead, "follow_up_on", value, true)}
+                />
+              ))}
+            </ul>
+
+            <table className={cn("hidden w-full min-w-[1380px] text-left lg:table", size.text)}>
               <thead className="sticky top-0 z-10 bg-[var(--surface-raised)] text-[10.5px] tracking-wide text-[var(--text-muted)] uppercase">
                 <tr className="border-b border-[var(--border-subtle)]">
                   <th className="w-12 px-2 py-1.5 text-right font-medium">#</th>
@@ -1375,6 +1449,128 @@ function StatusFilter({
 }
 
 /* --------------------------------------------------- Cellules éditables */
+
+/**
+ * Un lead tel qu'il se lit sur un téléphone.
+ *
+ * Le tableau est fait pour comparer des lignes ; la carte, pour décider d'un
+ * appel. Elle ne reprend donc pas les onze colonnes mais les cinq choses qui
+ * précèdent le geste : à qui l'on parle, chez qui, où en est la relation,
+ * quand on a promis de rappeler, et le numéro. Le reste — le CA, le poste, le
+ * commentaire long, l'assignation — vit dans la fiche, à un doigt de là.
+ *
+ * L'appel est un lien `tel:` et non un bouton : sur un téléphone, c'est
+ * l'unique geste qui compte, et il doit partir du premier coup.
+ */
+function LeadCard({
+  lead,
+  rang,
+  aujourdhui,
+  prospection,
+  entree,
+  lien,
+  onTourner,
+  onOuvrir,
+  onStatut,
+  onRelance,
+}: {
+  lead: LeadListe;
+  rang: number;
+  aujourdhui: string;
+  prospection: boolean;
+  entree?: FileEntry;
+  lien?: OrgLink;
+  onTourner: (groupId: string) => void;
+  onOuvrir: () => void;
+  onStatut: (lead: LeadListe, status: LeadStatus) => void;
+  onRelance: (value: string | null) => void;
+}) {
+  const numero = lead.phone ?? lead.phone_standard ?? null;
+  const enRetard = Boolean(lead.follow_up_on && lead.follow_up_on < aujourdhui);
+  const pourAujourdhui = lead.follow_up_on === aujourdhui;
+
+  return (
+    <li
+      className={cn(
+        "relative px-3 py-3 transition-colors active:bg-[var(--surface-hover)]/60",
+        prospection && pourAujourdhui && "bg-brand-500/[0.07]",
+        prospection && enRetard && "bg-rose-500/[0.07]",
+      )}
+    >
+      {/* Le corps ouvre la fiche ; les commandes en dessous s'en détachent
+          explicitement, sinon changer un statut ouvrirait le tiroir. */}
+      <button type="button" onClick={onOuvrir} className="flex w-full items-start gap-2.5 text-left">
+        <span className="mt-0.5 w-5 shrink-0 text-right font-mono text-[11px] text-[var(--text-muted)] tabular-nums">
+          {rang}
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="flex items-center gap-1.5">
+            <span className="truncate text-[14px] font-medium">
+              {lead.full_name ?? lead.email ?? "Sans nom"}
+            </span>
+            {lead.converted_deal_id ? (
+              <ExternalLink className="size-3 shrink-0 text-emerald-500" />
+            ) : null}
+          </span>
+          <span className="mt-0.5 flex items-center gap-1.5 text-[12.5px] text-[var(--text-muted)]">
+            <span className="truncate">{lead.company_name ?? "—"}</span>
+          </span>
+          {lead.job_title ? (
+            <span className="mt-0.5 block truncate text-[11.5px] text-[var(--text-muted)]">
+              {lead.job_title}
+            </span>
+          ) : null}
+        </span>
+      </button>
+
+      <div className="mt-2.5 flex flex-wrap items-center gap-2 pl-7.5">
+        <StatusSelect lead={lead} onChange={onStatut} />
+
+        <DateField
+          value={lead.follow_up_on}
+          placeholder="Planifier"
+          onChange={onRelance}
+          className="min-w-28"
+        />
+
+        <OrgChip link={lien} entree={entree} onTourner={onTourner} />
+
+        {lead.linkedin_url ? (
+          <a
+            href={lead.linkedin_url}
+            target="_blank"
+            rel="noreferrer"
+            aria-label="Profil LinkedIn"
+            className="grid size-9 place-items-center rounded-lg text-[var(--text-muted)] active:bg-[var(--surface-hover)]"
+          >
+            <Linkedin className="size-4" />
+          </a>
+        ) : null}
+
+        {/*
+          L'appel occupe le bord droit, là où le pouce tombe naturellement sur
+          un téléphone tenu d'une main. Le numéro l'accompagne : composer sans
+          savoir si c'est un portable ou un standard fait aborder la personne
+          de travers.
+        */}
+        {numero ? (
+          <a
+            href={`tel:${numero.replace(/\s/g, "")}`}
+            className="ml-auto inline-flex h-9 items-center gap-1.5 rounded-lg bg-brand-500/15 px-3 font-mono text-[12px] text-brand-600 active:bg-brand-500/25 dark:text-brand-300"
+          >
+            <Phone className="size-3.5 shrink-0" />
+            {numero}
+            {!lead.phone && lead.phone_standard ? (
+              <span className="text-[9.5px] tracking-wide uppercase opacity-70">std</span>
+            ) : null}
+          </a>
+        ) : (
+          <span className="ml-auto text-[11.5px] text-[var(--text-muted)]">Aucun numéro</span>
+        )}
+      </div>
+    </li>
+  );
+}
 
 function StatusSelect({
   lead,

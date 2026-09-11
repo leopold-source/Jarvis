@@ -91,7 +91,57 @@ export default async function FacturationPage() {
       ) : (
         <Card className="overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[880px] text-left text-[12.5px]">
+            {/*
+              Six colonnes de chiffres sur un téléphone : la carte les met en
+              deux lignes plutôt qu'en une rangée qu'il faut faire défiler. Le
+              retard reste ce qui se voit en premier — c'est la seule ligne sur
+              laquelle on agit depuis un téléphone.
+            */}
+            <ul className="divide-y divide-[var(--border-subtle)] sm:hidden">
+              {(dossiers ?? []).map((dossier) => {
+                const money = financeById.get(dossier.id);
+                const late = Number(money?.en_retard_ttc ?? 0) > 0;
+                const meta = DOSSIER_STATUS[dossier.status];
+
+                return (
+                  <li
+                    key={dossier.id}
+                    className={cn("px-3 py-3", late && "bg-rose-500/[0.06]")}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="truncate text-[13.5px] font-medium">
+                          {dossier.company_id ? (companyById.get(dossier.company_id) ?? "—") : "—"}
+                        </p>
+                        <p className="mt-0.5 font-mono text-[11px] text-[var(--text-muted)]">
+                          {dossier.code ?? "—"}
+                        </p>
+                      </div>
+                      <Badge tone={meta.tone}>{meta.label}</Badge>
+                    </div>
+
+                    <div className="mt-2 flex flex-wrap items-baseline gap-x-4 gap-y-1 text-[12px]">
+                      <span className="tabular-nums">
+                        <span className="text-[var(--text-muted)]">TTC </span>
+                        {formatMoney(dossier.amount_ttc)}
+                      </span>
+                      <span className="tabular-nums">
+                        <span className="text-[var(--text-muted)]">Encaissé </span>
+                        {formatMoney(Number(money?.encaisse_ttc ?? 0))}
+                      </span>
+                      {money?.prochaine_echeance ? (
+                        <span className={cn("tabular-nums", late && "text-rose-500")}>
+                          <span className="text-[var(--text-muted)]">Échéance </span>
+                          {formatDate(money.prochaine_echeance)}
+                        </span>
+                      ) : null}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+
+            <table className="hidden w-full min-w-[880px] text-left text-[12.5px] sm:table">
               <thead className="text-[10.5px] tracking-wide text-[var(--text-muted)] uppercase">
                 <tr className="border-b border-[var(--border-subtle)]">
                   <th className="px-3 py-2 font-medium">Dossier</th>
