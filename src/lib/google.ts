@@ -11,9 +11,22 @@ const TOKEN_URL = "https://oauth2.googleapis.com/token";
 const REVOKE_URL = "https://oauth2.googleapis.com/revoke";
 const GMAIL_BASE = "https://gmail.googleapis.com/gmail/v1/users/me";
 
-/** Lecture seule sur Gmail, plus l'adresse du compte pour l'afficher. */
+/**
+ * Ce que l'application demande à Gmail.
+ *
+ * `modify` couvre les étiquettes et la mise à la corbeille ; `compose` couvre
+ * les brouillons et leur envoi. Ni l'un ni l'autre ne permet la suppression
+ * définitive — Google ne l'accorde qu'avec le périmètre complet, qu'on ne
+ * demande pas. Un mail écarté à tort reste donc récupérable trente jours, ce
+ * qui est exactement la garantie qu'on veut avant de laisser un modèle trier.
+ *
+ * Ce sont des périmètres « restreints » : pour une application publique,
+ * Google impose un audit de sécurité. L'écran de consentement étant configuré
+ * en Interne sur le Workspace antichaos.fr, cet audit ne s'applique pas.
+ */
 export const GOOGLE_SCOPES = [
-  "https://www.googleapis.com/auth/gmail.readonly",
+  "https://www.googleapis.com/auth/gmail.modify",
+  "https://www.googleapis.com/auth/gmail.compose",
   "https://www.googleapis.com/auth/userinfo.email",
 ].join(" ");
 
@@ -140,14 +153,28 @@ export type GmailMessage = {
   payload?: { headers?: Array<{ name: string; value: string }> };
 };
 
-async function gmail<T>(path: string, accessToken: string, params?: URLSearchParams): Promise<T> {
+async function gmail<T>(
+  path: string,
+  accessToken: string,
+  params?: URLSearchParams,
+  init?: { method: "POST" | "PUT"; body: unknown },
+): Promise<T> {
   const url = `${GMAIL_BASE}${path}${params ? `?${params}` : ""}`;
-  const response = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+  const response = await fetch(url, {
+    method: init?.method ?? "GET",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      ...(init ? { "Content-Type": "application/json" } : {}),
+    },
+    body: init ? JSON.stringify(init.body) : undefined,
+  });
   if (!response.ok) {
     const detail = await response.text();
     throw new Error(`Gmail ${response.status} : ${detail.slice(0, 200)}`);
   }
-  return (await response.json()) as T;
+  // Certaines écritures répondent 204 sans corps.
+  const texte = await response.text();
+  return (texte ? JSON.parse(texte) : {}) as T;
 }
 
 export function listMessages(accessToken: string, query: string, pageToken?: string) {
@@ -178,4 +205,194 @@ export function header(message: GmailMessage, name: string): string {
 export function parseAddresses(value: string): string[] {
   const matches = value.match(/[\w.+-]+@[\w-]+\.[\w.-]+/g);
   return matches ? matches.map((address) => address.toLowerCase()) : [];
+}
+
+/* ------------------------------------------------- Gmail : lecture du corps */
+
+export type GmailPart = {
+  mimeType?: string;
+  body?: { data?: string; size?: number };
+  parts?: GmailPart[];
+};
+
+export type GmailFullMessage = GmailMessage & {
+  labelIds?: string[];
+  payload?: GmailMessage["payload"] & GmailPart;
+};
+
+export function getFullMessage(accessToken: string, id: string) {
+  return gmail<GmailFullMessage>(`/messages/${id}`, accessToken, new URLSearchParams({ format: "full" }));
+}
+
+function decodeBase64Url(data: string): string {
+  const normalise = data.replace(/-/g, "+").replace(/_/g, "/");
+  return Buffer.from(normalise, "base64").toString("utf8");
+}
+
+/**
+ * Le texte d'un message, aplati.
+ *
+ * On préfère `text/plain` au HTML : la version texte dit la même chose en dix
+ * fois moins de jetons, et un mail commercial en HTML est surtout composé de
+ * styles qui n'apprennent rien au modèle. À défaut, on détricote grossièrement
+ * le HTML — mieux vaut un texte imparfait qu'un message vide.
+ */
+export function messageText(message: GmailFullMessage, maxChars = 4000): string {
+  const morceaux: { plain: string[]; html: string[] } = { plain: [], html: [] };
+
+  const parcourir = (part?: GmailPart) => {
+    if (!part) return;
+    const data = part.body?.data;
+    if (data) {
+      if (part.mimeType === "text/plain") morceaux.plain.push(decodeBase64Url(data));
+      else if (part.mimeType === "text/html") morceaux.html.push(decodeBase64Url(data));
+    }
+    part.parts?.forEach(parcourir);
+  };
+  parcourir(message.payload as GmailPart);
+
+  const brut =
+    morceaux.plain.join("\n").trim() ||
+    morceaux.html
+      .join("\n")
+      .replace(/<style[\s\S]*?<\/style>/gi, " ")
+      .replace(/<script[\s\S]*?<\/script>/gi, " ")
+      .replace(/<br\s*\/?>/gi, "\n")
+      .replace(/<\/p>/gi, "\n")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/&nbsp;/g, " ")
+      .replace(/&amp;/g, "&")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .trim();
+
+  // Les citations du fil précédent n'apportent rien au classement et coûtent
+  // cher : on coupe à la première ligne de reprise.
+  const sansCitation = brut.split(/^\s*(?:>|Le .+ a écrit\s*:|-{2,}\s*Message d'origine)/m)[0];
+
+  return sansCitation.replace(/\n{3,}/g, "\n\n").trim().slice(0, maxChars);
+}
+
+/* ------------------------------------------------ Gmail : étiquettes, corbeille */
+
+export type GmailLabel = { id: string; name: string };
+
+/** Retourne l'identifiant de l'étiquette, en la créant à la première utilisation. */
+export async function ensureLabel(accessToken: string, name: string): Promise<string> {
+  const { labels } = await gmail<{ labels?: GmailLabel[] }>("/labels", accessToken);
+  const existante = labels?.find((label) => label.name === name);
+  if (existante) return existante.id;
+
+  const creee = await gmail<GmailLabel>("/labels", accessToken, undefined, {
+    method: "POST",
+    body: { name, labelListVisibility: "labelShow", messageListVisibility: "show" },
+  });
+  return creee.id;
+}
+
+export function addLabel(accessToken: string, messageId: string, labelId: string) {
+  return gmail<unknown>(`/messages/${messageId}/modify`, accessToken, undefined, {
+    method: "POST",
+    body: { addLabelIds: [labelId] },
+  });
+}
+
+/**
+ * Mise à la corbeille — jamais `delete`.
+ *
+ * L'API expose bien une suppression définitive ; on ne l'appelle pas, et le
+ * périmètre demandé ne l'autoriserait pas de toute façon. Un classement erroné
+ * doit rester rattrapable.
+ */
+export function trashMessage(accessToken: string, messageId: string) {
+  return gmail<unknown>(`/messages/${messageId}/trash`, accessToken, undefined, {
+    method: "POST",
+    body: {},
+  });
+}
+
+/* ---------------------------------------------------- Gmail : brouillons */
+
+export type GmailDraft = { id: string; message?: { id: string; threadId: string } };
+
+/**
+ * Compose un message RFC 2822 encodé pour Gmail.
+ *
+ * `In-Reply-To` et `References` sont ce qui fait qu'une réponse se range dans
+ * le bon fil plutôt que d'ouvrir une conversation parallèle chez le
+ * destinataire. Les omettre passerait inaperçu de notre côté et serait visible
+ * du sien.
+ */
+function composeRaw({
+  to,
+  subject,
+  body,
+  inReplyTo,
+}: {
+  to: string;
+  subject: string;
+  body: string;
+  inReplyTo?: string | null;
+}): string {
+  // Un sujet non-ASCII doit être encodé, sinon Gmail le tronque aux accents.
+  const sujet = /^[\x20-\x7E]*$/.test(subject)
+    ? subject
+    : `=?UTF-8?B?${Buffer.from(subject, "utf8").toString("base64")}?=`;
+
+  const lignes = [
+    `To: ${to}`,
+    `Subject: ${sujet}`,
+    "MIME-Version: 1.0",
+    'Content-Type: text/plain; charset="UTF-8"',
+    "Content-Transfer-Encoding: base64",
+    ...(inReplyTo ? [`In-Reply-To: ${inReplyTo}`, `References: ${inReplyTo}`] : []),
+    "",
+    Buffer.from(body, "utf8").toString("base64"),
+  ];
+
+  return Buffer.from(lignes.join("\r\n"), "utf8")
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+}
+
+export function createDraft(
+  accessToken: string,
+  options: { to: string; subject: string; body: string; threadId?: string | null; inReplyTo?: string | null },
+) {
+  return gmail<GmailDraft>("/drafts", accessToken, undefined, {
+    method: "POST",
+    body: {
+      message: {
+        raw: composeRaw(options),
+        ...(options.threadId ? { threadId: options.threadId } : {}),
+      },
+    },
+  });
+}
+
+export function updateDraft(
+  accessToken: string,
+  draftId: string,
+  options: { to: string; subject: string; body: string; threadId?: string | null; inReplyTo?: string | null },
+) {
+  return gmail<GmailDraft>(`/drafts/${draftId}`, accessToken, undefined, {
+    method: "PUT",
+    body: {
+      id: draftId,
+      message: {
+        raw: composeRaw(options),
+        ...(options.threadId ? { threadId: options.threadId } : {}),
+      },
+    },
+  });
+}
+
+/** Envoie un brouillon existant. Seul geste de cette couche qui sorte du domaine. */
+export function sendDraft(accessToken: string, draftId: string) {
+  return gmail<{ id: string; threadId: string }>("/drafts/send", accessToken, undefined, {
+    method: "POST",
+    body: { id: draftId },
+  });
 }

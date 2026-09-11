@@ -71,6 +71,15 @@ export const READ_TOOLS = [
     input_schema: { type: "object" as const, properties: {}, additionalProperties: false },
   },
   {
+    name: "resume_mails",
+    description:
+      "Le bilan du dernier tri de la boîte mail : combien de mails reçus, combien de spams " +
+      "écartés, quelles réponses ont été préparées et par qui, et ce que le tri n'a pas su " +
+      "traiter. À utiliser pour « tu as trié mes mails », « quoi de neuf dans ma boîte », " +
+      "et systématiquement quand on te demande un récapitulatif du matin.",
+    input_schema: { type: "object" as const, properties: {}, additionalProperties: false },
+  },
+  {
     name: "echeances",
     description:
       "Ce qui arrive dans les prochains jours : relances planifiées, tâches et jalons de projet, " +
@@ -328,6 +337,49 @@ export async function runReadTool(name: string, input: Record<string, unknown>):
           statut: f.status,
           en_retard: Boolean(f.due_on && f.due_on < jour && f.status === "emise"),
         })),
+      };
+    }
+
+    case "resume_mails": {
+      const [{ data: passages }, { data: attente }] = await Promise.all([
+        supabase
+          .from("mail_runs")
+          .select("*")
+          .order("started_at", { ascending: false })
+          .limit(1),
+        supabase
+          .from("mail_triage")
+          .select("from_name, from_email, subject, category, action, draft_blocked_reason")
+          .eq("review", "en_attente")
+          .order("received_at", { ascending: false })
+          .limit(12),
+      ]);
+
+      const passage = (passages ?? [])[0];
+      if (!passage) return { jamais_execute: true };
+
+      const enAttente = attente ?? [];
+
+      return {
+        date_du_tri: passage.started_at,
+        mails_lus: passage.lus,
+        spams_ecartes: passage.spams,
+        factures: passage.factures,
+        reponses_pretes: passage.brouillons,
+        pour_toi: passage.a_traiter,
+        erreur: passage.erreur,
+        // Nominatif : c'est ce qui rend l'annonce utile à l'oral. « Nicolas de
+        // BM2S t'a écrit » vaut mieux que « trois mails attendent ».
+        reponses_preparees: enAttente
+          .filter((m) => m.action === "brouillon_pret")
+          .map((m) => ({ de: m.from_name ?? m.from_email, objet: m.subject })),
+        sans_reponse: enAttente
+          .filter((m) => m.action !== "brouillon_pret")
+          .map((m) => ({
+            de: m.from_name ?? m.from_email,
+            objet: m.subject,
+            pourquoi: m.draft_blocked_reason,
+          })),
       };
     }
 

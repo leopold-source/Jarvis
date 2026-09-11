@@ -588,6 +588,70 @@ export type DealHealth = {
   sante: "actif" | "dormant" | "clos" | null;
 }
 
+/* --- Tri de la boîte mail ------------------------------------------------ */
+
+export type MailCategory =
+  | "spam"
+  | "prospection_etrangere"
+  | "facture"
+  | "a_repondre"
+  | "information"
+  | "incertain";
+
+export type MailAction = "corbeille" | "etiquete" | "brouillon_pret" | "a_traiter";
+export type MailReview = "en_attente" | "traite" | "ignore";
+
+export type MailTriage = {
+  id: string;
+  user_id: string;
+  provider_message_id: string;
+  thread_id: string | null;
+  from_email: string | null;
+  from_name: string | null;
+  subject: string | null;
+  snippet: string | null;
+  received_at: string | null;
+  category: MailCategory;
+  confidence: number;
+  /** En français : c'est ce qui permet de contester un classement. */
+  reason: string | null;
+  action: MailAction;
+  label_applied: string | null;
+  /**
+   * L'expéditeur était-il déjà dans le CRM ? Calculé avant l'appel au modèle,
+   * ce drapeau interdit la mise à la corbeille — un contact connu ne disparaît
+   * jamais, quelle que soit la confiance annoncée.
+   */
+  known_contact: boolean;
+  draft_id: string | null;
+  draft_subject: string | null;
+  draft_body: string | null;
+  /** Ce qui manquait pour rédiger, dit franchement plutôt que bâclé. */
+  draft_blocked_reason: string | null;
+  review: MailReview;
+  handled_at: string | null;
+  handled_by: string | null;
+  sent_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type MailRun = {
+  id: string;
+  user_id: string;
+  started_at: string;
+  finished_at: string | null;
+  lus: number;
+  spams: number;
+  factures: number;
+  brouillons: number;
+  a_traiter: number;
+  incertains: number;
+  cout_centimes: number;
+  erreur: string | null;
+  annonce: boolean;
+}
+
 /** Colonnes à valeur par défaut côté base, donc optionnelles à l'insertion. */
 type Defaulted =
   | "id" | "created_at" | "updated_at" | "connected_at" | "synced_count"
@@ -595,7 +659,9 @@ type Defaulted =
   | "amount_ttc" | "paid_amount" | "position" | "vat_rate"
   | "quote_review" | "review" | "ok"
   | "started_on" | "starts_on" | "target_value" | "current_value" | "source"
-  | "org_key" | "phone_key";
+  | "org_key" | "phone_key"
+  | "started_at" | "confidence" | "known_contact" | "action" | "lus" | "spams"
+  | "factures" | "brouillons" | "a_traiter" | "incertains" | "cout_centimes" | "annonce";
 
 type TableDef<Row, RequiredKeys extends keyof Row = never> = {
   Row: Row;
@@ -636,6 +702,8 @@ export type Database = {
       objectifs: TableDef<Objectif, "chantier_id" | "title">;
       deal_activity_rules: TableDef<DealActivityRule, "stage" | "max_days_active">;
       app_settings: TableDef<AppSetting, "key" | "value">;
+      mail_triage: TableDef<MailTriage, "user_id" | "provider_message_id" | "category">;
+      mail_runs: TableDef<MailRun, "user_id">;
     };
     Views: {
       project_progress: { Row: ProjectProgress; Relationships: [] };
@@ -669,6 +737,9 @@ export type Database = {
       entity_kind: EntityKind;
       chantier_status: ChantierStatus;
       metric_source: MetricSource;
+      mail_category: MailCategory;
+      mail_action: MailAction;
+      mail_review: MailReview;
     };
     CompositeTypes: Record<string, never>;
   };

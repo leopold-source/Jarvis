@@ -8,6 +8,7 @@ import {
   Building2,
   Compass,
   FolderKanban,
+  Inbox,
   Banknote,
   Handshake,
   LayoutDashboard,
@@ -26,6 +27,7 @@ import { cn } from "@/lib/utils";
 const NAV = [
   { href: "/", label: "Tableau de bord", icon: LayoutDashboard, exact: true },
   { href: "/chantiers", label: "Chantiers", icon: Compass },
+  { href: "/mails", label: "Boîte mail", icon: Inbox },
   { href: "/leads", label: "Leads", icon: Sparkles },
   { href: "/affaires", label: "Affaires", icon: Handshake },
   { href: "/contacts", label: "Contacts", icon: Users },

@@ -3,6 +3,8 @@ import type {
   DealStage,
   DocumentKind,
   LeadStatus,
+  MailAction,
+  MailCategory,
   MetricSource,
   ProjectStatus,
   TaskPriority,
@@ -272,6 +274,32 @@ export const DEAL_HEALTH: Record<string, { label: string; tone: Tone; hint: stri
   actif: { label: "Actif", tone: "emerald", hint: "Mouvement récent sur l'affaire." },
   dormant: { label: "Dormant", tone: "amber", hint: "Sans mouvement depuis le délai fixé." },
   clos: { label: "Clos", tone: "stone", hint: "Affaire clôturée." },
+};
+
+// --- Tri de la boîte mail --------------------------------------------------
+export const MAIL_CATEGORY: Record<MailCategory, { label: string; tone: Tone }> = {
+  spam: { label: "Spam", tone: "stone" },
+  prospection_etrangere: { label: "Démarchage", tone: "amber" },
+  facture: { label: "Facture", tone: "cyan" },
+  a_repondre: { label: "À répondre", tone: "violet" },
+  information: { label: "Info", tone: "sky" },
+  incertain: { label: "À vérifier", tone: "rose" },
+};
+
+export const MAIL_CATEGORY_ORDER: MailCategory[] = [
+  "a_repondre",
+  "incertain",
+  "facture",
+  "information",
+  "prospection_etrangere",
+  "spam",
+];
+
+export const MAIL_ACTION: Record<MailAction, { label: string; tone: Tone }> = {
+  corbeille: { label: "Mis à la corbeille", tone: "stone" },
+  etiquete: { label: "Rangé", tone: "sky" },
+  brouillon_pret: { label: "Réponse prête", tone: "emerald" },
+  a_traiter: { label: "Pour toi", tone: "amber" },
 };
 
 // --- Projets --------------------------------------------------------------
