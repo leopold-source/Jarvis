@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Info, ShieldCheck, UserPlus } from "lucide-react";
+import { Copy, Info, PlayCircle, ShieldCheck, UserPlus } from "lucide-react";
 
 import {
   Avatar,
@@ -19,6 +19,7 @@ import { ROLE_LABEL } from "@/lib/constants";
 import type { AppRole, Profile } from "@/lib/database.types";
 import { formatDate } from "@/lib/utils";
 import {
+  creerCompteDemo,
   inviteUser,
   setMemberActive,
   updateMemberCompany,
@@ -156,6 +157,8 @@ export function TeamManager({
           Inviter
         </Button>
       </Card>
+
+      <DemoAccount />
 
       {!invitesEnabled ? (
         <Card className="flex items-start gap-2.5 border-amber-500/25 bg-amber-500/8 p-4">
@@ -303,5 +306,80 @@ function InviteDialog({
         ) : null}
       </div>
     </Modal>
+  );
+}
+
+/**
+ * L'accès de démonstration au portail client.
+ *
+ * Se connecter soi-même en client est la seule façon de voir ce que le client
+ * voit vraiment — la RLS ne fait aucune différence entre ce compte et un vrai,
+ * ce qui vaut mieux qu'un écran d'aperçu qui mentirait par construction.
+ *
+ * Le mot de passe n'est affiché qu'une fois et régénéré à chaque appel : il
+ * n'est stocké nulle part, et l'oublier ne coûte qu'un clic.
+ */
+function DemoAccount() {
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+  const [acces, setAcces] = useState<{ email: string; motDePasse: string } | null>(null);
+
+  async function creer() {
+    setBusy(true);
+    const resultat = await creerCompteDemo();
+    setBusy(false);
+    if (!resultat.ok) return toast(resultat.error, "error");
+    setAcces(resultat.data ?? null);
+  }
+
+  return (
+    <Card className="p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-start gap-2.5">
+          <PlayCircle className="mt-0.5 size-4 shrink-0 text-brand-400" />
+          <p className="max-w-xl text-[12.5px] leading-relaxed text-[var(--text-muted)]">
+            <span className="text-[var(--text-secondary)]">Portail de démonstration</span> — un projet fictif
+            complet, avec planning, documents et factures. Ouvrez-le dans une fenêtre privée pour voir
+            exactement ce qu&apos;un client voit.
+          </p>
+        </div>
+        <Button variant="secondary" loading={busy} onClick={creer}>
+          {acces ? "Régénérer l'accès" : "Créer l'accès de démo"}
+        </Button>
+      </div>
+
+      {acces ? (
+        <div className="mt-3 space-y-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3.5">
+          <p className="text-[12px] text-emerald-700 dark:text-emerald-300">
+            Compte prêt. Le mot de passe n&apos;est affiché qu&apos;ici : copiez-le maintenant.
+          </p>
+          {[
+            { label: "Adresse", valeur: acces.email },
+            { label: "Mot de passe", valeur: acces.motDePasse },
+          ].map((ligne) => (
+            <div key={ligne.label} className="flex flex-wrap items-center gap-2">
+              <span className="w-24 text-[11.5px] text-[var(--text-muted)]">{ligne.label}</span>
+              <code className="flex-1 rounded-lg bg-[var(--surface-base)]/70 px-2.5 py-1 font-mono text-[12.5px] break-all">
+                {ligne.valeur}
+              </code>
+              <button
+                type="button"
+                onClick={() => {
+                  void navigator.clipboard.writeText(ligne.valeur);
+                  toast("Copié.");
+                }}
+                aria-label={`Copier ${ligne.label.toLowerCase()}`}
+                className="rounded-md p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)]"
+              >
+                <Copy className="size-3.5" />
+              </button>
+            </div>
+          ))}
+          <p className="text-[11.5px] text-[var(--text-muted)]">
+            Connectez-vous sur /connexion avec ces identifiants : vous arriverez sur /portail.
+          </p>
+        </div>
+      ) : null}
+    </Card>
   );
 }

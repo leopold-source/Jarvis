@@ -1,5 +1,7 @@
 "use server";
 
+import { randomUUID } from "node:crypto";
+
 import { revalidatePath } from "next/cache";
 import { createClient as createAdminClient } from "@supabase/supabase-js";
 
@@ -7,7 +9,9 @@ import type { AppRole, Database } from "@/lib/database.types";
 import { requireAdmin } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 
-export type ActionResult = { ok: true; message?: string } | { ok: false; error: string };
+export type ActionResult<T = undefined> =
+  | { ok: true; message?: string; data?: T }
+  | { ok: false; error: string };
 
 /** La clé service_role n'est lue que côté serveur, jamais exposée au client. */
 function adminClient() {
@@ -97,4 +101,82 @@ export async function inviteUser(input: {
 
   revalidatePath("/equipe");
   return { ok: true, message: `Invitation envoyée à ${email}.` };
+}
+
+/* ----------------------------------------------------- Compte de démonstration */
+
+const DEMO_EMAIL = "demo.client@antichaos.dev";
+
+/**
+ * Crée (ou réinitialise) le compte client de démonstration.
+ *
+ * Une invitation par e-mail ne convient pas ici : personne ne relève cette
+ * boîte, et l'intérêt d'une démonstration est de pouvoir se connecter tout de
+ * suite. On crée donc l'utilisateur avec un mot de passe rendu à l'écran, une
+ * seule fois — c'est aussi pour cela qu'il est régénéré à chaque appel plutôt
+ * que stocké quelque part.
+ *
+ * Le compte est rattaché à l'entreprise fictive « (DÉMO) » et ne voit qu'elle :
+ * la RLS ne fait aucune différence entre un client de démonstration et un vrai.
+ */
+export async function creerCompteDemo(): Promise<
+  ActionResult<{ email: string; motDePasse: string }>
+> {
+  await requireAdmin();
+
+  const admin = adminClient();
+  if (!admin) return { ok: false, error: "Clé SUPABASE_SERVICE_ROLE_KEY absente." };
+
+  const { data: entreprise } = await admin
+    .from("companies")
+    .select("id, name")
+    .ilike("name", "%(DÉMO)%")
+    .maybeSingle();
+
+  if (!entreprise) {
+    return {
+      ok: false,
+      error: "Aucune entreprise de démonstration en base. Le jeu de données n'a pas été posé.",
+    };
+  }
+
+  // Mot de passe long et aléatoire : ce compte voit de vraies pages, même si
+  // les données sont fictives.
+  const motDePasse = `Demo-${randomUUID().slice(0, 18)}`;
+
+  const { data: existants } = await admin.auth.admin.listUsers({ perPage: 200 });
+  const deja = existants?.users.find((u) => u.email === DEMO_EMAIL);
+
+  if (deja) {
+    const { error } = await admin.auth.admin.updateUserById(deja.id, {
+      password: motDePasse,
+      email_confirm: true,
+      user_metadata: { full_name: "Client démo", role: "client", company_id: entreprise.id },
+    });
+    if (error) return { ok: false, error: error.message };
+
+    // Le trigger ne repasse pas sur un compte existant : on aligne le profil.
+    await admin
+      .from("profiles")
+      .update({ role: "client", company_id: entreprise.id, full_name: "Client démo", is_active: true })
+      .eq("id", deja.id);
+  } else {
+    const { data: cree, error } = await admin.auth.admin.createUser({
+      email: DEMO_EMAIL,
+      password: motDePasse,
+      email_confirm: true,
+      user_metadata: { full_name: "Client démo", role: "client", company_id: entreprise.id },
+    });
+    if (error) return { ok: false, error: error.message };
+
+    if (cree.user) {
+      await admin
+        .from("profiles")
+        .update({ role: "client", company_id: entreprise.id, full_name: "Client démo", is_active: true })
+        .eq("id", cree.user.id);
+    }
+  }
+
+  revalidatePath("/equipe");
+  return { ok: true, data: { email: DEMO_EMAIL, motDePasse } };
 }

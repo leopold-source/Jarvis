@@ -24,6 +24,7 @@ import {
   Textarea,
   useToast,
 } from "@/components/ui";
+import { AiVerdict } from "@/components/crm/ai-verdict";
 import { MAIL_ACTION, MAIL_CATEGORY } from "@/lib/constants";
 import type { MailRun, MailTriage } from "@/lib/database.types";
 import { cn, formatRelative } from "@/lib/utils";
@@ -287,6 +288,9 @@ function MailCard({ mail, onDone }: { mail: MailTriage; onDone: () => void }) {
                   (confiance {Math.round(Number(mail.confidence) * 100)} %)
                 </span>
               ) : null}
+              {/* Le classement se juge séparément de la réponse : l'un peut
+                  être juste et l'autre à côté. */}
+              <AiVerdict kind="mail_tri" refId={mail.id} className="mt-1.5" />
             </p>
           ) : null}
 
@@ -360,6 +364,10 @@ function MailCard({ mail, onDone }: { mail: MailTriage; onDone: () => void }) {
               <Archive className="size-3.5" />
               Sans suite
             </Button>
+
+            {mail.draft_body ? (
+              <AiVerdict kind="mail_brouillon" refId={mail.id} className="ml-1" />
+            ) : null}
 
             <span className={cn("ml-auto text-[11px] text-[var(--text-muted)]")}>
               {mail.from_email}

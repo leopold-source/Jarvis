@@ -16,6 +16,7 @@ import {
 
 import { Badge, Button, Card, SectionTitle, useToast } from "@/components/ui";
 import type { SuggestionItemType } from "@/app/(crm)/suggestions-actions";
+import { AiVerdict } from "@/components/crm/ai-verdict";
 import { generateSuggestions, toggleSuggestion } from "@/app/(crm)/suggestions-actions";
 import { cn } from "@/lib/utils";
 
@@ -172,6 +173,14 @@ export function DailySuggestions({
                     <span>{item.detail}</span>
                   </p>
                 </div>
+
+                {/* Le jugement se porte à chaud, devant la proposition : c'est
+                    la seule façon d'en obtenir un qui vaille quelque chose. */}
+                <AiVerdict
+                  kind="suggestion"
+                  refId={item.key}
+                  className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
+                />
 
                 <Link
                   href={item.href}

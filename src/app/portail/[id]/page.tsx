@@ -1,9 +1,11 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, CalendarClock } from "lucide-react";
+import { ArrowLeft, CalendarClock, GanttChartSquare, Receipt } from "lucide-react";
 
 import { Badge, Card, ProgressBar } from "@/components/ui";
 import { PROJECT_STATUS } from "@/lib/constants";
+import { PortalGantt } from "@/components/portal/portal-gantt";
+import { PortalInvoices } from "@/components/portal/portal-invoices";
 import { PortalTimeline } from "@/components/portal/portal-timeline";
 import { PortalDocuments } from "@/components/portal/portal-documents";
 import { PortalThread } from "@/components/portal/portal-thread";
@@ -28,13 +30,24 @@ export default async function PortalProjectPage({ params }: { params: Promise<{ 
   const { data: project } = await supabase.from("projects").select("*").eq("id", id).maybeSingle();
   if (!project) notFound();
 
-  const [{ data: tasks }, { data: documents }, { data: comments }, { data: progress }] =
+  const [{ data: tasks }, { data: documents }, { data: comments }, { data: progress }, { data: dossier }] =
     await Promise.all([
       supabase.from("tasks").select("*").eq("project_id", id).order("due_on", { nullsFirst: false }),
       supabase.from("documents").select("*").eq("project_id", id).order("created_at", { ascending: false }),
       supabase.from("comments").select("*").eq("project_id", id).order("created_at", { ascending: false }),
       supabase.from("project_progress").select("*").eq("project_id", id).maybeSingle(),
+      // La RLS ne rend ce dossier que si le devis est signé et qu'il appartient
+      // bien à l'entreprise du client : rien à filtrer de plus ici.
+      supabase.from("dossiers").select("id").eq("project_id", id).maybeSingle(),
     ]);
+
+  const { data: invoices } = dossier
+    ? await supabase
+        .from("invoices")
+        .select("*")
+        .eq("dossier_id", dossier.id)
+        .order("position", { ascending: true })
+    : { data: [] };
 
   const pct = progress?.progress_pct ?? 0;
 
@@ -76,10 +89,28 @@ export default async function PortalProjectPage({ params }: { params: Promise<{ 
 
       <section className="flex flex-col gap-3">
         <h2 className="flex items-center gap-2 text-[15px] font-semibold tracking-tight">
+          <GanttChartSquare className="size-4 text-brand-400" />
+          Planning
+        </h2>
+        <Card className="p-5">
+          <PortalGantt tasks={tasks ?? []} />
+        </Card>
+      </section>
+
+      <section className="flex flex-col gap-3">
+        <h2 className="flex items-center gap-2 text-[15px] font-semibold tracking-tight">
           <CalendarClock className="size-4 text-brand-400" />
-          Avancement du projet
+          Étapes
         </h2>
         <PortalTimeline tasks={tasks ?? []} />
+      </section>
+
+      <section className="flex flex-col gap-3">
+        <h2 className="flex items-center gap-2 text-[15px] font-semibold tracking-tight">
+          <Receipt className="size-4 text-brand-400" />
+          Facturation
+        </h2>
+        <PortalInvoices invoices={invoices ?? []} />
       </section>
 
       <section className="flex flex-col gap-3">

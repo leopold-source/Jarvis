@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { syncAllGoogleAccounts } from "@/lib/gmail-sync";
 import { trierToutesLesBoites } from "@/lib/mail-triage";
+import { envoyerBriefs } from "@/lib/brief-matinal";
 import { runSuggestions } from "@/app/(crm)/suggestions-actions";
 
 /**
@@ -54,9 +55,14 @@ export async function GET(request: NextRequest) {
 
   const suggestions = await runSuggestions(true);
 
+  // Le brief part en dernier : il résume tout ce qui précède, y compris les
+  // suggestions du jour, et ne serait qu'à moitié juste s'il partait avant.
+  const briefs = await envoyerBriefs();
+
   return NextResponse.json({
     sync,
     tri,
     suggestions: suggestions.ok ? "ok" : suggestions.error,
+    briefs,
   });
 }
