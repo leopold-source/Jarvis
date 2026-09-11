@@ -159,7 +159,11 @@ export const READ_TOOLS = [
     description:
       "Les rendez-vous à venir : aujourd'hui et demain, avec l'heure, les participants et " +
       "le lien de visio. À utiliser pour « c'est quoi mon prochain rendez-vous », « j'ai quoi " +
-      "cet après-midi », « je suis libre quand », et dans tout récapitulatif du matin.",
+      "cet après-midi », « je suis libre quand », et dans tout récapitulatif du matin. " +
+      "`rendez_vous` ne contient que les vrais rendez-vous, ceux qui engagent quelqu'un " +
+      "d'autre — c'est ce qu'il faut annoncer et compter. `creneaux_personnels` contient les " +
+      "blocs qu'il se réserve (déjeuner, lecture, travail) : ils occupent du temps, donc ils " +
+      "comptent pour dire s'il est libre, mais ne les annonce jamais comme des rendez-vous.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -432,6 +436,14 @@ export async function runReadTool(
         };
       }
 
+      /*
+        Deux listes, parce que ce ne sont pas deux fois la même question.
+
+        « J'ai quoi cet après-midi » parle des rendez-vous. « Je suis libre à
+        midi » parle de l'occupation, créneaux personnels compris — ils
+        comptent comme du temps pris, pas comme des rendez-vous. Les mélanger
+        ferait annoncer trois rendez-vous à quelqu'un qui en a un.
+      */
       return {
         maintenant: new Date().toISOString(),
         rendez_vous: resultat.rendezVous.map((rdv) => ({
@@ -442,6 +454,11 @@ export async function runReadTool(
           avec: rdv.participants,
           lieu: rdv.lieu,
           en_visio: Boolean(rdv.visio),
+        })),
+        creneaux_personnels: resultat.creneaux.map((rdv) => ({
+          titre: rdv.titre,
+          debut: rdv.debut,
+          fin: rdv.fin,
         })),
       };
     }

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { CalendarDays, Link2, MapPin, Users, Video } from "lucide-react";
+import { CalendarDays, ChevronDown, Coffee, Link2, MapPin, Users, Video } from "lucide-react";
 
 import { Card, SectionTitle } from "@/components/ui";
 import { agendaDe, type RendezVous } from "@/lib/agenda";
@@ -50,6 +50,12 @@ export async function AgendaDuJour({ userId, className }: { userId: string; clas
   );
   const demain = resultat.rendezVous.filter((rdv) => !duJour.includes(rdv));
 
+  // Les créneaux qu'il se réserve : montrés du jour seulement, et repliés. Ils
+  // disent ce qui est déjà pris sans faire passer un midi pour un client.
+  const creneauxDuJour = resultat.creneaux.filter(
+    (rdv) => rdv.journee_entiere || (rdv.debut && new Date(rdv.debut).toDateString() === aujourdhui),
+  );
+
   return (
     <Card glow className={cn("flex flex-col p-5", className)}>
       <SectionTitle
@@ -65,7 +71,9 @@ export async function AgendaDuJour({ userId, className }: { userId: string; clas
         <p className="mt-3 text-[12.5px] text-[var(--text-muted)]">
           Rien d&apos;ici demain soir. C&apos;est le moment de passer des appels.
         </p>
-      ) : (
+      ) : null}
+
+      {resultat.rendezVous.length > 0 ? (
         <ul className="mt-4 max-h-72 flex-1 space-y-1.5 overflow-y-auto pr-1">
           {duJour.map((rdv, index) => (
             <Rendez
@@ -91,9 +99,40 @@ export async function AgendaDuJour({ userId, className }: { userId: string; clas
             <Rendez key={rdv.id} rdv={rdv} index={duJour.length + index} encours={false} />
           ))}
         </ul>
-      )}
+      ) : null}
+
+      {/* Un `details` natif plutôt qu'un état React : la carte est rendue sur
+          le serveur, et ouvrir un repli ne justifie pas de l'hydrater. */}
+      {creneauxDuJour.length > 0 ? (
+        <details className="mt-auto pt-2.5">
+          <summary className="flex cursor-pointer list-none items-center gap-1.5 text-[11.5px] text-[var(--text-muted)] transition-colors hover:text-[var(--text-secondary)]">
+            <Coffee className="size-3" />
+            {creneauxDuJour.length} créneau{creneauxDuJour.length > 1 ? "x" : ""} perso
+            <ChevronDown className="size-3" />
+          </summary>
+          <ul className="mt-1.5 space-y-0.5">
+            {creneauxDuJour.map((rdv) => (
+              <li
+                key={rdv.id}
+                className="flex items-center gap-3 px-2.5 text-[12px] text-[var(--text-muted)]"
+              >
+                <span className="w-14 shrink-0 text-right font-mono text-[11.5px] tabular-nums">
+                  {heureDe(rdv)}
+                </span>
+                <span className="truncate">{rdv.titre}</span>
+              </li>
+            ))}
+          </ul>
+        </details>
+      ) : null}
     </Card>
   );
+}
+
+function heureDe(rdv: RendezVous): string {
+  if (rdv.journee_entiere) return "journée";
+  if (!rdv.debut) return "—";
+  return new Date(rdv.debut).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
 }
 
 function Rendez({
@@ -105,11 +144,7 @@ function Rendez({
   index: number;
   encours: boolean;
 }) {
-  const heure = rdv.journee_entiere
-    ? "journée"
-    : rdv.debut
-      ? new Date(rdv.debut).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })
-      : "—";
+  const heure = heureDe(rdv);
 
   return (
     <li

@@ -441,7 +441,9 @@ export type CalendarEvent = {
   start?: { dateTime?: string; date?: string };
   end?: { dateTime?: string; date?: string };
   attendees?: Array<{ email?: string; displayName?: string; responseStatus?: string; self?: boolean }>;
-  organizer?: { email?: string; displayName?: string };
+  organizer?: { email?: string; displayName?: string; self?: boolean };
+  /** Présent sur les occurrences d'un événement répété — donc d'une habitude. */
+  recurringEventId?: string;
   conferenceData?: { entryPoints?: Array<{ entryPointType?: string; uri?: string }> };
 };
 
@@ -456,7 +458,9 @@ export async function listCalendarEvents(
   accessToken: string,
   from: Date,
   to: Date,
-  max = 12,
+  // Large, parce que la liste sera ensuite scindée : un agenda rempli de
+  // créneaux personnels ne doit pas évincer les rendez-vous de la fenêtre.
+  max = 25,
 ): Promise<CalendarEvent[]> {
   const params = new URLSearchParams({
     timeMin: from.toISOString(),

@@ -1,5 +1,6 @@
 import "server-only";
 
+import { estUnVraiRendezVous } from "@/lib/agenda-nature";
 import { eventVideoLink, listCalendarEvents, refreshAccessToken, type CalendarEvent } from "@/lib/google";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -28,7 +29,7 @@ export type RendezVous = {
 };
 
 export type AgendaResultat =
-  | { ok: true; rendezVous: RendezVous[] }
+  | { ok: true; rendezVous: RendezVous[]; creneaux: RendezVous[] }
   | { ok: false; raison: "non_connecte" | "perimetre" | "erreur"; detail: string };
 
 function enRendezVous(event: CalendarEvent): RendezVous {
@@ -90,7 +91,23 @@ export async function agendaDe(
     fin.setHours(23, 59, 59, 999);
 
     const events = await listCalendarEvents(access_token, debut, fin);
-    return { ok: true, rendezVous: events.map(enRendezVous) };
+
+    /*
+      Les deux moitiés de l'agenda, séparées ici et pas plus loin.
+
+      `rendezVous` ne contient que ce qui engage quelqu'un d'autre — c'est ce
+      que lisent le tableau de bord, le brief du matin et l'assistant vocal, et
+      c'est ce qu'on veut entendre quand on demande « qu'est-ce que j'ai
+      aujourd'hui ». `creneaux` garde le reste : les midis, les lectures, les
+      blocs de travail. Rien n'est perdu, mais rien n'encombre non plus.
+    */
+    const rendezVous: RendezVous[] = [];
+    const creneaux: RendezVous[] = [];
+    for (const event of events) {
+      (estUnVraiRendezVous(event) ? rendezVous : creneaux).push(enRendezVous(event));
+    }
+
+    return { ok: true, rendezVous, creneaux };
   } catch (caught) {
     return {
       ok: false,
