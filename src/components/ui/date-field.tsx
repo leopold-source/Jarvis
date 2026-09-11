@@ -127,7 +127,9 @@ export function DateField({
         aria-expanded={open}
         className={cn(
           "group inline-flex w-full items-center gap-1.5 rounded-lg transition-all",
-          dense ? "h-6 px-1.5 text-[12px]" : "h-8 px-2 text-[12.5px]",
+          // Le mode dense est fait pour une ligne de tableau à la souris ; au
+          // doigt, une cible de 24 px se rate et ouvre la fiche d'à côté.
+          dense ? "h-8 px-1.5 text-[12px] sm:h-6" : "h-9 px-2 text-[12.5px] sm:h-8",
           "ring-1 ring-transparent hover:bg-[var(--surface-hover)]",
           open && "bg-[var(--surface-input)] ring-brand-500/70",
           !value && "text-[var(--text-muted)]",
@@ -157,7 +159,10 @@ export function DateField({
               event.stopPropagation();
               onChange(null);
             }}
-            className="ml-auto shrink-0 rounded p-0.5 opacity-0 transition-opacity hover:text-rose-500 group-hover:opacity-60"
+            // Visible d'emblée au doigt : une croix qui n'apparaît qu'au
+            // survol n'existe pas sur un écran tactile, et la date devient
+            // alors impossible à retirer.
+            className="ml-auto shrink-0 rounded p-1 opacity-60 transition-opacity hover:text-rose-500 sm:p-0.5 sm:opacity-0 sm:group-hover:opacity-60"
           >
             <X className="size-3" />
           </span>
@@ -168,9 +173,20 @@ export function DateField({
         <div
           role="dialog"
           className={cn(
-            "absolute z-50 mt-1.5 w-64 animate-pop rounded-xl p-2.5",
+            "z-50 animate-pop rounded-xl p-2.5",
             "border border-[var(--border-strong)] bg-[var(--surface-overlay)] shadow-[var(--shadow-pop)]",
-            align === "right" ? "right-0" : "left-0",
+            /*
+              Ancré sous le champ au bureau, posé en bas de l'écran au doigt.
+
+              Un calendrier de seize rems accroché à une cellule de tableau
+              déborde forcément de l'écran d'un téléphone — et il déborde du
+              côté où l'on ne peut pas défiler. Attaché au bas de la fenêtre,
+              il tient toujours, et ses cases deviennent assez grandes pour
+              qu'un jour se choisisse du premier coup.
+            */
+            "max-sm:fixed max-sm:inset-x-4 max-sm:bottom-4 max-sm:w-auto",
+            "sm:absolute sm:mt-1.5 sm:w-64",
+            align === "right" ? "sm:right-0" : "sm:left-0",
           )}
         >
           <div className="mb-2 flex items-center justify-between">
@@ -178,7 +194,7 @@ export function DateField({
               type="button"
               onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() - 1, 1))}
               aria-label="Mois précédent"
-              className="rounded-md p-1 text-[var(--text-muted)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)]"
+              className="rounded-md p-2 text-[var(--text-muted)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)] sm:p-1"
             >
               <ChevronLeft className="size-4" />
             </button>
@@ -189,7 +205,7 @@ export function DateField({
               type="button"
               onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1))}
               aria-label="Mois suivant"
-              className="rounded-md p-1 text-[var(--text-muted)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)]"
+              className="rounded-md p-2 text-[var(--text-muted)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)] sm:p-1"
             >
               <ChevronRight className="size-4" />
             </button>

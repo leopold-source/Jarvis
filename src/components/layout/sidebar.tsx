@@ -13,6 +13,7 @@ import {
   Handshake,
   LayoutDashboard,
   Menu,
+  MoreHorizontal,
   Sparkles,
   Users,
   UsersRound,
@@ -38,6 +39,22 @@ const NAV = [
 
 const ADMIN_NAV = [{ href: "/equipe", label: "Équipe & accès", icon: UsersRound }] as const;
 
+/*
+  Les quatre destinations de la barre du bas.
+
+  Un téléphone se tient d'une main et le pouce n'atteint pas le haut de
+  l'écran ; c'est en bas que se met ce qu'on ouvre vingt fois par jour. Quatre
+  et pas neuf : une barre d'onglets qui liste tout n'est plus une barre
+  d'onglets, c'est un menu déguisé en barre. Le reste est derrière « Plus »,
+  qui ouvre le même tiroir que le bureau.
+
+  Le choix vient de la journée type — on regarde le tableau de bord, on appelle
+  depuis les leads, on relit la boîte mail, on suit les affaires. Contacts,
+  entreprises, projets et facturation se consultent, ils ne se pilotent pas au
+  téléphone entre deux rendez-vous.
+*/
+const ONGLETS = ["/", "/leads", "/mails", "/affaires"] as const;
+
 /**
  * Retour visuel pendant une navigation.
  *
@@ -57,14 +74,31 @@ function NavPending() {
   );
 }
 
-export function Sidebar({ role }: { role: AppRole }) {
+function estActif(pathname: string, href: string, exact?: boolean) {
+  if (exact || href === "/") return pathname === href;
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
+
+export function Sidebar({ role, actions }: { role: AppRole; actions?: React.ReactNode }) {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
 
   // Une navigation ferme le tiroir mobile.
   useEffect(() => setMobileOpen(false), [pathname]);
 
+  // Le tiroir couvre l'écran : laisser la page défiler dessous donne le
+  // sentiment d'avoir perdu sa place en le refermant.
+  useEffect(() => {
+    if (!mobileOpen) return;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [mobileOpen]);
+
   const items = role === "admin" ? [...NAV, ...ADMIN_NAV] : NAV;
+  const onglets = items.filter((item) => (ONGLETS as readonly string[]).includes(item.href));
+  const autres = items.filter((item) => !(ONGLETS as readonly string[]).includes(item.href));
 
   const content = (
     <div className="flex h-full flex-col gap-1 px-3 py-4">
@@ -84,18 +118,19 @@ export function Sidebar({ role }: { role: AppRole }) {
         </Button>
       </div>
 
-      <nav className="flex flex-col gap-0.5">
+      <nav className="flex flex-col gap-0.5 overflow-y-auto">
         {items.map(({ href, label, icon: Icon, ...rest }) => {
-          const exact = "exact" in rest && rest.exact;
-          const active = exact ? pathname === href : pathname === href || pathname.startsWith(`${href}/`);
+          const active = estActif(pathname, href, "exact" in rest && rest.exact);
           return (
             <Link
               key={href}
               href={href}
               prefetch
               className={cn(
-                "group relative flex items-center gap-2.5 overflow-hidden rounded-[10px] px-3 py-2 text-[13.5px] font-medium",
-                "transition-colors duration-150",
+                "group relative flex items-center gap-2.5 overflow-hidden rounded-[10px] px-3 text-[13.5px] font-medium",
+                // Plus haut au doigt qu'à la souris : sous 44 px, une entrée de
+                // menu se rate une fois sur trois en marchant.
+                "py-2.5 transition-colors duration-150 lg:py-2",
                 active
                   ? "bg-[var(--surface-hover)] text-[var(--text-primary)]"
                   : "text-[var(--text-secondary)] hover:bg-[var(--surface-hover)]/70 hover:text-[var(--text-primary)]",
@@ -123,23 +158,11 @@ export function Sidebar({ role }: { role: AppRole }) {
           );
         })}
       </nav>
-
     </div>
   );
 
   return (
     <>
-      {/* Barre mobile */}
-      <div className="flex items-center gap-2 border-b border-[var(--border-subtle)] px-3 py-2.5 lg:hidden">
-        <Button variant="ghost" size="icon" onClick={() => setMobileOpen(true)} aria-label="Ouvrir le menu">
-          <Menu className="size-4.5" />
-        </Button>
-        <Link href="/" className="flex items-center gap-2">
-          <Logo size="sm" />
-          <span className="text-sm font-semibold">Antichaos</span>
-        </Link>
-      </div>
-
       {mobileOpen ? (
         <div className="fixed inset-0 z-50 lg:hidden">
           <div
@@ -149,7 +172,7 @@ export function Sidebar({ role }: { role: AppRole }) {
           />
           <aside
             style={{ animation: "fade-up 0.25s cubic-bezier(0.22,1,0.36,1) both" }}
-            className="relative h-full w-72 border-r border-[var(--border-strong)] bg-[var(--surface-raised)]"
+            className="relative h-full w-72 max-w-[85vw] border-r border-[var(--border-strong)] bg-[var(--surface-raised)] pb-[env(safe-area-inset-bottom)]"
           >
             {content}
           </aside>
@@ -159,6 +182,94 @@ export function Sidebar({ role }: { role: AppRole }) {
       <aside className="hidden w-60 shrink-0 border-r border-[var(--border-subtle)] bg-[var(--surface-raised)]/60 lg:block">
         <div className="sticky top-0 h-dvh">{content}</div>
       </aside>
+
+      <MobileChrome
+        onglets={onglets}
+        autres={autres.length}
+        pathname={pathname}
+        onOpen={() => setMobileOpen(true)}
+        actions={actions}
+      />
+    </>
+  );
+}
+
+/*
+  La navigation du téléphone, rendue par le même composant que celle du bureau.
+
+  Elle vit dans des éléments `fixed`, donc sa place dans l'arbre n'a pas
+  d'importance — et c'est ce qui règle le défaut d'origine : la barre du haut
+  était un enfant direct de la rangée flex du gabarit, si bien qu'elle se
+  plaçait *à côté* du contenu au lieu d'être au-dessus. Sur un écran de
+  téléphone, le contenu se retrouvait comprimé dans la moitié droite.
+*/
+function MobileChrome({
+  onglets,
+  autres,
+  pathname,
+  onOpen,
+  actions,
+}: {
+  onglets: ReadonlyArray<{ href: string; label: string; icon: typeof LayoutDashboard }>;
+  autres: number;
+  pathname: string;
+  onOpen: () => void;
+  actions?: React.ReactNode;
+}) {
+  return (
+    <>
+      <div className="fixed inset-x-0 top-0 z-40 flex h-14 items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--surface-base)]/90 px-3 backdrop-blur-xl lg:hidden">
+        <button
+          type="button"
+          onClick={onOpen}
+          aria-label="Ouvrir le menu"
+          className="grid size-10 place-items-center rounded-[10px] text-[var(--text-secondary)] transition-colors active:bg-[var(--surface-hover)]"
+        >
+          <Menu className="size-5" />
+        </button>
+        <Link href="/" className="flex min-w-0 items-center gap-2">
+          <Logo size="sm" />
+          <span className="truncate text-sm font-semibold">Antichaos</span>
+        </Link>
+
+        {/* Thème et compte : sans eux ici, ils n'existeraient plus du tout sur
+            téléphone — l'en-tête du bureau est masqué à cette largeur. */}
+        <span className="ml-auto flex items-center gap-0.5">{actions}</span>
+      </div>
+
+      <nav
+        aria-label="Navigation principale"
+        className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 border-t border-[var(--border-subtle)] bg-[var(--surface-base)]/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl lg:hidden"
+      >
+        {onglets.map(({ href, label, icon: Icon }) => {
+          const active = estActif(pathname, href, href === "/");
+          return (
+            <Link
+              key={href}
+              href={href}
+              prefetch
+              aria-current={active ? "page" : undefined}
+              className={cn(
+                "flex h-14 flex-col items-center justify-center gap-1 text-[10px] font-medium transition-colors",
+                active ? "text-brand-400" : "text-[var(--text-muted)] active:text-[var(--text-secondary)]",
+              )}
+            >
+              <Icon className="size-5" />
+              {/* Le libellé complet ne tient pas sur un cinquième d'écran. */}
+              <span className="max-w-full truncate px-1">{label.split(" ")[0]}</span>
+            </Link>
+          );
+        })}
+
+        <button
+          type="button"
+          onClick={onOpen}
+          className="flex h-14 flex-col items-center justify-center gap-1 text-[10px] font-medium text-[var(--text-muted)] transition-colors active:text-[var(--text-secondary)]"
+        >
+          <MoreHorizontal className="size-5" />
+          Plus{autres > 0 ? ` (${autres})` : ""}
+        </button>
+      </nav>
     </>
   );
 }

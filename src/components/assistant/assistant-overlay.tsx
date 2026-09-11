@@ -368,7 +368,10 @@ export function AssistantButton() {
         title="Parler à Antichaos"
         aria-label="Parler à Antichaos"
         className={cn(
-          "fixed right-5 bottom-5 z-30 grid size-13 place-items-center rounded-full",
+          // Au-dessus de la barre d'onglets sur téléphone : posé à 5 unités du
+          // bas, le bouton recouvrait « Affaires » et « Plus ».
+          "fixed right-4 bottom-[calc(4.25rem+env(safe-area-inset-bottom))] z-30 sm:right-5 lg:bottom-5",
+          "grid size-13 place-items-center rounded-full",
           "bg-linear-to-br from-brand-500 to-accent-500 text-white shadow-lg",
           "transition-transform duration-200 hover:scale-105 active:scale-95",
         )}

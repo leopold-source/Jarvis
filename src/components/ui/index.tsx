@@ -38,11 +38,19 @@ const BUTTON_VARIANTS: Record<ButtonVariant, string> = {
   danger: "bg-rose-500/90 text-white hover:bg-rose-500",
 };
 
+/*
+  Un cran plus haut au doigt qu'à la souris.
+
+  Le pointeur vise au pixel, le pouce à peu près : sous une quarantaine de
+  pixels, un bouton se rate régulièrement, et sur cet écran-là rater signifie
+  souvent appuyer sur le bouton voisin. Les tailles du bureau sont conservées à
+  partir de `sm`, où le curseur reprend la main.
+*/
 const BUTTON_SIZES: Record<ButtonSize, string> = {
-  sm: "h-8 px-3 text-[13px] gap-1.5",
-  md: "h-9.5 px-4 text-sm gap-2",
-  lg: "h-11 px-5 text-[15px] gap-2",
-  icon: "size-9 justify-center",
+  sm: "h-9 px-3 text-[13px] gap-1.5 sm:h-8",
+  md: "h-11 px-4 text-sm gap-2 sm:h-9.5",
+  lg: "h-12 px-5 text-[15px] gap-2 sm:h-11",
+  icon: "size-10 justify-center sm:size-9",
 };
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
@@ -145,8 +153,17 @@ export function SectionTitle({
 
 /* ------------------------------------------------------------------ Inputs */
 
+/*
+  Seize pixels au moins, sur téléphone.
+
+  Sous ce seuil, Safari zoome de lui-même en entrant dans le champ et ne
+  dézoome jamais : la page reste décalée, la moitié de la colonne sort de
+  l'écran, et il faut pincer pour revenir. C'est le défaut le plus visible
+  d'une application web sur iPhone, et il tient à une valeur de police. Le
+  `sm:text-sm` rend la taille d'origine dès qu'un vrai pointeur est probable.
+*/
 const FIELD_BASE =
-  "w-full rounded-[10px] bg-[var(--surface-input)] px-3 text-sm text-[var(--text-primary)] " +
+  "w-full rounded-[10px] bg-[var(--surface-input)] px-3 text-base text-[var(--text-primary)] sm:text-sm " +
   "ring-1 ring-[var(--border-subtle)] transition-all duration-150 outline-none " +
   "placeholder:text-[var(--text-muted)] " +
   "focus:ring-2 focus:ring-brand-500/70 focus:shadow-[0_0_0_4px_var(--glow-brand)] " +
@@ -154,7 +171,7 @@ const FIELD_BASE =
 
 export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(
   function Input({ className, ...props }, ref) {
-    return <input ref={ref} className={cn(FIELD_BASE, "h-9.5", className)} {...props} />;
+    return <input ref={ref} className={cn(FIELD_BASE, "h-11 sm:h-9.5", className)} {...props} />;
   },
 );
 
@@ -170,7 +187,7 @@ export const Select = forwardRef<HTMLSelectElement, SelectHTMLAttributes<HTMLSel
       <div className="relative">
         <select
           ref={ref}
-          className={cn(FIELD_BASE, "h-9.5 appearance-none pr-9", className)}
+          className={cn(FIELD_BASE, "h-11 appearance-none pr-9 sm:h-9.5", className)}
           {...props}
         >
           {children}
@@ -313,7 +330,15 @@ export function Modal({
   const widths = { sm: "max-w-md", md: "max-w-xl", lg: "max-w-3xl" };
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6">
+    /*
+      Au centre sur grand écran, collée en bas sur téléphone.
+
+      Une fenêtre centrée sur un téléphone laisse une bande inutile en haut et
+      pose ses boutons au milieu de l'écran, hors de portée du pouce. La feuille
+      qui monte du bas est le geste attendu partout ailleurs sur l'appareil, et
+      elle place l'action là où la main se trouve déjà.
+    */
+    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-6">
       <div
         className="fixed inset-0 bg-black/55 backdrop-blur-sm animate-fade-in"
         onClick={onClose}
@@ -328,13 +353,23 @@ export function Modal({
       <div
         role="dialog"
         aria-modal="true"
+        style={{ animation: "fade-up 0.22s cubic-bezier(0.22,1,0.36,1) both" }}
         className={cn(
-          "relative z-10 flex max-h-full w-full animate-pop flex-col rounded-2xl",
+          "relative z-10 flex w-full flex-col",
+          // `max-h-[90dvh]` et non `max-h-full` : `dvh` suit la barre d'adresse
+          // qui se rétracte, là où `vh` laisse le pied de la fenêtre dessous.
+          "max-h-[90dvh] rounded-t-2xl sm:max-h-full sm:animate-pop sm:rounded-2xl",
           "border border-[var(--border-strong)] bg-[var(--surface-overlay)] shadow-[var(--shadow-pop)]",
           widths[size],
         )}
       >
-        <div className="edge-glow flex shrink-0 items-start justify-between gap-4 rounded-t-2xl border-b border-[var(--border-subtle)] px-4 py-3.5 sm:px-5 sm:py-4">
+        {/* La poignée : elle dit « ceci se ferme en tirant vers le bas » sans
+            un mot, et ne s'affiche que là où le geste existe. */}
+        <span
+          aria-hidden
+          className="mx-auto mt-2 h-1 w-9 shrink-0 rounded-full bg-[var(--border-strong)] sm:hidden"
+        />
+        <div className="edge-glow flex shrink-0 items-start justify-between gap-4 border-b border-[var(--border-subtle)] px-4 py-3.5 sm:rounded-t-2xl sm:px-5 sm:py-4">
           <div className="min-w-0">
             <h2 className="text-[15px] font-semibold tracking-tight sm:text-base">{title}</h2>
             {description ? (
@@ -353,7 +388,7 @@ export function Modal({
         </div>
 
         {footer ? (
-          <div className="flex shrink-0 flex-wrap justify-end gap-2 border-t border-[var(--border-subtle)] px-4 py-3 sm:px-5 sm:py-3.5">
+          <div className="flex shrink-0 flex-wrap justify-end gap-2 border-t border-[var(--border-subtle)] px-4 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:px-5 sm:py-3.5">
             {footer}
           </div>
         ) : null}
@@ -386,7 +421,13 @@ export function Drawer({
       if (event.key === "Escape") onClose();
     };
     document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
+    // Le tiroir couvre tout l'écran du téléphone : sans ce verrou, le doigt
+    // fait défiler la page en dessous et on rouvre sur une liste déplacée.
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = "";
+    };
   }, [open, onClose]);
 
   if (!open) return null;
@@ -403,7 +444,7 @@ export function Drawer({
           "border-l border-[var(--border-strong)] bg-[var(--surface-overlay)] shadow-[var(--shadow-pop)]",
         )}
       >
-        <header className="edge-glow flex items-start justify-between gap-4 border-b border-[var(--border-subtle)] px-5 py-4">
+        <header className="edge-glow flex items-start justify-between gap-4 border-b border-[var(--border-subtle)] px-4 pt-[calc(1rem+env(safe-area-inset-top))] pb-4 sm:px-5 sm:pt-4">
           <div className="min-w-0">
             <h2 className="truncate text-base font-semibold tracking-tight">{title}</h2>
             {subtitle ? (
@@ -414,9 +455,11 @@ export function Drawer({
             <X className="size-4" />
           </Button>
         </header>
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">{children}</div>
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 sm:px-5">
+          {children}
+        </div>
         {footer ? (
-          <footer className="flex justify-end gap-2 border-t border-[var(--border-subtle)] px-5 py-3.5">
+          <footer className="flex flex-wrap justify-end gap-2 border-t border-[var(--border-subtle)] px-4 pt-3.5 pb-[calc(0.875rem+env(safe-area-inset-bottom))] sm:px-5 sm:py-3.5">
             {footer}
           </footer>
         ) : null}
@@ -450,7 +493,9 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   return (
     <ToastContext.Provider value={value}>
       {children}
-      <div className="pointer-events-none fixed bottom-5 left-1/2 z-[60] flex w-full max-w-sm -translate-x-1/2 flex-col gap-2 px-4">
+      {/* Au-dessus de la barre d'onglets du téléphone, qui masquerait sinon
+          le message au moment précis où il compte. */}
+      <div className="pointer-events-none fixed bottom-[calc(4.25rem+env(safe-area-inset-bottom))] left-1/2 z-[60] flex w-full max-w-sm -translate-x-1/2 flex-col gap-2 px-4 lg:bottom-5">
         {toasts.map((toast) => (
           <div
             key={toast.id}
