@@ -13,14 +13,20 @@ import { useCallback, useEffect, useRef, useState } from "react";
  * présente sur Chrome et Edge, absente ailleurs. Tout est donc derrière un
  * `supporte` que l'interface doit respecter.
  *
- * Ensuite l'amplitude, qui décide de la qualité de l'animation :
+ * Ensuite l'amplitude, qui décide de la qualité de l'animation. Aucune source
+ * ne sert partout, et le choix a des conséquences :
  *
- * - Quand l'utilisateur parle, on ouvre le micro et on lit le signal réel.
- *   L'orbe suit vraiment sa voix.
+ * - Sur ordinateur, on ouvre un second flux micro et on lit le signal réel.
+ *   L'orbe suit vraiment la voix.
+ * - Sur téléphone, non : le micro n'y appartient qu'à un seul client, et le
+ *   prendre pour l'animer revient à le retirer à la dictée. Les mots reconnus
+ *   font alors battre l'orbe à leur arrivée.
  * - Quand la synthèse parle, il n'y a aucun flux audio à analyser. On se rabat
  *   sur l'événement `boundary`, émis à chaque mot : l'orbe pulse au rythme réel
- *   des mots prononcés. C'est une approximation, mais une approximation
- *   corrélée à la parole — pas un mouvement décoratif.
+ *   des mots prononcés.
+ *
+ * Les trois sont des approximations de la même chose, toutes corrélées à la
+ * parole — jamais un mouvement décoratif.
  */
 
 type Etat = "repos" | "ecoute" | "reflexion" | "parole";
@@ -51,6 +57,21 @@ function constructeurReconnaissance(): (new () => Reconnaissance) | null {
     webkitSpeechRecognition?: new () => Reconnaissance;
   };
   return global.SpeechRecognition ?? global.webkitSpeechRecognition ?? null;
+}
+
+/**
+ * Vrai là où un second client peut lire le micro pendant la dictée.
+ *
+ * Il n'existe pas de test de capacité pour cela, et renifler l'agent
+ * utilisateur vieillit mal. La présence d'un pointeur fin est le meilleur
+ * substitut disponible : elle désigne un ordinateur, où les deux cohabitent,
+ * et exclut téléphones et tablettes, où le micro appartient à un seul.
+ *
+ * Se tromper ne coûte qu'une orbe moins vivante, jamais une dictée muette.
+ */
+function micPartageable(): boolean {
+  if (typeof window === "undefined" || !window.matchMedia) return false;
+  return window.matchMedia("(pointer: fine)").matches;
 }
 
 export function useVoice({
@@ -131,6 +152,23 @@ export function useVoice({
     fermerMicro();
   }, [fermerMicro]);
 
+  /*
+    La reconnaissance démarre en premier, et sans `await` avant elle.
+
+    Deux défauts se cachaient dans l'ordre des deux lignes, et tous deux
+    donnaient le même symptôme sur téléphone : l'orbe s'allume, le micro
+    s'ouvre, et rien n'est jamais reconnu.
+
+    Le premier est l'exclusivité du micro. Ouvrir un flux `getUserMedia` pour
+    mesurer l'amplitude prend le microphone ; sur iOS, la reconnaissance n'en
+    obtient alors plus rien. L'animation marchait donc parfaitement — c'est
+    elle qui tenait le micro — pendant que la dictée écoutait le silence.
+
+    Le second est le geste utilisateur. `await` rend la main au navigateur, et
+    ce qui suit n'appartient plus au clic : Safari refuse d'y démarrer une
+    dictée. Deux causes indépendantes, un seul remède — appeler `start()` tout
+    de suite, dans le geste, et ne rien ouvrir d'autre avant.
+  */
   const demarrerEcoute = useCallback(async () => {
     const Constructeur = constructeurReconnaissance();
     if (!Constructeur) {
@@ -141,12 +179,13 @@ export function useVoice({
     setErreur(null);
     setTranscription("");
     window.speechSynthesis?.cancel();
-    await ouvrirMicro();
 
     const instance = new Constructeur();
     instance.lang = "fr-FR";
     instance.continuous = false;
     instance.interimResults = true;
+
+    let entendu = false;
 
     instance.onresult = (event) => {
       let phrase = "";
@@ -155,7 +194,16 @@ export function useVoice({
         phrase += event.results[i][0].transcript;
         if (event.results[i].isFinal) definitif = true;
       }
+      entendu = true;
       setTranscription(phrase);
+      // Faute de flux audio à analyser, les mots qui arrivent font battre
+      // l'orbe : plus grossier que l'amplitude réelle, mais vraiment corrélé
+      // à la parole — et ça marche là où le micro n'est pas partageable.
+      if (!audio.current) {
+        setAmplitude(0.45 + Math.random() * 0.4);
+        if (pulse.current) clearTimeout(pulse.current);
+        pulse.current = setTimeout(() => setAmplitude(0.15), 160);
+      }
       if (definitif && phrase.trim()) {
         arreterEcoute();
         phraseRef.current(phrase.trim());
@@ -163,7 +211,26 @@ export function useVoice({
     };
 
     instance.onerror = (event) => {
-      if (event.error !== "aborted" && event.error !== "no-speech") {
+      if (event.error === "not-allowed") {
+        setErreur("Micro refusé pour ce site. Autorise-le dans les réglages du navigateur.");
+      } else if (event.error === "service-not-allowed") {
+        /*
+          Distinct du refus de micro, et le confondre coûte un quart d'heure.
+
+          Sur iPhone, la dictée du navigateur passe par le service de Siri :
+          si « Activer la dictée » est éteint dans les réglages du clavier, le
+          micro est bel et bien autorisé, la reconnaissance démarre — et
+          n'entend jamais rien. Le réglage à toucher n'est pas dans le
+          navigateur.
+        */
+        setErreur(
+          "La dictée du système est désactivée. Sur iPhone : Réglages › Général › Clavier › Activer la dictée.",
+        );
+      } else if (event.error === "no-speech") {
+        // Le dire plutôt que de le taire : sans message, on ne sait pas si
+        // c'est le micro, le réseau ou soi qui n'a pas parlé assez fort.
+        setErreur("Je n'ai rien entendu. Réessaie en parlant juste après avoir touché l'orbe.");
+      } else if (event.error !== "aborted") {
         setErreur("Je n'ai pas réussi à t'entendre.");
       }
       arreterEcoute();
@@ -172,12 +239,28 @@ export function useVoice({
     instance.onend = () => {
       setEcoute(false);
       fermerMicro();
+      if (!entendu) {
+        setErreur((actuelle) =>
+          actuelle ?? "Je n'ai rien entendu. Vérifie que le micro est autorisé pour ce site.",
+        );
+      }
     };
 
     reco.current = instance;
-    instance.start();
+    try {
+      instance.start();
+    } catch {
+      // Une instance déjà démarrée lève plutôt que d'ignorer : deux appuis
+      // rapprochés sur l'orbe ne doivent pas casser l'écoute en cours.
+      return;
+    }
     setEcoute(true);
     onEtat?.("ecoute");
+
+    // L'amplitude réelle, seulement là où le micro se partage. Elle est plus
+    // belle, elle n'est pas indispensable, et sur téléphone elle empêche la
+    // dictée de fonctionner : l'ordre des priorités ne se discute pas.
+    if (micPartageable()) void ouvrirMicro();
   }, [arreterEcoute, fermerMicro, onEtat, ouvrirMicro]);
 
   /* --- Parole ------------------------------------------------------------ */
