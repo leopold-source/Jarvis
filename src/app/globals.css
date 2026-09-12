@@ -134,18 +134,24 @@
   --shadow-pop: 0 16px 48px -16px rgba(61, 40, 28, 0.28);
 }
 
-@theme inline {
-  --color-base: var(--surface-base);
-  --color-raised: var(--surface-raised);
-  --color-overlay: var(--surface-overlay);
-  --color-hover: var(--surface-hover);
-  --color-input: var(--surface-input);
-  --color-line: var(--border-subtle);
-  --color-line-strong: var(--border-strong);
-  --color-ink: var(--text-primary);
-  --color-ink-2: var(--text-secondary);
-  --color-ink-3: var(--text-muted);
-}
+/*
+  Les alias de couleur ont été retirés, et il faut dire pourquoi.
+
+  Ce bloc déclarait dix couleurs — `base`, `raised`, `ink`… — dont aucune
+  n'était employée : le code écrit `var(--surface-base)` en clair partout. Mais
+  les déclarer ne coûtait pas rien. En Tailwind 4, `--color-<nom>` crée aussi
+  bien `bg-<nom>` que `text-<nom>`, et une couleur nommée `base` capture donc
+  `text-base` — l'utilitaire de taille de police le plus courant du cadre.
+
+  `text-base` ne réglait alors plus le corps du texte : il peignait le texte à
+  la couleur du fond. Les champs de saisie l'ont eu — on tapait dans un champ
+  sans rien voir apparaître — ainsi que les titres des fenêtres et des tiroirs.
+  Le symptôme ne ressemble jamais à sa cause : on cherche une valeur qui ne
+  remonte pas, alors que la lettre est là, écrite en blanc sur blanc.
+
+  Si un alias devait revenir un jour, qu'il porte un nom qui n'existe pas déjà
+  comme utilitaire : `surface-base` plutôt que `base`.
+*/
 
 /* --- Base --------------------------------------------------------------- */
 * {
