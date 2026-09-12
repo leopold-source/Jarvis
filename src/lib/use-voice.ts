@@ -60,6 +60,31 @@ function constructeurReconnaissance(): (new () => Reconnaissance) | null {
 }
 
 /**
+ * Déverrouille la synthèse vocale, depuis un geste de l'utilisateur.
+ *
+ * iOS n'autorise la parole que si la page a déjà parlé au moins une fois à
+ * l'intérieur d'un geste. Or l'assistant répond après coup, une fois le modèle
+ * revenu : ce `speak` là n'appartient plus à aucun clic, et Safari le laisse
+ * tomber sans erreur. L'orbe passait donc en « parole », le texte s'affichait,
+ * et rien ne sortait.
+ *
+ * Une énonciation muette suffit à ouvrir la session audio pour le reste de la
+ * visite. Elle doit partir du geste qui ouvre l'assistant, pas de celui qui
+ * lance la dictée : sur iPhone, les deux se disputeraient le micro.
+ */
+export function amorcerSynthese(): void {
+  if (typeof window === "undefined" || !window.speechSynthesis) return;
+  try {
+    const amorce = new SpeechSynthesisUtterance(" ");
+    amorce.volume = 0;
+    window.speechSynthesis.speak(amorce);
+  } catch {
+    // Rien à rattraper : au pire la voix restera muette, ce qui est l'état
+    // qu'on essayait justement de corriger.
+  }
+}
+
+/**
  * Le micro est-il réellement accordé à ce site ?
  *
  * `not-allowed` ne dit pas *ce* qui a été refusé. Le micro peut être parfait et
@@ -148,6 +173,24 @@ export function useVoice({
 
   useEffect(() => {
     setSupporte(Boolean(constructeurReconnaissance()) && typeof window !== "undefined" && "speechSynthesis" in window);
+
+    /*
+      Le dire avant l'essai, pas après l'échec.
+
+      Sur un navigateur tiers d'iPhone, l'API de dictée existe et répond
+      toujours non : attendre l'erreur revient à faire appuyer sur une orbe, à
+      laisser croire à une autorisation manquante, puis à expliquer que rien
+      n'y fera. Autant l'annoncer à l'ouverture et proposer la seule chose qui
+      fonctionne.
+    */
+    if (navigateurTiersSurIphone()) {
+      setDicteeHorsService(true);
+      setErreur(
+        "Sur iPhone, la dictée ne fonctionne que dans Safari : Chrome, Firefox et Edge y " +
+          "sont des habillages de Safari auxquels Apple ne donne pas cette permission. " +
+          "Écris-moi ta question, ou ouvre le site dans Safari.",
+      );
+    }
   }, []);
 
   /* --- Amplitude réelle du micro ---------------------------------------- */
@@ -493,6 +536,18 @@ export function useVoice({
   return {
     supporte,
     dicteeHorsService,
+    /*
+      L'adresse qui rouvre la page dans Safari.
+
+      `x-safari-https://` est le schéma qu'iOS réserve à cela : il force Safari
+      quel que soit le navigateur qui l'ouvre. Nulle part ailleurs il ne veut
+      dire quelque chose, d'où le `null` qui laisse l'interface ne rien
+      afficher plutôt que proposer un lien mort.
+    */
+    lienSafari:
+      typeof window !== "undefined" && navigateurTiersSurIphone()
+        ? `x-safari-${window.location.href}`
+        : null,
     ecoute,
     parle,
     transcription,

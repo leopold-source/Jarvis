@@ -7,7 +7,7 @@ import { AudioLines, Check, Mic, MicOff, Send, Sparkles, Square, X } from "lucid
 import { Orb, type OrbeEtat } from "@/components/assistant/orb";
 import { Button, Input } from "@/components/ui";
 import { cn } from "@/lib/utils";
-import { useVoice } from "@/lib/use-voice";
+import { amorcerSynthese, useVoice } from "@/lib/use-voice";
 import { demanderAssistant, type AssistantTurn } from "@/app/(crm)/assistant/actions";
 import { executerAction, type ActionProposee } from "@/app/(crm)/assistant/ecriture";
 
@@ -249,8 +249,19 @@ export function AssistantOverlay({ open, onClose }: { open: boolean; onClose: ()
           }
           return voix.ecoute ? voix.arreterEcoute() : voix.demarrerEcoute();
         }}
-        className="rounded-full transition-transform duration-200 hover:scale-[1.03]"
-        aria-label={enCours ? "Annuler la recherche" : voix.ecoute ? "Arrêter l'écoute" : "Parler"}
+        className="touch-manipulation rounded-full transition-transform duration-200 select-none hover:scale-[1.03]"
+        aria-label={
+          enCours
+            ? "Annuler la recherche"
+            : voix.ecoute
+              ? "Arrêter l'écoute"
+              : {
+                  repos: "Parler à l'assistant",
+                  ecoute: "Assistant à l'écoute",
+                  reflexion: "Assistant en recherche",
+                  parole: "Assistant en train de parler",
+                }[etat]
+        }
       >
         <Orb etat={etat} amplitude={voix.amplitude} />
       </button>
@@ -323,9 +334,19 @@ export function AssistantOverlay({ open, onClose }: { open: boolean; onClose: ()
       ) : null}
 
       {message ? (
-        <p className="mt-4 max-w-md rounded-xl border border-amber-500/30 bg-amber-500/10 px-3.5 py-2 text-center text-[12.5px] text-amber-700 dark:text-amber-300">
-          {message}
-        </p>
+        <div className="mt-4 max-w-md rounded-xl border border-amber-500/30 bg-amber-500/10 px-3.5 py-2 text-center text-[12.5px] text-amber-700 dark:text-amber-300">
+          <p>{message}</p>
+          {/* Le seul geste qui règle vraiment le cas, à portée de pouce
+              plutôt qu'expliqué en toutes lettres. */}
+          {voix.lienSafari ? (
+            <a
+              href={voix.lienSafari}
+              className="mt-2 inline-flex h-9 items-center rounded-lg bg-amber-500/20 px-3 font-medium"
+            >
+              Ouvrir dans Safari
+            </a>
+          ) : null}
+        </div>
       ) : null}
 
       {/* Saisie de secours. */}
@@ -335,6 +356,7 @@ export function AssistantOverlay({ open, onClose }: { open: boolean; onClose: ()
           event.preventDefault();
           const texte = saisie.trim();
           if (!texte) return;
+          amorcerSynthese();
           setSaisie("");
           void traiter(texte);
         }}
@@ -429,7 +451,13 @@ export function AssistantButton() {
     <>
       <button
         type="button"
-        onClick={() => setOpen(true)}
+        onClick={() => {
+          // Le geste qui ouvre l'assistant est le bon endroit pour ouvrir la
+          // session audio d'iOS : il précède de loin la première réponse, et
+          // il ne dispute le micro à personne.
+          amorcerSynthese();
+          setOpen(true);
+        }}
         title="Parler à Antichaos"
         aria-label="Parler à Antichaos"
         className={cn(
