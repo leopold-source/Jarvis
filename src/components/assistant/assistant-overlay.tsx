@@ -29,6 +29,7 @@ export function AssistantOverlay({ open, onClose }: { open: boolean; onClose: ()
   const [reponse, setReponse] = useState("");
   const [historique, setHistorique] = useState<AssistantTurn[]>([]);
   const [saisie, setSaisie] = useState("");
+  const champ = useRef<HTMLInputElement>(null);
   const [souci, setSouci] = useState<string | null>(null);
   const [cout, setCout] = useState(0);
   const [action, setAction] = useState<ActionProposee | null>(null);
@@ -237,6 +238,9 @@ export function AssistantOverlay({ open, onClose }: { open: boolean; onClose: ()
       <button
         type="button"
         onClick={() => {
+          // Inutile de relancer une dictée que le système a déjà refusée : on
+          // envoie au champ de saisie, qui est la voie qui reste ouverte.
+          if (voix.dicteeHorsService) return champ.current?.focus();
           if (enCours) {
             occupe.current = false;
             setEtat("repos");
@@ -254,7 +258,10 @@ export function AssistantOverlay({ open, onClose }: { open: boolean; onClose: ()
       <p className="mt-7 min-h-6 text-center text-[13px] text-[var(--text-muted)]">
         {
           {
-            repos: voix.supporte ? "Appuie sur l'orbe et parle" : "Écris ta question ci-dessous",
+            repos:
+              voix.supporte && !voix.dicteeHorsService
+                ? "Appuie sur l'orbe et parle"
+                : "Écris ta question ci-dessous",
             ecoute: "Je t'écoute…",
             reflexion: "Je cherche…",
             parole: "",
@@ -333,6 +340,7 @@ export function AssistantOverlay({ open, onClose }: { open: boolean; onClose: ()
         }}
       >
         <Input
+          ref={champ}
           value={saisie}
           onChange={(event) => setSaisie(event.target.value)}
           placeholder="ou écris ta question…"
@@ -342,7 +350,7 @@ export function AssistantOverlay({ open, onClose }: { open: boolean; onClose: ()
         <Button type="submit" variant="secondary" disabled={enCours || !saisie.trim()}>
           <Send className="size-4" />
         </Button>
-        {voix.supporte ? (
+        {voix.supporte && !voix.dicteeHorsService ? (
           <Button
             type="button"
             variant={voix.ecoute ? "primary" : "ghost"}

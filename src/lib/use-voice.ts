@@ -87,6 +87,17 @@ export function useVoice({
   const [transcription, setTranscription] = useState("");
   const [amplitude, setAmplitude] = useState(0);
   const [erreur, setErreur] = useState<string | null>(null);
+  /*
+    La dictée a été refusée par le système, pas par l'utilisateur.
+
+    Distinct de `supporte` : l'API existe, elle répond, et elle répond non.
+    C'est le cas des navigateurs tiers sur iPhone, d'une application ajoutée à
+    l'écran d'accueil, ou d'une dictée système éteinte — trois situations où
+    réessayer ne servira jamais à rien. L'écran doit alors cesser de proposer
+    l'orbe et passer la main à l'écrit, plutôt que d'inviter à un geste dont on
+    sait déjà qu'il échouera.
+  */
+  const [dicteeHorsService, setDicteeHorsService] = useState(false);
 
   const reco = useRef<Reconnaissance | null>(null);
   const audio = useRef<{ ctx: AudioContext; flux: MediaStream; analyse: AnalyserNode } | null>(null);
@@ -212,7 +223,13 @@ export function useVoice({
 
     instance.onerror = (event) => {
       if (event.error === "not-allowed") {
-        setErreur("Micro refusé pour ce site. Autorise-le dans les réglages du navigateur.");
+        setDicteeHorsService(true);
+        setErreur(
+          "Ce navigateur refuse la dictée (not-allowed). Si le micro est bien autorisé, " +
+            "c'est que la dictée web n'est pas disponible ici — sur iPhone, elle ne " +
+            "fonctionne que dans Safari, et pas depuis une application ajoutée à l'écran " +
+            "d'accueil. Écris-moi ta question en attendant.",
+        );
       } else if (event.error === "service-not-allowed") {
         /*
           Distinct du refus de micro, et le confondre coûte un quart d'heure.
@@ -223,8 +240,11 @@ export function useVoice({
           n'entend jamais rien. Le réglage à toucher n'est pas dans le
           navigateur.
         */
+        setDicteeHorsService(true);
         setErreur(
-          "La dictée du système est désactivée. Sur iPhone : Réglages › Général › Clavier › Activer la dictée.",
+          "Le service de dictée n'est pas disponible (service-not-allowed). Sur iPhone : " +
+            "Réglages › Général › Clavier › Activer la dictée, et ouvre le site dans Safari. " +
+            "Écris-moi ta question en attendant.",
         );
       } else if (event.error === "no-speech") {
         // Le dire plutôt que de le taire : sans message, on ne sait pas si
@@ -416,6 +436,7 @@ export function useVoice({
 
   return {
     supporte,
+    dicteeHorsService,
     ecoute,
     parle,
     transcription,
