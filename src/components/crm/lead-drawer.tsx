@@ -144,7 +144,16 @@ export function LeadDrawer({
           {org ? <OrgBanner org={org} onOpenLead={onOpenLead} /> : null}
 
           <div className="grid grid-cols-2 gap-3">
-            <InfoTile icon={Mail} label="E-mail" value={lead.email} href={lead.email ? `mailto:${lead.email}` : null} />
+            {/* Sur une demi-largeur de téléphone, une adresse professionnelle
+                est coupée au milieu du domaine — et la fiche est justement
+                l'endroit où l'on vient la lire. Elle prend donc la ligne. */}
+            <InfoTile
+              icon={Mail}
+              label="E-mail"
+              value={lead.email}
+              href={lead.email ? `mailto:${lead.email}` : null}
+              className="col-span-2 sm:col-span-1"
+            />
             <InfoTile icon={Phone} label="Téléphone" value={lead.phone} href={lead.phone ? `tel:${lead.phone.replace(/\s/g, "")}` : null} />
             <InfoTile icon={BriefcaseBusiness} label="Poste" value={lead.job_title} />
             <InfoTile
@@ -250,11 +259,13 @@ function InfoTile({
   label,
   value,
   href,
+  className: extra,
 }: {
   icon: React.ComponentType<{ className?: string }>;
   label: string;
   value: string | null | undefined;
   href?: string | null;
+  className?: string;
 }) {
   const body = (
     <>
@@ -266,8 +277,10 @@ function InfoTile({
     </>
   );
 
-  const className =
-    "block rounded-[10px] border border-[var(--border-subtle)] bg-[var(--surface-base)]/50 px-3 py-2 transition-colors";
+  const className = cn(
+    "block rounded-[10px] border border-[var(--border-subtle)] bg-[var(--surface-base)]/50 px-3 py-2 transition-colors",
+    extra,
+  );
 
   if (href && value) {
     return (
@@ -275,7 +288,7 @@ function InfoTile({
         href={href}
         target={href.startsWith("http") ? "_blank" : undefined}
         rel="noreferrer"
-        className={`${className} hover:border-[var(--border-strong)] hover:text-brand-300`}
+        className={cn(className, "hover:border-[var(--border-strong)] hover:text-brand-300")}
       >
         {body}
       </a>

@@ -295,6 +295,25 @@ export function Avatar({
 
 /* ------------------------------------------------------------------- Modal */
 
+/**
+ * Vrai une fois le premier rendu passé.
+ *
+ * Les surfaces flottantes s'accrochent à `document.body`, qui n'existe pas sur
+ * le serveur : une page rendue avec un tiroir déjà ouvert échouait entièrement,
+ * sur un « document is not defined » qui ne désigne pas sa cause.
+ *
+ * Un `typeof document === "undefined"` aurait suffi à l'éviter, mais aurait
+ * introduit la faute d'à côté : le serveur et le client n'auraient pas rendu la
+ * même chose, et React reconstruit alors l'arbre entier. Attendre le montage
+ * les fait coïncider — les deux ne rendent rien — et le portail arrive à la
+ * frame suivante, ce qui ne se voit pas.
+ */
+function useMonte() {
+  const [monte, setMonte] = useState(false);
+  useEffect(() => setMonte(true), []);
+  return monte;
+}
+
 export function Modal({
   open,
   onClose,
@@ -325,7 +344,8 @@ export function Modal({
     };
   }, [open, onClose]);
 
-  if (!open) return null;
+  const monte = useMonte();
+  if (!open || !monte) return null;
 
   const widths = { sm: "max-w-md", md: "max-w-xl", lg: "max-w-3xl" };
 
@@ -388,7 +408,7 @@ export function Modal({
         </div>
 
         {footer ? (
-          <div className="flex shrink-0 flex-wrap justify-end gap-2 border-t border-[var(--border-subtle)] px-4 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:px-5 sm:py-3.5">
+          <div className="flex shrink-0 flex-col gap-2 border-t border-[var(--border-subtle)] px-4 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] max-sm:*:w-full max-sm:*:justify-center sm:flex-row sm:flex-wrap sm:justify-end sm:px-5 sm:py-3.5">
             {footer}
           </div>
         ) : null}
@@ -430,7 +450,8 @@ export function Drawer({
     };
   }, [open, onClose]);
 
-  if (!open) return null;
+  const monte = useMonte();
+  if (!open || !monte) return null;
 
   return createPortal(
     <div className="fixed inset-0 z-50 flex justify-end">
@@ -459,7 +480,16 @@ export function Drawer({
           {children}
         </div>
         {footer ? (
-          <footer className="flex flex-wrap justify-end gap-2 border-t border-[var(--border-subtle)] px-4 pt-3.5 pb-[calc(0.875rem+env(safe-area-inset-bottom))] sm:px-5 sm:py-3.5">
+          /*
+            Empilés et pleine largeur sur téléphone.
+
+            `justify-end` avec retour à la ligne renvoyait le dernier bouton
+            seul sur un second rang, collé à droite : l'action principale
+            devenait la moins visible des trois. Empilés, ils gardent l'ordre
+            de lecture, et celle du bas — la plus proche du pouce — est celle
+            qu'on veut.
+          */
+          <footer className="flex flex-col gap-2 border-t border-[var(--border-subtle)] px-4 pt-3.5 pb-[calc(0.875rem+env(safe-area-inset-bottom))] max-sm:*:w-full max-sm:*:justify-center sm:flex-row sm:flex-wrap sm:justify-end sm:px-5 sm:py-3.5">
             {footer}
           </footer>
         ) : null}
