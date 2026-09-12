@@ -60,6 +60,44 @@ function constructeurReconnaissance(): (new () => Reconnaissance) | null {
 }
 
 /**
+ * Le micro est-il réellement accordé à ce site ?
+ *
+ * `not-allowed` ne dit pas *ce* qui a été refusé. Le micro peut être parfait et
+ * la dictée refusée quand même — c'est le cas sur iPhone hors de Safari, où
+ * Apple n'ouvre pas la reconnaissance vocale aux navigateurs tiers. Envoyer
+ * alors quelqu'un vérifier une autorisation déjà correcte lui fait perdre son
+ * temps et lui laisse croire que la faute vient de chez lui.
+ *
+ * Ouvrir puis refermer un flux tranche la question en une seconde. On mesure
+ * au lieu de deviner, et le message qui suit peut être affirmatif.
+ */
+async function micAutorise(): Promise<boolean> {
+  try {
+    const flux = await navigator.mediaDevices.getUserMedia({ audio: true });
+    flux.getTracks().forEach((piste) => piste.stop());
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Vrai sur un navigateur tiers d'iPhone, où la dictée ne peut pas fonctionner.
+ *
+ * Chrome, Firefox et Edge sur iOS sont des habillages de WebKit : l'API de
+ * dictée y existe, elle répond, et elle répond toujours non — Apple la réserve
+ * à Safari. Aucun réglage n'y changera rien, et c'est précisément ce qu'il faut
+ * dire plutôt que de laisser chercher.
+ *
+ * Reconnaître l'agent utilisateur ne sert ici qu'à formuler une phrase, jamais
+ * à décider d'un comportement : se tromper ne coûte qu'un conseil inutile.
+ */
+function navigateurTiersSurIphone(): boolean {
+  if (typeof navigator === "undefined") return false;
+  return /\b(CriOS|FxiOS|EdgiOS|OPiOS|GSA)\//.test(navigator.userAgent);
+}
+
+/**
  * Vrai là où un second client peut lire le micro pendant la dictée.
  *
  * Il n'existe pas de test de capacité pour cela, et renifler l'agent
@@ -224,12 +262,30 @@ export function useVoice({
     instance.onerror = (event) => {
       if (event.error === "not-allowed") {
         setDicteeHorsService(true);
-        setErreur(
-          "Ce navigateur refuse la dictée (not-allowed). Si le micro est bien autorisé, " +
-            "c'est que la dictée web n'est pas disponible ici — sur iPhone, elle ne " +
-            "fonctionne que dans Safari, et pas depuis une application ajoutée à l'écran " +
-            "d'accueil. Écris-moi ta question en attendant.",
-        );
+        setErreur("Dictée refusée (not-allowed). Je vérifie le micro…");
+        // La réponse arrive en une seconde : on la préfère à une hypothèse.
+        void micAutorise().then((ok) => {
+          if (!ok) {
+            setErreur(
+              "Le micro est refusé pour ce site (not-allowed). Autorise-le dans les " +
+                "réglages du navigateur, puis recharge la page.",
+            );
+          } else if (navigateurTiersSurIphone()) {
+            setErreur(
+              "Le micro est bien autorisé : c'est la dictée qui est refusée. Sur iPhone, " +
+                "seul Safari sait dicter — Chrome, Firefox et Edge y sont des habillages " +
+                "de Safari sans cette permission. Ouvre le site dans Safari, ou écris-moi " +
+                "ta question ici.",
+            );
+          } else {
+            setErreur(
+              "Le micro est bien autorisé, c'est la dictée du navigateur qui refuse " +
+                "(not-allowed). Elle ne fonctionne pas depuis une application ajoutée à " +
+                "l'écran d'accueil, ni dans une fenêtre privée. Écris-moi ta question en " +
+                "attendant.",
+            );
+          }
+        });
       } else if (event.error === "service-not-allowed") {
         /*
           Distinct du refus de micro, et le confondre coûte un quart d'heure.
