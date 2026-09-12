@@ -58,7 +58,16 @@ export function AssistantOverlay({ open, onClose }: { open: boolean; onClose: ()
 
   const valider = useCallback(async (proposee: ActionProposee) => {
     setEtat("reflexion");
-    const resultat = await executerAction(proposee);
+
+    let resultat;
+    try {
+      resultat = await executerAction(proposee);
+    } catch {
+      setSouci("L'action n'a pas abouti. Vérifie ta connexion et réessaie.");
+      setEtat("repos");
+      return;
+    }
+
     setAction(null);
 
     if (!resultat.ok) {
@@ -68,7 +77,7 @@ export function AssistantOverlay({ open, onClose }: { open: boolean; onClose: ()
     }
     setApplique(true);
     setReponse(resultat.message);
-    await direRef.current(resultat.message);
+    await direRef.current(resultat.message).catch(() => {});
     setEtat("repos");
     routerRef.current.refresh();
   }, []);
@@ -96,8 +105,27 @@ export function AssistantOverlay({ open, onClose }: { open: boolean; onClose: ()
     setReponse("");
     setApplique(false);
 
-    const resultat = await demanderAssistant(phrase, historique);
-    occupe.current = false;
+    /*
+      Un appel qui échoue doit rendre la main, toujours.
+
+      Sans ce `finally`, un refus de la requête — une connexion mobile qui
+      décroche, l'application mise en arrière-plan — laissait deux verrous
+      fermés : `occupe` restait vrai, donc plus rien n'était traité, et l'état
+      restait « réflexion », or c'est cet état qui désactive l'orbe. L'assistant
+      devenait alors entièrement muet et inerte, sans un mot d'explication, et
+      seul un rechargement de la page le débloquait. Sur un téléphone, où la
+      connexion tombe pour un rien, c'est la panne qu'on rencontre en premier.
+    */
+    let resultat;
+    try {
+      resultat = await demanderAssistant(phrase, historique);
+    } catch {
+      setSouci("La demande n'a pas abouti. Vérifie ta connexion et réessaie.");
+      setEtat("repos");
+      return;
+    } finally {
+      occupe.current = false;
+    }
 
     if (!resultat.ok) {
       setSouci(resultat.error);
@@ -114,7 +142,8 @@ export function AssistantOverlay({ open, onClose }: { open: boolean; onClose: ()
       { role: "assistant", content: resultat.texte },
     ]);
 
-    await direRef.current(resultat.texte);
+    // Une synthèse qui échoue ne doit pas geler l'état non plus.
+    await direRef.current(resultat.texte).catch(() => {});
     setEtat("repos");
 
     /*
@@ -196,12 +225,28 @@ export function AssistantOverlay({ open, onClose }: { open: boolean; onClose: ()
 
       <div className="flex min-h-full flex-col items-center justify-center px-5 py-16 pb-[calc(4rem+env(safe-area-inset-bottom))]">
 
+      {/*
+        L'orbe reste touchable pendant la recherche, et l'appui annule.
+
+        Elle était désactivée dans cet état, ce qui paraissait juste — on
+        n'interrompt pas une requête en cours. Mais un bouton désactivé ne dit
+        rien quand on appuie dessus, et c'est le seul de l'écran : le jour où
+        l'état restait bloqué, l'assistant devenait une image. Une sortie qui
+        existe toujours vaut mieux qu'un verrou qu'on croit sûr.
+      */}
       <button
         type="button"
-        onClick={() => (voix.ecoute ? voix.arreterEcoute() : voix.demarrerEcoute())}
-        disabled={enCours}
-        className="rounded-full transition-transform duration-200 hover:scale-[1.03] disabled:cursor-wait"
-        aria-label={voix.ecoute ? "Arrêter l'écoute" : "Parler"}
+        onClick={() => {
+          if (enCours) {
+            occupe.current = false;
+            setEtat("repos");
+            setSouci("Recherche annulée.");
+            return;
+          }
+          return voix.ecoute ? voix.arreterEcoute() : voix.demarrerEcoute();
+        }}
+        className="rounded-full transition-transform duration-200 hover:scale-[1.03]"
+        aria-label={enCours ? "Annuler la recherche" : voix.ecoute ? "Arrêter l'écoute" : "Parler"}
       >
         <Orb etat={etat} amplitude={voix.amplitude} />
       </button>

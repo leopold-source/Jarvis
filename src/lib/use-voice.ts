@@ -231,7 +231,10 @@ export function useVoice({
         // c'est le micro, le réseau ou soi qui n'a pas parlé assez fort.
         setErreur("Je n'ai rien entendu. Réessaie en parlant juste après avoir touché l'orbe.");
       } else if (event.error !== "aborted") {
-        setErreur("Je n'ai pas réussi à t'entendre.");
+        // Le code brut entre parenthèses : il ne gêne personne et il est la
+        // seule chose qui permette de trancher à distance entre un micro, un
+        // réseau et un service de dictée.
+        setErreur(`Je n'ai pas réussi à t'entendre. (${event.error})`);
       }
       arreterEcoute();
     };
