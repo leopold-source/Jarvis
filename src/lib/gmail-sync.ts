@@ -31,6 +31,7 @@ export type SyncOutcome =
 
 type ContactRow = { id: string; email: string | null; company_id: string | null };
 type DealRow = { id: string; contact_id: string | null; company_id: string | null; updated_at: string };
+type ProjectRow = { id: string; deal_id: string | null; company_id: string | null };
 
 /** Date de départ au format attendu par l'opérateur `after:` de Gmail. */
 function gmailDate(iso: string): string {
@@ -76,13 +77,15 @@ export async function syncGmailForUser(userId: string): Promise<SyncOutcome> {
   }
 
   // Le CRM fournit les adresses à surveiller ; sans contact, rien à chercher.
-  const [{ data: contacts }, { data: deals }] = await Promise.all([
+  const [{ data: contacts }, { data: deals }, { data: projects }] = await Promise.all([
     admin.from("contacts").select("id, email, company_id").not("email", "is", null),
     admin.from("deals").select("id, contact_id, company_id, updated_at").order("updated_at", { ascending: false }),
+    admin.from("projects").select("id, deal_id, company_id"),
   ]);
 
   const contactRows = (contacts ?? []) as ContactRow[];
   const dealRows = (deals ?? []) as DealRow[];
+  const projectRows = (projects ?? []) as ProjectRow[];
   const mailbox = account.email.toLowerCase();
 
   const contactByEmail = new Map<string, ContactRow>();
@@ -100,6 +103,24 @@ export async function syncGmailForUser(userId: string): Promise<SyncOutcome> {
   for (const deal of dealRows) {
     if (deal.contact_id && !dealByContact.has(deal.contact_id)) dealByContact.set(deal.contact_id, deal.id);
     if (deal.company_id && !dealByCompany.has(deal.company_id)) dealByCompany.set(deal.company_id, deal.id);
+  }
+
+  /*
+    Le projet, quand il y en a un.
+
+    Un message ne cesse pas d'intéresser le jour où l'affaire est gagnée : c'est
+    même à partir de là qu'il compte le plus, puisqu'il devient la trace de ce
+    qu'on a promis au client. On rattache donc aussi au projet, par son affaire
+    d'origine et, à défaut, par l'entreprise — la moitié des projets n'ont pas
+    d'affaire, parce qu'ils ont été créés à la main.
+  */
+  const projectByDeal = new Map<string, string>();
+  const projectByCompany = new Map<string, string>();
+  for (const project of projectRows) {
+    if (project.deal_id && !projectByDeal.has(project.deal_id)) projectByDeal.set(project.deal_id, project.id);
+    if (project.company_id && !projectByCompany.has(project.company_id)) {
+      projectByCompany.set(project.company_id, project.id);
+    }
   }
 
   const since =
@@ -162,7 +183,15 @@ export async function syncGmailForUser(userId: string): Promise<SyncOutcome> {
         dealByContact.get(contact.id) ??
         (contact.company_id ? dealByCompany.get(contact.company_id) : undefined) ??
         null;
-      if (!dealId) continue;
+
+      const projectId =
+        (dealId ? projectByDeal.get(dealId) : undefined) ??
+        (contact.company_id ? projectByCompany.get(contact.company_id) : undefined) ??
+        null;
+
+      // Un message sans affaire *ni* projet n'a nulle part où s'afficher : le
+      // garder reviendrait à recopier une boîte mail dans le CRM.
+      if (!dealId && !projectId) continue;
 
       const sentAt = message.internalDate
         ? new Date(Number(message.internalDate)).toISOString()
@@ -170,6 +199,7 @@ export async function syncGmailForUser(userId: string): Promise<SyncOutcome> {
 
       rows.push({
         deal_id: dealId,
+        project_id: projectId,
         contact_id: contact.id,
         provider: "gmail",
         provider_message_id: message.id,

@@ -47,6 +47,7 @@ import { updateProject } from "@/app/(crm)/projets/actions";
 import { ProjectComments } from "@/components/projects/project-comments";
 import { DealCalls } from "@/components/crm/deal-calls";
 import { ProjectDocuments } from "@/components/projects/project-documents";
+import { ProjectEmails } from "@/components/projects/project-emails";
 import { TaskBoard } from "@/components/projects/task-board";
 
 type MemberLite = { id: string; full_name: string | null; email: string; role: string };
@@ -244,6 +245,13 @@ export function ProjectWorkspace({
               échanges relèvent du projet et non plus de l'affaire. */}
           <Card className="p-5">
             <DealCalls target={{ kind: "projet", id: project.id }} />
+          </Card>
+
+          {/* La correspondance a sa place ici, entre les calls et les notes
+              internes : ce sont les trois traces de ce qui s'est dit, et on
+              les cherche ensemble. */}
+          <Card className="p-5">
+            <ProjectEmails projectId={project.id} />
           </Card>
 
           <ProjectComments
