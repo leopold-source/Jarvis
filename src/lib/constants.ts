@@ -277,6 +277,15 @@ export const DEAL_HEALTH: Record<string, { label: string; tone: Tone; hint: stri
 };
 
 // --- Tri de la boîte mail --------------------------------------------------
+/**
+ * Combien de jours d'historique de tri sont conservés.
+ *
+ * Ici et non dans `mail-triage`, qui parle à Gmail et à Anthropic : l'écran a
+ * besoin de ce nombre pour annoncer sa fenêtre, et l'importer de là-bas
+ * tirerait tout le module serveur dans le paquet du navigateur.
+ */
+export const RETENTION_JOURS = 15;
+
 export const MAIL_CATEGORY: Record<MailCategory, { label: string; tone: Tone }> = {
   spam: { label: "Spam", tone: "stone" },
   prospection_etrangere: { label: "Démarchage", tone: "amber" },

@@ -12,6 +12,7 @@ import {
   updateDraft,
 } from "@/lib/google";
 import type { MailRun, MailTriage } from "@/lib/database.types";
+import { RETENTION_JOURS } from "@/lib/constants";
 import { trierMails } from "@/lib/mail-triage";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
@@ -245,14 +246,70 @@ export async function fetchBilanTri(): Promise<{
 
   const passage = ((passages ?? [])[0] as MailRun | undefined) ?? null;
 
-  // On borne au dernier passage : revoir le tri d'avant-hier n'apprend rien, et
-  // la liste doit rester parcourable d'un coup d'œil.
-  const depuis = passage ? new Date(passage.started_at).getTime() - 60_000 : 0;
-  const retenus = (mails ?? []).filter(
-    (mail) => new Date(mail.created_at).getTime() >= depuis,
-  ) as MailTriage[];
+  /*
+    Les mails du dernier passage, désignés et non déduits.
+
+    On comparait les horodatages : « tout ce qui est arrivé après le début du
+    run, à une minute près ». C'était juste tant qu'il n'y avait qu'un passage
+    à montrer, et faux dès que deux se suivaient de près — ou qu'une reprise
+    effaçait puis réinsérait des lignes. La colonne `run_id` dit désormais qui
+    appartient à quoi.
+  */
+  const retenus = ((mails ?? []) as MailTriage[]).filter(
+    (mail) => passage !== null && mail.run_id === passage.id,
+  );
 
   return { mails: retenus, passage };
+}
+
+/** Un passage, et les mails qu'il a produits. */
+export type PassageDetaille = { passage: MailRun; mails: MailTriage[] };
+
+/**
+ * L'historique des passages, sur la fenêtre conservée.
+ *
+ * Le bilan seul — « 8 mails, 3 à la corbeille » — ne permet pas de vérifier
+ * quoi que ce soit : c'est le détail qui dit si le tri d'avant-hier avait
+ * raison. Les deux arrivent donc ensemble, en deux requêtes plutôt qu'une par
+ * passage, et le rapprochement se fait ici.
+ *
+ * La fenêtre est celle de la péremption : au-delà, il n'y a plus rien à lire,
+ * et prétendre le contraire ferait chercher des lignes que la base a effacées.
+ */
+export async function chargerHistorique(): Promise<PassageDetaille[]> {
+  const profile = await requireStaff();
+  const supabase = await createClient();
+
+  const depuis = new Date(Date.now() - RETENTION_JOURS * 86_400_000).toISOString();
+
+  const { data: passages } = await supabase
+    .from("mail_runs")
+    .select("*")
+    .eq("user_id", profile.id)
+    .gte("started_at", depuis)
+    .order("started_at", { ascending: false })
+    .limit(60);
+
+  const liste = (passages ?? []) as MailRun[];
+  if (liste.length === 0) return [];
+
+  const { data: mails } = await supabase
+    .from("mail_triage")
+    .select("*")
+    .eq("user_id", profile.id)
+    .in("run_id", liste.map((passage) => passage.id))
+    .order("received_at", { ascending: false })
+    .limit(1000);
+
+  const parPassage = new Map<string, MailTriage[]>();
+  for (const mail of (mails ?? []) as MailTriage[]) {
+    if (!mail.run_id) continue;
+    const groupe = parPassage.get(mail.run_id);
+    if (groupe) groupe.push(mail);
+    else parPassage.set(mail.run_id, [mail]);
+  }
+
+  return liste.map((passage) => ({ passage, mails: parPassage.get(passage.id) ?? [] }));
 }
 
 /**

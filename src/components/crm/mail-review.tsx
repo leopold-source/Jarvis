@@ -7,11 +7,13 @@ import {
   Archive,
   Check,
   ExternalLink,
+  ChevronDown,
   History,
   Inbox,
   ListChecks,
   Mail,
   RefreshCw,
+  Repeat,
   RotateCcw,
   Send,
   ShieldCheck,
@@ -31,7 +33,7 @@ import {
   useToast,
 } from "@/components/ui";
 import { AiVerdict } from "@/components/crm/ai-verdict";
-import { MAIL_ACTION, MAIL_CATEGORY } from "@/lib/constants";
+import { MAIL_ACTION, MAIL_CATEGORY, RETENTION_JOURS } from "@/lib/constants";
 import type { MailRun, MailTriage } from "@/lib/database.types";
 import { cn, formatRelative } from "@/lib/utils";
 import {
@@ -40,7 +42,9 @@ import {
   enregistrerBrouillon,
   envoyerBrouillon,
   fetchBilanTri,
+  chargerHistorique,
   trierMaintenant,
+  type PassageDetaille,
 } from "@/app/(crm)/mails/actions";
 
 /**
@@ -69,6 +73,7 @@ export function MailReview({
   const [, startTransition] = useTransition();
   const [busy, setBusy] = useState(false);
   const [recap, setRecap] = useState(false);
+  const [historique, setHistorique] = useState(false);
 
   const refresh = () => startTransition(() => router.refresh());
 
@@ -200,12 +205,22 @@ export function MailReview({
               <Button
                 variant="ghost"
                 size="sm"
+                onClick={() => setHistorique(true)}
+                aria-label="Historique"
+                title={`Les passages des ${RETENTION_JOURS} derniers jours`}
+              >
+                <History className="size-3.5" />
+                <span className="max-sm:hidden">Historique</span>
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
                 disabled={busy}
                 onClick={() => trier(true)}
                 aria-label="Réanalyser"
                 title="Reprendre les deux derniers jours depuis le début, y compris les mails déjà rangés"
               >
-                <History className="size-3.5" />
+                <Repeat className="size-3.5" />
                 <span className="max-sm:hidden">Réanalyser</span>
               </Button>
             </span>
@@ -288,6 +303,8 @@ export function MailReview({
           </div>
         </section>
       ) : null}
+
+      <HistoriqueModal open={historique} onClose={() => setHistorique(false)} />
 
       <RecapModal open={recap} onClose={() => setRecap(false)} onChange={refresh} />
 
@@ -505,6 +522,289 @@ function MailCard({ mail, onDone }: { mail: MailTriage; onDone: () => void }) {
  * Les mails écartés viennent en premier : ce sont eux qu'on veut relire, et
  * eux seuls qui portent un bouton pour revenir en arrière.
  */
+/**
+ * Les cinq façons dont un mail a pu être traité, dans l'ordre où on les lit.
+ *
+ * « À savoir » passe devant tout : ce sont des messages écartés qu'il faut
+ * malgré tout connaître, et les noyer parmi les autres reviendrait à les
+ * écarter pour de bon. « Classés » ferme la marche — c'est le cas nominal,
+ * celui qu'on survole.
+ */
+/**
+ * L'historique des passages, sur la fenêtre conservée.
+ *
+ * Le bandeau du haut ne montre que le dernier passage : c'est ce qu'on veut
+ * quatre-vingt-dix-neuf fois sur cent, et c'est insuffisant le jour où l'on
+ * cherche « ce qui a été supprimé avant-hier ». Cet écran répond à cette
+ * question-là, et à elle seule.
+ *
+ * Chaque passage est replié par défaut. Déplié, il montre exactement ce que
+ * montre le récapitulatif du jour — mêmes groupes, mêmes lignes : un historique
+ * qui présenterait les choses autrement obligerait à réapprendre à le lire.
+ */
+function HistoriqueModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const [passages, setPassages] = useState<PassageDetaille[] | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    let vivant = true;
+    void chargerHistorique().then((donnees) => {
+      if (vivant) setPassages(donnees);
+    });
+    return () => {
+      vivant = false;
+    };
+  }, [open]);
+
+  const total = (passages ?? []).reduce((somme, entree) => somme + entree.passage.lus, 0);
+  const cout = (passages ?? []).reduce(
+    (somme, entree) => somme + Number(entree.passage.cout_centimes),
+    0,
+  );
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      size="lg"
+      title="Historique du tri"
+      description={
+        passages === null
+          ? "Chargement…"
+          : `${passages.length} passage(s) sur ${RETENTION_JOURS} jours · ${total} mail(s) examinés` +
+            (cout > 0 ? ` · ${cout.toFixed(1)} centime(s)` : "")
+      }
+      footer={
+        <Button variant="ghost" onClick={onClose}>
+          Fermer
+        </Button>
+      }
+    >
+      {passages === null ? (
+        <p className="text-[12.5px] text-[var(--text-muted)]">Chargement…</p>
+      ) : passages.length === 0 ? (
+        <p className="text-[12.5px] text-[var(--text-muted)]">
+          Aucun passage dans les {RETENTION_JOURS} derniers jours.
+        </p>
+      ) : (
+        <>
+          <ul className="space-y-2">
+            {passages.map(({ passage, mails }) => (
+              <li
+                key={passage.id}
+                className="overflow-hidden rounded-[10px] border border-[var(--border-subtle)]"
+              >
+                {/* `details` natif : replier une liste ne justifie pas un état
+                    React, et le navigateur le fait déjà bien. */}
+                <details>
+                  <summary className="flex cursor-pointer list-none flex-wrap items-center gap-2 px-3 py-2.5 transition-colors hover:bg-[var(--surface-hover)]/60">
+                    <ChevronDown className="size-3.5 shrink-0 text-[var(--text-muted)]" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[12.5px] font-medium">
+                        {formatRelative(passage.started_at)}
+                        <span className="ml-1.5 font-normal text-[var(--text-muted)]">
+                          {new Date(passage.started_at).toLocaleString("fr-FR", {
+                            day: "2-digit",
+                            month: "2-digit",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                        </span>
+                      </span>
+                      <span className="block text-[11.5px] text-[var(--text-muted)]">
+                        {passage.lus === 0 ? "rien de neuf" : resumePassage(passage)}
+                      </span>
+                    </span>
+
+                    <span className="flex shrink-0 items-center gap-1.5">
+                      {Number(passage.cout_centimes) > 0 ? (
+                        <span className="text-[11px] tabular-nums text-[var(--text-muted)]">
+                          {Number(passage.cout_centimes).toFixed(1)} ct
+                        </span>
+                      ) : null}
+                      {passage.erreur ? (
+                        <Badge tone="rose">échec</Badge>
+                      ) : (
+                        <Badge tone="stone">{passage.lus}</Badge>
+                      )}
+                    </span>
+                  </summary>
+
+                  <div className="border-t border-[var(--border-subtle)] px-3 py-2.5">
+                    {passage.erreur ? (
+                      <p className="mb-2.5 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-[11.5px] text-rose-600 dark:text-rose-300">
+                        {passage.erreur}
+                      </p>
+                    ) : null}
+
+                    {mails.length === 0 ? (
+                      <p className="text-[11.5px] text-[var(--text-muted)]">
+                        {/* Un passage sans ligne n'est pas forcément un passage
+                            raté : il peut n'avoir rien trouvé à trier. */}
+                        {passage.lus > 0
+                          ? "Le détail de ce passage a été effacé, seul le bilan subsiste."
+                          : "Aucun mail à trier ce jour-là."}
+                      </p>
+                    ) : (
+                      <div className="space-y-4">
+                        {grouperMails(mails)
+                          .filter((groupe) => groupe.mails.length > 0)
+                          .map((groupe) => (
+                            <section key={groupe.clef}>
+                              <h4
+                                className={cn(
+                                  "flex flex-wrap items-baseline gap-2 text-[12.5px] font-medium",
+                                  groupe.clef === "signale" && "text-amber-600 dark:text-amber-300",
+                                )}
+                              >
+                                {groupe.titre}
+                                <span className="text-[11px] font-normal text-[var(--text-muted)]">
+                                  {groupe.mails.length}
+                                </span>
+                              </h4>
+                              <ul className="mt-1.5 space-y-1">
+                                {groupe.mails.map((mail) => (
+                                  <LigneMail key={mail.id} mail={mail} />
+                                ))}
+                              </ul>
+                            </section>
+                          ))}
+                      </div>
+                    )}
+                  </div>
+                </details>
+              </li>
+            ))}
+          </ul>
+
+          <p className="mt-4 text-[11px] text-[var(--text-muted)]">
+            Passé {RETENTION_JOURS} jours, les passages et leur détail sont effacés
+            automatiquement. Les mails eux-mêmes restent dans Gmail.
+          </p>
+        </>
+      )}
+    </Modal>
+  );
+}
+
+/**
+ * Un mail tel qu'il apparaît dans un bilan.
+ *
+ * Partagé entre le récapitulatif du dernier passage et l'historique : les deux
+ * montrent la même chose, et deux rendus qui divergeraient feraient douter de
+ * ce qu'on lit. `onRestaurer` est optionnel — on ne remet pas dans la boîte un
+ * mail écarté il y a dix jours depuis un écran d'archives, mais on veut
+ * toujours pouvoir l'ouvrir dans Gmail.
+ */
+function LigneMail({
+  mail,
+  occupe,
+  onRestaurer,
+}: {
+  mail: MailTriage;
+  occupe?: boolean;
+  onRestaurer?: () => void;
+}) {
+  const categorie = MAIL_CATEGORY[mail.category];
+
+  return (
+    <li className="flex flex-wrap items-center gap-2 rounded-[10px] border border-[var(--border-subtle)] px-3 py-2">
+      <span className="min-w-40 flex-1">
+        <span className="flex flex-wrap items-center gap-1.5">
+          <span className="truncate text-[12.5px] font-medium">
+            {mail.from_name || mail.from_email || "Inconnu"}
+          </span>
+          <Badge tone={categorie.tone}>{categorie.label}</Badge>
+          {mail.known_contact ? (
+            <ShieldCheck className="size-3 text-emerald-500" aria-label="Déjà dans le CRM" />
+          ) : null}
+        </span>
+        <span className="block truncate text-[11.5px] text-[var(--text-muted)]">
+          {mail.subject || "(sans objet)"}
+        </span>
+        {/* La raison du classement, pour pouvoir le contester. */}
+        {mail.reason ? (
+          <span className="mt-0.5 block text-[11px] text-[var(--text-muted)] italic">
+            {mail.reason}
+          </span>
+        ) : null}
+      </span>
+
+      <span className="flex shrink-0 items-center gap-1">
+        <AiVerdict kind="mail_tri" refId={mail.id} />
+
+        {mail.action === "corbeille" && onRestaurer ? (
+          <button
+            type="button"
+            disabled={occupe}
+            onClick={onRestaurer}
+            title="Remettre dans la boîte"
+            className="rounded-md p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--surface-hover)] hover:text-emerald-500 disabled:opacity-40"
+          >
+            <RotateCcw className="size-3.5" />
+          </button>
+        ) : null}
+
+        <a
+          href={`https://mail.google.com/mail/u/0/#all/${mail.provider_message_id}`}
+          target="_blank"
+          rel="noreferrer"
+          title="Ouvrir dans Gmail"
+          className="rounded-md p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--surface-hover)] hover:text-brand-500"
+        >
+          <ExternalLink className="size-3.5" />
+        </a>
+      </span>
+    </li>
+  );
+}
+
+function grouperMails(mails: MailTriage[]) {
+  return [
+    {
+      clef: "signale",
+      titre: "À savoir",
+      note: "Écartés, mais tu dois être au courant.",
+      mails: mails.filter((m) => m.a_signaler),
+    },
+    {
+      clef: "corbeille",
+      titre: "Écartés",
+      note: "À la corbeille — Gmail les garde trente jours.",
+      mails: mails.filter((m) => m.action === "corbeille" && !m.a_signaler),
+    },
+    {
+      clef: "brouillon_pret",
+      titre: "Réponses préparées",
+      note: "Étiquetés, avec un brouillon qui attend ta relecture.",
+      mails: mails.filter((m) => m.action === "brouillon_pret"),
+    },
+    {
+      clef: "a_traiter",
+      titre: "Laissés pour toi",
+      note: "Classement incertain, ou réponse impossible sans information.",
+      mails: mails.filter((m) => m.action === "a_traiter"),
+    },
+    {
+      clef: "etiquete",
+      titre: "Classés",
+      note: "Rangés dans leur dossier, hors de la boîte de réception.",
+      mails: mails.filter((m) => m.action === "etiquete"),
+    },
+  ];
+}
+
+/** Le bilan d'un passage en une ligne de texte. */
+function resumePassage(passage: MailRun): string {
+  const morceaux = [
+    passage.spams > 0 ? `${passage.spams} écarté${passage.spams > 1 ? "s" : ""}` : null,
+    passage.factures > 0 ? `${passage.factures} facture${passage.factures > 1 ? "s" : ""}` : null,
+    passage.brouillons > 0 ? `${passage.brouillons} réponse${passage.brouillons > 1 ? "s" : ""}` : null,
+    passage.a_traiter > 0 ? `${passage.a_traiter} pour toi` : null,
+  ].filter(Boolean);
+  return morceaux.length > 0 ? morceaux.join(" · ") : "aucune action";
+}
+
 function RecapModal({
   open,
   onClose,
@@ -539,38 +839,7 @@ function RecapModal({
     onChange();
   }
 
-  const groupes: Array<{ clef: string; titre: string; note: string; mails: MailTriage[] }> = [
-    {
-      clef: "signale",
-      titre: "À savoir",
-      note: "Écartés, mais tu dois être au courant.",
-      mails: (mails ?? []).filter((m) => m.a_signaler),
-    },
-    {
-      clef: "corbeille",
-      titre: "Écartés",
-      note: "À la corbeille — Gmail les garde trente jours.",
-      mails: (mails ?? []).filter((m) => m.action === "corbeille" && !m.a_signaler),
-    },
-    {
-      clef: "brouillon_pret",
-      titre: "Réponses préparées",
-      note: "Étiquetés, avec un brouillon qui attend ta relecture.",
-      mails: (mails ?? []).filter((m) => m.action === "brouillon_pret"),
-    },
-    {
-      clef: "a_traiter",
-      titre: "Laissés pour toi",
-      note: "Classement incertain, ou réponse impossible sans information.",
-      mails: (mails ?? []).filter((m) => m.action === "a_traiter"),
-    },
-    {
-      clef: "etiquete",
-      titre: "Classés",
-      note: "Rangés dans leur dossier, hors de la boîte de réception.",
-      mails: (mails ?? []).filter((m) => m.action === "etiquete"),
-    },
-  ];
+  const groupes = grouperMails(mails ?? []);
 
   return (
     <Modal
@@ -617,65 +886,14 @@ function RecapModal({
                 </h4>
 
                 <ul className="mt-2 space-y-1">
-                  {groupe.mails.map((mail) => {
-                    const categorie = MAIL_CATEGORY[mail.category];
-                    return (
-                      <li
-                        key={mail.id}
-                        className="flex flex-wrap items-center gap-2 rounded-[10px] border border-[var(--border-subtle)] px-3 py-2"
-                      >
-                        <span className="min-w-40 flex-1">
-                          <span className="flex flex-wrap items-center gap-1.5">
-                            <span className="truncate text-[12.5px] font-medium">
-                              {mail.from_name || mail.from_email || "Inconnu"}
-                            </span>
-                            <Badge tone={categorie.tone}>{categorie.label}</Badge>
-                            {mail.known_contact ? (
-                              <ShieldCheck
-                                className="size-3 text-emerald-500"
-                                aria-label="Déjà dans le CRM"
-                              />
-                            ) : null}
-                          </span>
-                          <span className="block truncate text-[11.5px] text-[var(--text-muted)]">
-                            {mail.subject || "(sans objet)"}
-                          </span>
-                          {/* La raison du classement, pour pouvoir le contester. */}
-                          {mail.reason ? (
-                            <span className="mt-0.5 block text-[11px] text-[var(--text-muted)] italic">
-                              {mail.reason}
-                            </span>
-                          ) : null}
-                        </span>
-
-                        <span className="flex shrink-0 items-center gap-1">
-                          <AiVerdict kind="mail_tri" refId={mail.id} />
-
-                          {mail.action === "corbeille" ? (
-                            <button
-                              type="button"
-                              disabled={busy === mail.id}
-                              onClick={() => void restaurer(mail)}
-                              title="Remettre dans la boîte"
-                              className="rounded-md p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--surface-hover)] hover:text-emerald-500 disabled:opacity-40"
-                            >
-                              <RotateCcw className="size-3.5" />
-                            </button>
-                          ) : null}
-
-                          <a
-                            href={`https://mail.google.com/mail/u/0/#all/${mail.provider_message_id}`}
-                            target="_blank"
-                            rel="noreferrer"
-                            title="Ouvrir dans Gmail"
-                            className="rounded-md p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--surface-hover)] hover:text-brand-500"
-                          >
-                            <ExternalLink className="size-3.5" />
-                          </a>
-                        </span>
-                      </li>
-                    );
-                  })}
+                  {groupe.mails.map((mail) => (
+                    <LigneMail
+                      key={mail.id}
+                      mail={mail}
+                      occupe={busy === mail.id}
+                      onRestaurer={() => void restaurer(mail)}
+                    />
+                  ))}
                 </ul>
               </section>
             ))}

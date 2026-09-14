@@ -2,6 +2,7 @@ import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { z } from "zod";
 
 import { anthropicClient, anthropicKey } from "@/lib/anthropic";
+import { RETENTION_JOURS } from "@/lib/constants";
 import {
   addLabel,
   archiveMessage,
@@ -442,6 +443,10 @@ export async function trierMails(
 
       await admin.from("mail_triage").insert({
         user_id: userId,
+        // Le passage auquel ce mail appartient. Écrit plutôt que déduit des
+        // horodatages : deux passages rapprochés, ou une reprise qui efface
+        // puis réinsère, rendaient la déduction fausse sans le dire.
+        run_id: run?.id ?? null,
         provider_message_id: id,
         thread_id: message.threadId,
         from_email: adresse || null,
@@ -501,6 +506,23 @@ export async function trierMails(
   }
 }
 
+/**
+ * Efface les passages et les mails triés trop anciens.
+ *
+ * Un tri quotidien qui garde tout accumule des milliers de lignes dont
+ * personne ne fera rien : passé deux semaines, on ne revient pas sur le
+ * classement d'un mail. La coupe est franche, et elle se fait après le tri
+ * plutôt qu'avant — un ménage qui échoue ne doit pas empêcher le travail.
+ */
+export async function purgerHistorique(): Promise<{ passages: number; mails: number }> {
+  const admin = createAdminClient();
+  if (!admin) return { passages: 0, mails: 0 };
+
+  const { data } = await admin.rpc("purger_historique_mails", { jours: RETENTION_JOURS });
+  const ligne = (data ?? [])[0];
+  return { passages: ligne?.passages_supprimes ?? 0, mails: ligne?.mails_supprimes ?? 0 };
+}
+
 /** Trie les boîtes de tous les comptes connectés. Point d'entrée du cron. */
 export async function trierToutesLesBoites(): Promise<Array<{ email: string } & TriageOutcome>> {
   const admin = createAdminClient();
@@ -512,5 +534,10 @@ export async function trierToutesLesBoites(): Promise<Array<{ email: string } & 
   for (const compte of comptes ?? []) {
     resultats.push({ email: compte.email, ...(await trierMails(compte.user_id)) });
   }
+
+  // Le passage quotidien est le seul rendez-vous garanti : c'est donc lui qui
+  // porte la péremption, plutôt qu'une tâche planifiée de plus à surveiller.
+  await purgerHistorique().catch(() => ({ passages: 0, mails: 0 }));
+
   return resultats;
 }

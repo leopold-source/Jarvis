@@ -630,6 +630,15 @@ export type MailReview = "en_attente" | "traite" | "ignore";
 export type MailTriage = {
   id: string;
   user_id: string;
+  /**
+   * Le passage de tri qui a produit cette ligne.
+   *
+   * Nul pour les mails antérieurs à l'introduction de la colonne, et nul aussi
+   * si le passage a été effacé par la péremption avant le mail — d'où le
+   * `on delete set null` plutôt qu'une cascade : perdre le bilan d'un passage
+   * ne doit pas faire disparaître ce qu'il a classé.
+   */
+  run_id: string | null;
   provider_message_id: string;
   thread_id: string | null;
   from_email: string | null;
@@ -780,6 +789,10 @@ export type Database = {
       my_company_id: { Args: Record<string, never>; Returns: string };
       client_can_see_project: { Args: { p_project_id: string }; Returns: boolean };
       client_can_see_dossier: { Args: { p_dossier_id: string }; Returns: boolean };
+      purger_historique_mails: {
+        Args: { jours?: number };
+        Returns: Array<{ passages_supprimes: number; mails_supprimes: number }>;
+      };
     };
     Enums: {
       app_role: AppRole;
