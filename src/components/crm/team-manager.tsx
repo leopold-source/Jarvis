@@ -17,6 +17,7 @@ import {
 } from "@/components/ui";
 import { ROLE_LABEL } from "@/lib/constants";
 import type { AppRole, Profile } from "@/lib/database.types";
+import { siteUrl } from "@/lib/site-url";
 import { formatDate } from "@/lib/utils";
 import {
   creerCompteDemo,
@@ -241,7 +242,7 @@ function InviteDialog({
       full_name: form.full_name,
       role: form.role,
       company_id: form.role === "client" ? form.company_id || null : null,
-      redirectTo: `${window.location.origin}/auth/callback`,
+      redirectTo: `${siteUrl()}/auth/callback`,
     });
     setSaving(false);
     if (!result.ok) {

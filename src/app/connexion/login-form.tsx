@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowRight, KeyRound, Mail } from "lucide-react";
 
 import { Button, Card, Field, Input, useToast } from "@/components/ui";
+import { siteUrl } from "@/lib/site-url";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 
@@ -40,7 +41,7 @@ export function LoginForm() {
         const { error: otpError } = await supabase.auth.signInWithOtp({
           email,
           options: {
-            emailRedirectTo: `${window.location.origin}/auth/callback?suite=${encodeURIComponent(next)}`,
+            emailRedirectTo: `${siteUrl()}/auth/callback?suite=${encodeURIComponent(next)}`,
           },
         });
         if (otpError) throw otpError;

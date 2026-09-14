@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import type { Metadata } from "next";
 
+import { LienFragment } from "./lien-fragment";
 import { LoginForm } from "./login-form";
 import { Logo } from "@/components/layout/logo";
 
@@ -31,6 +32,13 @@ export default function LoginPage() {
             Le CRM et le pilotage projet de l&apos;équipe.
           </p>
         </div>
+
+        {/* Avant le formulaire : si l'adresse porte déjà une session, il n'y a
+            rien à saisir, et l'écran doit le dire plutôt que de proposer un
+            mot de passe à quelqu'un qui vient de cliquer sur un lien. */}
+        <Suspense fallback={null}>
+          <LienFragment />
+        </Suspense>
 
         <Suspense fallback={<div className="skeleton h-72 w-full rounded-2xl" />}>
           <LoginForm />
