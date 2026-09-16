@@ -7,7 +7,7 @@ import { Badge, Button, Drawer, Field, Input, Select, Textarea, useToast } from 
 import { DateField } from "@/components/ui/date-field";
 import { LEAD_STATUS, LEAD_STATUS_ORDER, NRP_MAX } from "@/lib/constants";
 import type { LeadListe, LeadStatus } from "@/lib/database.types";
-import { cn, formatDate, formatMoney, formatRelative } from "@/lib/utils";
+import { cn, formatDate, formatDateHeure, formatMoney, formatRelative } from "@/lib/utils";
 import type { OrgLink } from "@/lib/lead-orgs";
 import { incrementerNrp, updateLead } from "@/app/(crm)/leads/actions";
 
@@ -264,13 +264,7 @@ export function LeadDrawer({
                   situe, mais ne permet pas de recouper avec un agenda. */}
               {lead.status_changed_at ? (
                 <p className="text-[11px] text-[var(--text-muted)] tabular-nums">
-                  {new Date(lead.status_changed_at).toLocaleString("fr-FR", {
-                    day: "2-digit",
-                    month: "2-digit",
-                    year: "numeric",
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}
+                  {formatDateHeure(lead.status_changed_at, { avecAnnee: true })}
                 </p>
               ) : null}
             </div>

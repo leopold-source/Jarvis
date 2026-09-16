@@ -4,6 +4,7 @@ import { DEAL_STAGE, LEAD_STATUS } from "@/lib/constants";
 import type { DealStage } from "@/lib/database.types";
 import { agendaDe } from "@/lib/agenda";
 import { createClient } from "@/lib/supabase/server";
+import { formatDateHeure, formatHeure, FUSEAU } from "@/lib/utils";
 
 /**
  * Ce que l'assistant a le droit de regarder.
@@ -444,10 +445,20 @@ export async function runReadTool(
         comptent comme du temps pris, pas comme des rendez-vous. Les mélanger
         ferait annoncer trois rendez-vous à quelqu'un qui en a un.
       */
+      /*
+        L'heure est donnée toute faite, en clair, à côté de l'instant.
+
+        Les horodatages de Google portent bien leur décalage, mais rien ne
+        garantit qu'un modèle le retranche correctement, et une erreur ici
+        s'entend : « tu as un point à midi » pour un rendez-vous de quatorze
+        heures. Le calcul est fait une fois, du bon côté.
+      */
       return {
-        maintenant: new Date().toISOString(),
+        maintenant: formatDateHeure(new Date().toISOString(), { avecAnnee: true }),
+        fuseau: FUSEAU,
         rendez_vous: resultat.rendezVous.map((rdv) => ({
           titre: rdv.titre,
+          heure: rdv.journee_entiere ? "toute la journée" : formatHeure(rdv.debut),
           debut: rdv.debut,
           fin: rdv.fin,
           journee_entiere: rdv.journee_entiere,
@@ -457,6 +468,7 @@ export async function runReadTool(
         })),
         creneaux_personnels: resultat.creneaux.map((rdv) => ({
           titre: rdv.titre,
+          heure: rdv.journee_entiere ? "toute la journée" : formatHeure(rdv.debut),
           debut: rdv.debut,
           fin: rdv.fin,
         })),

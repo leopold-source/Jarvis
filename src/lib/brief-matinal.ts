@@ -1,5 +1,6 @@
 import { agendaDe } from "@/lib/agenda";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { formatHeure } from "@/lib/utils";
 
 /**
  * Le récapitulatif du matin, envoyé à chacun sur sa propre adresse.
@@ -97,7 +98,7 @@ async function corps(admin: Admin, userId: string, prenom: string): Promise<stri
         const heure = rdv.journee_entiere
           ? "journée"
           : rdv.debut
-            ? new Date(rdv.debut).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })
+            ? formatHeure(rdv.debut)
             : "";
         const avec = rdv.participants.length ? ` — avec ${rdv.participants.join(", ")}` : "";
         return `<strong>${heure}</strong> ${rdv.titre}<span style="color:#8b8b93">${avec}</span>`;

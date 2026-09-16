@@ -6,6 +6,7 @@ import { requireStaff } from "@/lib/auth";
 import { LEAD_STATUS, DEAL_STAGE } from "@/lib/constants";
 import type { DealStage, LeadStatus } from "@/lib/database.types";
 import { createClient } from "@/lib/supabase/server";
+import { formatDate } from "@/lib/utils";
 
 /**
  * Ce que l'assistant a le droit d'écrire, et comment il l'obtient.
@@ -97,7 +98,7 @@ export async function executerAction(action: ActionProposee): Promise<ActionResu
 
       // On ajoute, on ne remplace pas : une note dictée ne doit pas effacer ce
       // qu'un appel précédent avait appris.
-      const horodatee = `${new Date().toLocaleDateString("fr-FR")} : ${detail}`;
+      const horodatee = `${formatDate(new Date().toISOString())} : ${detail}`;
       const corps = existant?.comment ? `${existant.comment}\n${horodatee}` : horodatee;
 
       const { error } = await supabase

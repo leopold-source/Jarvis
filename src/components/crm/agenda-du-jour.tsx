@@ -3,7 +3,7 @@ import { CalendarDays, ChevronDown, Coffee, Link2, MapPin, Users, Video } from "
 
 import { Card, SectionTitle } from "@/components/ui";
 import { agendaDe, type RendezVous } from "@/lib/agenda";
-import { cn } from "@/lib/utils";
+import { cn, formatHeure } from "@/lib/utils";
 
 /**
  * Les rendez-vous qui arrivent, en haut du tableau de bord.
@@ -132,7 +132,7 @@ export async function AgendaDuJour({ userId, className }: { userId: string; clas
 function heureDe(rdv: RendezVous): string {
   if (rdv.journee_entiere) return "journée";
   if (!rdv.debut) return "—";
-  return new Date(rdv.debut).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+  return formatHeure(rdv.debut);
 }
 
 function Rendez({

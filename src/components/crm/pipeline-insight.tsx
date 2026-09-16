@@ -7,7 +7,7 @@ import { Info, RefreshCw, Sparkles, Target } from "lucide-react";
 import { Badge, Button, Modal, useToast } from "@/components/ui";
 import type { PipelineInsight as InsightRow } from "@/lib/database.types";
 import { analysePipeline, type PipelinePriority } from "@/app/(crm)/insights-actions";
-import { cn, formatRelative } from "@/lib/utils";
+import { cn, formatDate, formatRelative } from "@/lib/utils";
 
 const SEVERITY = {
   critique: { label: "Critique", tone: "red" as const },
@@ -95,11 +95,7 @@ export function PipelineInsight({ insight }: { insight: InsightRow | null }) {
         title="Où concentrer l'effort"
         description={
           insight
-            ? `Analyse du ${new Date(insight.created_at).toLocaleDateString("fr-FR", {
-                day: "numeric",
-                month: "long",
-                year: "numeric",
-              })} · horizon ${insight.horizon_days} jours`
+            ? `Analyse du ${formatDate(insight.created_at, "long")} · horizon ${insight.horizon_days} jours`
             : undefined
         }
         footer={

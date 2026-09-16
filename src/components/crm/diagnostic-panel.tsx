@@ -7,6 +7,7 @@ import {
   anthropicWorkspaceId,
   describeAnthropicError,
 } from "@/lib/anthropic";
+import { FUSEAU } from "@/lib/utils";
 
 /**
  * Panneau de diagnostic.
@@ -96,7 +97,10 @@ export async function DiagnosticPanel() {
           <Row label="Message du commit" value={env.VERCEL_GIT_COMMIT_MESSAGE ?? "—"} />
           <Row label="URL du déploiement" value={env.VERCEL_URL ?? "—"} />
           <Row label="Région d'exécution" value={env.VERCEL_REGION ?? "—"} />
-          <Row label="Rendu de cette page" value={new Date().toLocaleString("fr-FR")} />
+          <Row
+            label="Rendu de cette page"
+            value={new Date().toLocaleString("fr-FR", { timeZone: FUSEAU })}
+          />
         </div>
       </Card>
 

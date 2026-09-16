@@ -433,7 +433,12 @@ function DealCard({
         {deal.next_step_on ? (
           <Badge tone={(daysUntil(deal.next_step_on) ?? 0) < 0 ? "rose" : "amber"}>
             <CalendarDays className="size-3" />
-            {new Date(deal.next_step_on).toLocaleDateString("fr-FR", { day: "2-digit", month: "short" })}
+            {new Date(deal.next_step_on).toLocaleDateString("fr-FR", {
+              // Date nue : lue en UTC pour qu'elle ne change pas de jour.
+              timeZone: "UTC",
+              day: "2-digit",
+              month: "short",
+            })}
           </Badge>
         ) : null}
       </div>

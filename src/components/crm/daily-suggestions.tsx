@@ -18,7 +18,7 @@ import { Badge, Button, Card, SectionTitle, useToast } from "@/components/ui";
 import type { SuggestionItemType } from "@/app/(crm)/suggestions-actions";
 import { AiVerdict } from "@/components/crm/ai-verdict";
 import { generateSuggestions, toggleSuggestion } from "@/app/(crm)/suggestions-actions";
-import { cn } from "@/lib/utils";
+import { cn, FUSEAU } from "@/lib/utils";
 
 const KIND = {
   appel: { icon: Phone, label: "Appel" },
@@ -206,6 +206,7 @@ export function DailySuggestions({
         <p className="mt-3 shrink-0 text-[11px] text-[var(--text-muted)]">
           Préparé le{" "}
           {new Date(generatedAt).toLocaleString("fr-FR", {
+            timeZone: FUSEAU,
             day: "numeric",
             month: "long",
             hour: "2-digit",

@@ -3,6 +3,7 @@ import "server-only";
 import { estUnVraiRendezVous } from "@/lib/agenda-nature";
 import { eventVideoLink, listCalendarEvents, refreshAccessToken, type CalendarEvent } from "@/lib/google";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { finDeJourneeParis } from "@/lib/utils";
 
 /**
  * L'agenda d'un utilisateur, ramené à ce qu'on affiche.
@@ -86,9 +87,9 @@ export async function agendaDe(
     // Depuis maintenant, pas depuis ce matin : un rendez-vous terminé à onze
     // heures n'a plus rien à faire dans « ce qui arrive ».
     const debut = new Date();
-    const fin = new Date();
-    fin.setDate(fin.getDate() + (options.jours ?? 1));
-    fin.setHours(23, 59, 59, 999);
+    const fin = finDeJourneeParis(
+      new Date(Date.now() + (options.jours ?? 1) * 86_400_000),
+    );
 
     const events = await listCalendarEvents(access_token, debut, fin);
 

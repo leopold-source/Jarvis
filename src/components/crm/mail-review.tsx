@@ -37,7 +37,7 @@ import {
 import { AiVerdict } from "@/components/crm/ai-verdict";
 import { MAIL_ACTION, MAIL_CATEGORY, RETENTION_JOURS } from "@/lib/constants";
 import type { MailRun, MailTriage } from "@/lib/database.types";
-import { cn, formatRelative } from "@/lib/utils";
+import { cn, formatDateHeure, formatRelative } from "@/lib/utils";
 import {
   basculerCorbeille,
   classerSansSuite,
@@ -691,15 +691,7 @@ function HistoriqueModal({
                         <span className="block text-[12.5px] font-medium">
                           {formatRelative(passage.started_at)}
                           <span className="ml-1.5 font-normal text-[var(--text-muted)]">
-                            {new Date(passage.started_at).toLocaleString(
-                              "fr-FR",
-                              {
-                                day: "2-digit",
-                                month: "2-digit",
-                                hour: "2-digit",
-                                minute: "2-digit",
-                              },
-                            )}
+                            {formatDateHeure(passage.started_at)}
                           </span>
                         </span>
                         <span className="block text-[11.5px] text-[var(--text-muted)]">

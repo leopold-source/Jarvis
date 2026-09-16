@@ -65,12 +65,52 @@ export function formatDate(value: string | null | undefined, style: "short" | "l
   if (!value) return "—";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "—";
-  return date.toLocaleDateString(
-    "fr-FR",
-    style === "long"
-      ? { day: "numeric", month: "long", year: "numeric" }
-      : { day: "2-digit", month: "2-digit", year: "numeric" },
-  );
+
+  /*
+    Une date nue reste à sa place, un instant se ramène à Paris.
+
+    « 2026-09-14 » se lit comme minuit UTC ; l'afficher dans un fuseau en
+    retard sur UTC en ferait le 13. Une date de relance n'a pas d'heure et ne
+    doit pas voyager — d'où les deux traitements.
+  */
+  const dateNue = /^\d{4}-\d{2}-\d{2}$/.test(value);
+
+  return date.toLocaleDateString("fr-FR", {
+    timeZone: dateNue ? "UTC" : FUSEAU,
+    ...(style === "long"
+      ? { day: "numeric" as const, month: "long" as const, year: "numeric" as const }
+      : { day: "2-digit" as const, month: "2-digit" as const, year: "numeric" as const }),
+  });
+}
+
+/** L'heure d'un instant, à Paris. « 14:30 ». */
+export function formatHeure(value: string | null | undefined): string {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleTimeString("fr-FR", {
+    timeZone: FUSEAU,
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+/** Le jour et l'heure d'un instant, à Paris. « 14/09 à 14:30 ». */
+export function formatDateHeure(
+  value: string | null | undefined,
+  options: { avecAnnee?: boolean } = {},
+): string {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleString("fr-FR", {
+    timeZone: FUSEAU,
+    day: "2-digit",
+    month: "2-digit",
+    ...(options.avecAnnee ? { year: "numeric" as const } : {}),
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 /** « il y a 3 jours », « dans 2 semaines »… en s'appuyant sur Intl. */
@@ -107,8 +147,22 @@ export function formatRelative(value: string | null | undefined) {
   les yeux — une relance « pour aujourd'hui » à vingt-trois heures reste pour
   aujourd'hui, quelle que soit la région où tourne le serveur.
 */
+/**
+ * Le fuseau de l'entreprise, écrit une fois et imposé partout.
+ *
+ * Sans mention explicite, `toLocaleTimeString` prend le fuseau de la machine
+ * qui exécute — et la moitié de cette application est rendue sur le serveur,
+ * qui tourne en UTC. Un rendez-vous de 14 h s'affichait donc à 12 h l'été. La
+ * langue était bien du français ; l'heure venait d'ailleurs.
+ *
+ * Toute mise en forme d'un instant passe désormais par ici. Une date nue
+ * — « 2026-09-14 », sans heure — n'est pas un instant et n'a pas à y passer :
+ * la décaler d'un fuseau la ferait changer de jour.
+ */
+export const FUSEAU = "Europe/Paris";
+
 const JOUR_PARIS = new Intl.DateTimeFormat("en-CA", {
-  timeZone: "Europe/Paris",
+  timeZone: FUSEAU,
   year: "numeric",
   month: "2-digit",
   day: "2-digit",
@@ -117,6 +171,31 @@ const JOUR_PARIS = new Intl.DateTimeFormat("en-CA", {
 /** La date du jour à Paris, au format `AAAA-MM-JJ`. */
 export function todayIso(): string {
   return JOUR_PARIS.format(new Date());
+}
+
+const OFFSET_PARIS = new Intl.DateTimeFormat("en-US", {
+  timeZone: FUSEAU,
+  timeZoneName: "longOffset",
+});
+
+/** L'écart entre Paris et UTC à un instant donné, en millisecondes. */
+function decalageParis(instant: Date): number {
+  const nom = OFFSET_PARIS.formatToParts(instant).find((part) => part.type === "timeZoneName");
+  const lu = /GMT([+-])(\d{2}):(\d{2})/.exec(nom?.value ?? "");
+  if (!lu) return 0;
+  return (lu[1] === "-" ? -1 : 1) * (Number(lu[2]) * 60 + Number(lu[3])) * 60_000;
+}
+
+/**
+ * Le dernier instant de la journée parisienne qui contient `instant`.
+ *
+ * `date.setHours(23, 59, 59, 999)` ferme la journée de la machine, et sur
+ * Vercel cette machine vit en UTC : la fenêtre s'arrêtait à deux heures du
+ * matin, heure de Paris, et ramassait le début du lendemain.
+ */
+export function finDeJourneeParis(instant: Date): Date {
+  const naif = Date.parse(`${JOUR_PARIS.format(instant)}T23:59:59.999Z`);
+  return new Date(naif - decalageParis(instant));
 }
 
 /** La date parisienne d'un instant, au format `AAAA-MM-JJ`. */
