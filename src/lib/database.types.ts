@@ -126,6 +126,14 @@ export type Lead = {
   revenue: number | null;
   status: LeadStatus;
   /**
+   * Nombre d'appels sans réponse, de 1 à 9.
+   *
+   * Zéro hors du statut NRP : le déclencheur le remet d'aplomb, de sorte qu'un
+   * lead repassé en NRP six mois plus tard ne reprenne pas au compte de
+   * l'époque.
+   */
+  nrp_count: number;
+  /**
    * Clés de rattachement, calculées par la base.
    *
    * `org_key` : domaine e-mail professionnel, sinon domaine du site, sinon nom

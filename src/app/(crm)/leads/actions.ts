@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 
 import { buildLookup, classifyRow, companyKey, domainKey, emailKey, personKey, type ImportIndex } from "@/lib/leads-dedupe";
 import type { Lead, LeadStatus } from "@/lib/database.types";
+import { NRP_MAX } from "@/lib/constants";
 import { requireStaff } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 
@@ -31,6 +32,54 @@ export async function updateLead(
 
   revalidatePath("/leads");
   return { ok: true };
+}
+
+/**
+ * Un appel de plus sans réponse.
+ *
+ * Le geste que remplace ce bouton — rouvrir la liste des statuts pour y choisir
+ * « NRP 3 » — demandait deux clics et une lecture pour dire une chose qu'on sait
+ * déjà en raccrochant. Et il butait à trois.
+ *
+ * L'incrément passe par la base plutôt que par une valeur calculée côté
+ * navigateur : deux onglets ouverts sur la même fiche compteraient sinon le
+ * même appel deux fois. C'est aussi ce qui garantit que le déclencheur voie
+ * bien un changement et rafraîchisse la date du statut — sans quoi la quatrième
+ * tentative laisserait la fiche avec la date de la troisième.
+ */
+export async function incrementerNrp(
+  id: string,
+): Promise<ActionResult<{ nrp_count: number }>> {
+  await requireStaff();
+  const supabase = await createClient();
+
+  const { data: lead, error: lecture } = await supabase
+    .from("leads")
+    .select("status, nrp_count")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (lecture) return { ok: false, error: lecture.message };
+  if (!lead) return { ok: false, error: "Lead introuvable." };
+
+  // Depuis un autre statut, le premier appel sans réponse vaut « NRP 1 » : on
+  // ne compte pas un appel qui n'a pas eu lieu.
+  const suivant =
+    lead.status === "nrp" ? Math.min(NRP_MAX, (lead.nrp_count ?? 0) + 1) : 1;
+
+  if (lead.status === "nrp" && suivant === lead.nrp_count) {
+    return { ok: false, error: `Le compteur est déjà à ${NRP_MAX}.` };
+  }
+
+  const { error } = await supabase
+    .from("leads")
+    .update({ status: "nrp", nrp_count: suivant })
+    .eq("id", id);
+
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath("/leads");
+  return { ok: true, data: { nrp_count: suivant } };
 }
 
 /** Les champs qu'une sélection multiple peut recevoir d'un coup. */

@@ -43,13 +43,14 @@ import {
   useToast,
 } from "@/components/ui";
 import { DateField } from "@/components/ui/date-field";
-import { LEAD_STATUS, LEAD_STATUS_ORDER, TONE_CLASSES, TONE_DOT } from "@/lib/constants";
+import { LEAD_STATUS, LEAD_STATUS_ORDER, NRP_MAX, TONE_CLASSES, TONE_DOT } from "@/lib/constants";
 import type { LeadListe, LeadStatus } from "@/lib/database.types";
 import { cn, daysUntil, formatDate, formatMoney, normalize, todayIso } from "@/lib/utils";
 import {
   assignLead,
   convertLead,
   createLead,
+  incrementerNrp,
   updateLead,
   updateLeads,
   type BulkField,
@@ -68,7 +69,7 @@ const PAGE_SIZE = 60;
  * lead qu'on a oublié de replanifier. Le mode prospection les fait remonter
  * après les relances dues, pour qu'il y ait toujours de quoi appeler.
  */
-const RELANCE_SANS_DATE: LeadStatus[] = ["nrp", "nrp2", "nrp3", "a_recontacter"];
+const RELANCE_SANS_DATE: LeadStatus[] = ["nrp", "a_recontacter"];
 
 /** Jamais appelé : la réserve dans laquelle on puise quand les relances sont faites. */
 const JAMAIS_APPELE: LeadStatus[] = ["a_contacter"];
@@ -382,6 +383,32 @@ export function LeadsWorkspace({
 
   const size = DENSITIES[density];
   const hasMore = visible < entrees.length;
+
+  /*
+    L'incrément, optimiste puis confirmé.
+
+    La file d'appel se descend vite : attendre l'aller-retour serveur avant de
+    voir le compteur bouger donnerait l'impression d'un clic perdu, et on
+    cliquerait deux fois. La base reste l'arbitre — c'est elle qui plafonne et
+    qui date — mais l'écran n'attend pas pour le dire.
+  */
+  const compterNrp = useCallback(
+    async (lead: LeadListe) => {
+      const vise = lead.status === "nrp" ? Math.min(NRP_MAX, (lead.nrp_count ?? 0) + 1) : 1;
+      applyLocal([lead.id], { status: "nrp", nrp_count: vise });
+
+      const resultat = await incrementerNrp(lead.id);
+      if (!resultat.ok) {
+        setOverrides({});
+        return toast(resultat.error, "error");
+      }
+      // Le serveur a pu trancher autrement — un autre onglet, le plafond.
+      applyLocal([lead.id], { status: "nrp", nrp_count: resultat.data!.nrp_count });
+      refresh();
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
 
   const filtresActifs =
     statuses.length +
@@ -828,6 +855,7 @@ export function LeadsWorkspace({
                   onTourner={tourner}
                   onOuvrir={() => setSelected(lead)}
                   onStatut={handleStatusChange}
+                  onNrp={compterNrp}
                   onRelance={(value) => patch(lead, "follow_up_on", value, true)}
                 />
               ))}
@@ -915,7 +943,7 @@ export function LeadsWorkspace({
                       cells={cells}
                       className={size.cell}
                     >
-                      <StatusSelect lead={lead} onChange={handleStatusChange} />
+                      <StatusSelect lead={lead} onChange={handleStatusChange} onNrp={compterNrp} />
                     </CopyableCell>
 
                     <td className={cn("px-2.5", size.cell)} onClick={(event) => event.stopPropagation()}>
@@ -1469,6 +1497,7 @@ function LeadCard({
   onTourner,
   onOuvrir,
   onStatut,
+  onNrp,
   onRelance,
 }: {
   lead: LeadListe;
@@ -1480,6 +1509,7 @@ function LeadCard({
   onTourner: (groupId: string) => void;
   onOuvrir: () => void;
   onStatut: (lead: LeadListe, status: LeadStatus) => void;
+  onNrp: (lead: LeadListe) => void;
   onRelance: (value: string | null) => void;
 }) {
   const numero = lead.phone ?? lead.phone_standard ?? null;
@@ -1530,7 +1560,7 @@ function LeadCard({
         les repères et l'appel en bas — toujours.
       */}
       <div className="mt-2.5 flex items-center gap-2 pl-7.5">
-        <StatusSelect lead={lead} onChange={onStatut} />
+        <StatusSelect lead={lead} onChange={onStatut} onNrp={onNrp} />
 
         <DateField
           value={lead.follow_up_on}
@@ -1583,31 +1613,76 @@ function LeadCard({
 function StatusSelect({
   lead,
   onChange,
+  onNrp,
 }: {
   lead: LeadListe;
   onChange: (lead: LeadListe, status: LeadStatus) => void;
+  onNrp?: (lead: LeadListe) => void;
 }) {
+  const nrp = lead.status === "nrp";
+  const compte = lead.nrp_count ?? 0;
+
   return (
-    <select
-      value={lead.status}
-      onChange={(event) => onChange(lead, event.target.value as LeadStatus)}
-      aria-label={`Statut de ${lead.full_name ?? "ce lead"}`}
-      className={cn(
-        "cursor-pointer appearance-none rounded-full border-0 px-2 py-0.5 text-[11px] font-medium",
-        "ring-1 ring-inset outline-none transition-colors",
-        TONE_CLASSES[LEAD_STATUS[lead.status].tone],
-      )}
-    >
-      {LEAD_STATUS_ORDER.map((value) => (
-        <option
-          key={value}
-          value={value}
-          className="bg-[var(--surface-overlay)] text-[var(--text-primary)]"
+    <span className="inline-flex items-center gap-1">
+      <select
+        value={lead.status}
+        onChange={(event) => onChange(lead, event.target.value as LeadStatus)}
+        aria-label={`Statut de ${lead.full_name ?? "ce lead"}`}
+        className={cn(
+          "cursor-pointer appearance-none rounded-full border-0 px-2 py-0.5 text-[11px] font-medium",
+          "ring-1 ring-inset outline-none transition-colors",
+          TONE_CLASSES[LEAD_STATUS[lead.status].tone],
+        )}
+      >
+        {LEAD_STATUS_ORDER.map((value) => (
+          <option
+            key={value}
+            value={value}
+            className="bg-[var(--surface-overlay)] text-[var(--text-primary)]"
+          >
+            {/* Le compte dans l'étiquette de l'option courante : sans lui, la
+                liste refermée dirait « NRP » quel que soit le nombre d'appels. */}
+            {value === "nrp" && nrp && compte > 0
+              ? `${LEAD_STATUS[value].label} ${compte}`
+              : LEAD_STATUS[value].label}
+          </option>
+        ))}
+      </select>
+
+      {/*
+        Le bouton qui remplace deux clics et une lecture.
+
+        On sait qu'on n'a pas eu de réponse au moment où l'on raccroche ; le
+        dire doit coûter un geste, pas la réouverture d'une liste. Il n'apparaît
+        que sur un lead NRP : ailleurs, c'est le statut qu'il faut changer
+        d'abord, et l'incrément n'aurait aucun sens.
+      */}
+      {nrp && onNrp ? (
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            onNrp(lead);
+          }}
+          disabled={compte >= NRP_MAX}
+          title={
+            compte >= NRP_MAX
+              ? `Compteur au maximum (${NRP_MAX})`
+              : `Un appel sans réponse de plus — passe à ${compte + 1}`
+          }
+          aria-label="Un appel sans réponse de plus"
+          className={cn(
+            "grid size-6 shrink-0 place-items-center rounded-full text-[11px] font-semibold",
+            "ring-1 ring-inset transition-colors",
+            compte >= NRP_MAX
+              ? "cursor-not-allowed text-[var(--text-muted)] ring-[var(--border-subtle)] opacity-50"
+              : "text-amber-700 ring-amber-500/40 hover:bg-amber-500/15 dark:text-amber-300",
+          )}
         >
-          {LEAD_STATUS[value].label}
-        </option>
-      ))}
-    </select>
+          +1
+        </button>
+      ) : null}
+    </span>
   );
 }
 

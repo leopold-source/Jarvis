@@ -5,11 +5,11 @@ import { AlertTriangle, ArrowRight, BriefcaseBusiness, Building2, CalendarClock,
 
 import { Badge, Button, Drawer, Field, Input, Select, Textarea, useToast } from "@/components/ui";
 import { DateField } from "@/components/ui/date-field";
-import { LEAD_STATUS, LEAD_STATUS_ORDER } from "@/lib/constants";
+import { LEAD_STATUS, LEAD_STATUS_ORDER, NRP_MAX } from "@/lib/constants";
 import type { LeadListe, LeadStatus } from "@/lib/database.types";
 import { cn, formatDate, formatMoney, formatRelative } from "@/lib/utils";
 import type { OrgLink } from "@/lib/lead-orgs";
-import { updateLead } from "@/app/(crm)/leads/actions";
+import { incrementerNrp, updateLead } from "@/app/(crm)/leads/actions";
 
 export function LeadDrawer({
   lead,
@@ -34,10 +34,15 @@ export function LeadDrawer({
   const [converting, setConverting] = useState(false);
   const [dealName, setDealName] = useState("");
   const [amount, setAmount] = useState("");
+  // Le compteur vit en local le temps du tiroir : l'incrément doit se voir
+  // avant que la liste derrière ne soit rechargée.
+  const [nrp, setNrp] = useState(0);
+  const [comptant, setComptant] = useState(false);
 
   useEffect(() => {
     if (!lead) return;
     setStatus(lead.status);
+    setNrp(lead.nrp_count ?? 0);
     setComment(lead.comment ?? "");
     setFollowUp(lead.follow_up_on ?? "");
     setDealName(lead.company_name ?? lead.full_name ?? "Nouvelle affaire");
@@ -190,13 +195,41 @@ export function LeadDrawer({
 
           <div className="grid gap-3.5 sm:grid-cols-2">
             <Field label="Statut">
-              <Select value={status} onChange={(event) => setStatus(event.target.value as LeadStatus)}>
-                {LEAD_STATUS_ORDER.filter((value) => value !== "call_pris" || alreadyConverted).map((value) => (
-                  <option key={value} value={value}>
-                    {LEAD_STATUS[value].label}
-                  </option>
-                ))}
-              </Select>
+              <span className="flex items-center gap-2">
+                <Select
+                  value={status}
+                  onChange={(event) => setStatus(event.target.value as LeadStatus)}
+                  className="flex-1"
+                >
+                  {LEAD_STATUS_ORDER.filter((value) => value !== "call_pris" || alreadyConverted).map((value) => (
+                    <option key={value} value={value}>
+                      {value === "nrp" && nrp > 0 ? `${LEAD_STATUS[value].label} ${nrp}` : LEAD_STATUS[value].label}
+                    </option>
+                  ))}
+                </Select>
+
+                {/* Le même geste que dans la liste : un appel de plus sans
+                    réponse se note en un clic, pas en rouvrant une liste. */}
+                {status === "nrp" ? (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    loading={comptant}
+                    disabled={nrp >= NRP_MAX}
+                    onClick={async () => {
+                      setComptant(true);
+                      const resultat = await incrementerNrp(lead!.id);
+                      setComptant(false);
+                      if (!resultat.ok) return toast(resultat.error, "error");
+                      setNrp(resultat.data!.nrp_count);
+                      onSaved();
+                    }}
+                    title={nrp >= NRP_MAX ? `Compteur au maximum (${NRP_MAX})` : "Un appel sans réponse de plus"}
+                  >
+                    +1
+                  </Button>
+                ) : null}
+              </span>
             </Field>
             <Field label="Date de relance">
               <DateField
@@ -227,6 +260,19 @@ export function LeadDrawer({
               <p className="mt-0.5 text-[12.5px]">
                 {lead.status_changed_at ? formatRelative(lead.status_changed_at) : "—"}
               </p>
+              {/* La date exacte sous la formule relative : « il y a 12 jours »
+                  situe, mais ne permet pas de recouper avec un agenda. */}
+              {lead.status_changed_at ? (
+                <p className="text-[11px] text-[var(--text-muted)] tabular-nums">
+                  {new Date(lead.status_changed_at).toLocaleString("fr-FR", {
+                    day: "2-digit",
+                    month: "2-digit",
+                    year: "numeric",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                </p>
+              ) : null}
             </div>
             <div>
               <p className="text-[10.5px] tracking-wide text-[var(--text-muted)] uppercase">

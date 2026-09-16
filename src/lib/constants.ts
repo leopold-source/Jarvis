@@ -100,6 +100,9 @@ export const TONE_GRADIENT: Record<Tone, string> = {
 export const LEAD_STATUS: Record<LeadStatus, { label: string; tone: Tone }> = {
   a_contacter: { label: "À contacter", tone: "cyan" },
   nrp: { label: "NRP", tone: "amber" },
+  // Conservés pour d'anciennes lignes : plus aucune n'existe après migration,
+  // et l'application ne les propose plus. Postgres ne sait pas retirer une
+  // valeur d'une énumération, donc le type les garde.
   nrp2: { label: "NRP 2", tone: "orange" },
   nrp3: { label: "NRP 3", tone: "red" },
   a_recontacter: { label: "À recontacter", tone: "violet" },
@@ -109,11 +112,18 @@ export const LEAD_STATUS: Record<LeadStatus, { label: string; tone: Tone }> = {
   call_pris: { label: "Call pris", tone: "emerald" },
 };
 
+/**
+ * Le plafond du compteur d'appels sans réponse.
+ *
+ * Ici plutôt que dans les actions : un fichier « use server » ne peut exporter
+ * que des fonctions, et l'écran a besoin de ce nombre pour désactiver le
+ * bouton avant même d'appeler le serveur.
+ */
+export const NRP_MAX = 9;
+
 export const LEAD_STATUS_ORDER: LeadStatus[] = [
   "a_contacter",
   "nrp",
-  "nrp2",
-  "nrp3",
   "a_recontacter",
   "raccroche_avant_pitch",
   "pas_interesse",

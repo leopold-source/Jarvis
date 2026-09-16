@@ -138,7 +138,7 @@ export const READ_TOOLS = [
           type: "string",
           description:
             "Selon le type : une date AAAA-MM-JJ pour une relance, un statut " +
-            "(nrp, nrp2, nrp3, a_recontacter, raccroche_avant_pitch, pas_interesse, non_qualifie), " +
+            "(nrp, a_recontacter, raccroche_avant_pitch, pas_interesse, non_qualifie), " +
             "une étape (demande_rdv_envoyee, r1, r2, propale_envoyee, no_show, nurturing), " +
             "un prénom pour une assignation, ou un intitulé pour une tâche ou un chantier.",
         },
@@ -376,7 +376,7 @@ export async function runReadTool(
           .from("leads")
           .select(colonnes)
           .is("follow_up_on", null)
-          .in("status", ["nrp", "nrp2", "nrp3", "a_recontacter", "a_contacter"])
+          .in("status", ["nrp", "a_recontacter", "a_contacter"])
           .order("status_changed_at", { ascending: true })
           .limit(limite),
       ]);

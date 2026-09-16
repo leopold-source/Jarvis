@@ -117,7 +117,7 @@ async function buildDailySnapshot() {
     .filter(
       (lead) =>
         !lead.follow_up_on &&
-        ["nrp", "nrp2", "nrp3", "a_recontacter"].includes(lead.status),
+        ["nrp", "a_recontacter"].includes(lead.status),
     )
     .slice(0, MAX_PER_CATEGORY)
     .map((lead) => ({

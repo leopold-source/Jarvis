@@ -67,7 +67,8 @@ const interne = parseLeadsCsv(
 check("profil interne", interne.profile, "interne");
 const i = interne.rows[0];
 check("téléphone français normalisé", i.phone, "+33 6 08 37 03 60");
-check("statut traduit", i.status, "nrp2");
+check("statut traduit", i.status, "nrp");
+check("et son compteur d’appels", i.nrp_count, 2);
 check("relance en ISO", i.follow_up_on, "2026-03-06");
 // Ici « Date de création » est bien celle de la fiche.
 check("created_at renseigné", i.created_at, "2026-02-01T09:00:00Z");
@@ -137,8 +138,8 @@ const attendus: Array<[string, string]> = [
   ["Conception", "a_contacter"],
   ["NRP", "nrp"],
   ["Répondeur direct", "nrp"],
-  ["NRP2", "nrp2"],
-  ["NRP 3", "nrp3"],
+  ["NRP2", "nrp"],
+  ["NRP 3", "nrp"],
   ["Raccroché avant pitch", "raccroche_avant_pitch"],
   ["A recontacter", "a_recontacter"],
   ["Nurturing", "a_recontacter"],
@@ -162,6 +163,16 @@ check(
   attendus.map(([, statut]) => statut),
 );
 check("aucun libellé inconnu ne subsiste", traduits.unknownStatuses, []);
+
+// Le compteur d'appels se lit dans le libellé : le perdre ramènerait des
+// fiches appelées trois fois au compte de un.
+check(
+  "le nombre d'appels survit à la traduction",
+  statuts([["NRP", ""], ["NRP2", ""], ["NRP 3", ""], ["Répondeur direct", ""], ["Call pris", ""]]).rows.map(
+    (row) => row.nrp_count ?? null,
+  ),
+  [1, 2, 3, 1, null],
+);
 
 // La nuance que la traduction efface se retrouve dans le commentaire.
 const nuance = statuts([["Numéro pas bon", ""], ["Déjà accompagné", "Groupe géré ailleurs"]]);

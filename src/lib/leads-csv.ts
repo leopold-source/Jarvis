@@ -162,10 +162,12 @@ const STATUS_MAP: Record<string, LeadStatus> = {
 
   nrp: "nrp",
   "repondeur direct": "nrp",
-  nrp2: "nrp2",
-  "nrp 2": "nrp2",
-  nrp3: "nrp3",
-  "nrp 3": "nrp3",
+  // Le nombre d'appels est devenu un compteur : « NRP 2 » et « NRP 3 »
+  // aboutissent au même statut, et `NRP_DEPUIS_LIBELLE` en tire le compte.
+  nrp2: "nrp",
+  "nrp 2": "nrp",
+  nrp3: "nrp",
+  "nrp 3": "nrp",
 
   "raccroche avant pitch": "raccroche_avant_pitch",
 
@@ -202,6 +204,19 @@ const STATUS_MAP: Record<string, LeadStatus> = {
   accompagné » dit quelque chose du marché, et « Numéro pas bon » se rattrape.
 */
 const STATUTS_ECARTES = new Set(["hors cible", "a changer de metier"]);
+
+/**
+ * Le nombre d'appels sans réponse, lu dans le libellé.
+ *
+ * Trois libellés mènent au même statut, et perdre le chiffre en route
+ * ramènerait quarante et une fiches « NRP 3 » au compte de un : la relance
+ * repartirait de zéro sur des gens qu'on a déjà appelés trois fois.
+ */
+function nrpDepuisLibelle(libelle: string): number {
+  const chiffre = /(\d)/.exec(libelle);
+  if (!chiffre) return 1;
+  return Math.min(9, Math.max(1, Number(chiffre[1])));
+}
 
 export interface ParsedLeadsCsv {
   rows: Array<Record<string, string | number | null>>;
@@ -437,6 +452,7 @@ export function parseLeadsCsv(text: string, options: ParseOptions = {}): ParsedL
             statutsInconnus.set(raw, (statutsInconnus.get(raw) ?? 0) + 1);
           }
           record.status = connu ?? "a_contacter";
+          if (record.status === "nrp") record.nrp_count = nrpDepuisLibelle(raw);
           break;
         }
         default:
