@@ -7,6 +7,7 @@ import {
   addLabel,
   archiveMessage,
   createDraft,
+  dejaRepondu,
   ensureLabel,
   findLabel,
   getFullMessage,
@@ -137,6 +138,10 @@ Ton but est de VIDER la boîte. Quatre dossiers méritent d'exister, tout le res
   d'un outil. Personne n'attend de réponse, et quand une décision existe — renouveler ou non
   — elle ne se prend pas dans une boîte mail. Sois confiant : ces messages se reconnaissent
   à leur expéditeur automatique.
+  Les accusés d'agenda en font partie : « Acceptée : », « Refusée : », « Invitation :
+  » suivis d'un titre de réunion sont émis par Google Agenda, pas écrits par quelqu'un.
+  Répondre à une acceptation d'invitation n'a aucun sens — la réunion est déjà dans
+  l'agenda des deux côtés.
 - spam : publicité de masse, arnaque, hameçonnage.
 
 Une newsletter à laquelle il ne s'est jamais inscrit n'est pas une newsletter : c'est du
@@ -393,7 +398,34 @@ export async function trierMails(
       let draftSubject: string | null = null;
       // Seule une vraie demande de réponse donne un brouillon. Rédiger poliment
       // à un démarchage coûte des jetons pour un message qu'on n'enverra pas.
-      const redigeable = verdict.categorie === "a_repondre" && Boolean(verdict.reponse?.trim());
+      /*
+        Ne pas répondre à ce à quoi on a déjà répondu.
+
+        Gmail laisse un fil dans la boîte de réception même une fois qu'on y a
+        répondu. Le message entrant était donc toujours là, toujours sans
+        réponse du point de vue du tri, et l'IA en préparait une chaque matin
+        pour une conversation close la veille. Rien ne partait — les brouillons
+        ne s'envoient pas seuls — mais relire tous les jours des réponses à des
+        messages déjà traités est la meilleure façon de cesser de lire les
+        récapitulatifs.
+
+        Le fil n'est interrogé que pour les messages qu'on s'apprêtait à
+        traiter : c'est un appel de plus sur une poignée de mails, pas sur
+        soixante.
+      */
+      const merite = verdict.categorie === "a_repondre" || verdict.categorie === "incertain";
+      const repondu =
+        merite && message.threadId
+          ? await dejaRepondu(
+              access_token,
+              message.threadId,
+              compte.email,
+              Number(message.internalDate ?? 0),
+            )
+          : false;
+
+      const redigeable =
+        verdict.categorie === "a_repondre" && Boolean(verdict.reponse?.trim()) && !repondu;
 
       // L'étiquette est posée dans tous les cas : c'est elle qui rend le geste
       // réversible et retrouvable, y compris pour ce qui part à la corbeille.
@@ -415,12 +447,14 @@ export async function trierMails(
         draftId = brouillon.id;
         action = "brouillon_pret";
         bilan.brouillons += 1;
-      } else if (verdict.categorie === "a_repondre" || verdict.categorie === "incertain") {
+      } else if (merite && !repondu) {
         // Ce que l'IA ne sait pas traiter remonte, au lieu d'être rangé
         // quelque part où personne ne le reverra.
         action = "a_traiter";
         bilan.a_traiter += 1;
       }
+      // Répondu : le mail est classé comme les autres et sort de la file. Il a
+      // reçu ce qu'il attendait, il n'attend plus rien de personne.
 
       /*
         Tout ce qui a été classé quitte la boîte de réception.
@@ -458,7 +492,10 @@ export async function trierMails(
           : null,
         category: verdict.categorie,
         confidence: verdict.confiance,
-        reason: verdict.raison,
+        // La raison dit pourquoi le mail n'attend plus rien : sans cela, on
+        // chercherait pourquoi un message manifestement à traiter n'est pas
+        // dans la file.
+        reason: repondu ? `Tu as déjà répondu dans ce fil. ${verdict.raison}` : verdict.raison,
         action,
         label_applied: nomEtiquette,
         known_contact: connu,

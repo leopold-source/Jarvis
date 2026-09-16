@@ -11,6 +11,7 @@
     "test:dedupe": "npx --yes tsx src/lib/__tests__/leads-dedupe.test.ts",
     "test:orgs": "npx --yes tsx src/lib/__tests__/lead-orgs.test.ts",
     "test:csv": "npx --yes tsx src/lib/__tests__/leads-csv.test.ts",
+    "test:fil": "npx --yes tsx src/lib/__tests__/fil-conclu.test.ts",
     "test:agenda": "npx --yes tsx src/lib/__tests__/agenda-nature.test.ts"
   },
   "dependencies": {

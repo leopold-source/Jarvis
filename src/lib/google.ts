@@ -224,6 +224,68 @@ export type GmailFullMessage = GmailMessage & {
   payload?: GmailMessage["payload"] & GmailPart;
 };
 
+/**
+ * Le fil complet d'un message, en métadonnées seulement.
+ *
+ * `format=metadata` ne rapporte que les en-têtes demandés : assez pour savoir
+ * qui a écrit et quand, sans rapatrier le corps de dix messages. C'est la
+ * différence entre une vérification qu'on peut se permettre à chaque passage et
+ * une qu'on renoncerait à faire.
+ */
+export function getThread(accessToken: string, threadId: string) {
+  const params = new URLSearchParams({ format: "metadata" });
+  for (const nom of ["From", "Date"]) params.append("metadataHeaders", nom);
+  return gmail<{ id: string; messages?: GmailMessage[] }>(
+    `/threads/${threadId}`,
+    accessToken,
+    params,
+  );
+}
+
+/**
+ * Ai-je déjà répondu dans ce fil, après ce message ?
+ *
+ * Le tri ne regardait que le message entrant. Or Gmail laisse un fil dans la
+ * boîte de réception même une fois qu'on y a répondu : l'entrant était donc
+ * toujours là, toujours sans réponse *de son point de vue*, et l'IA préparait
+ * une réponse à une conversation déjà close. Rien ne partait — les brouillons
+ * ne s'envoient pas seuls — mais on relisait chaque matin des réponses à des
+ * messages traités la veille, ce qui est la meilleure façon de cesser de lire
+ * les récapitulatifs.
+ *
+ * La comparaison porte sur la date, pas sur la simple présence : dans un fil où
+ * l'on a écrit en premier, la réponse du client est bien le dernier mot.
+ */
+export function filConclu(
+  messages: GmailMessage[],
+  boiteMail: string,
+  recuLe: number,
+): boolean {
+  const moi = boiteMail.trim().toLowerCase();
+  if (!moi) return false;
+
+  return messages.some((message) => {
+    const envoye = Number(message.internalDate ?? 0);
+    if (!envoye || envoye <= recuLe) return false;
+    return parseAddresses(header(message, "From")).includes(moi);
+  });
+}
+
+export async function dejaRepondu(
+  accessToken: string,
+  threadId: string,
+  boiteMail: string,
+  recuLe: number,
+): Promise<boolean> {
+  try {
+    const fil = await getThread(accessToken, threadId);
+    return filConclu(fil.messages ?? [], boiteMail, recuLe);
+  } catch {
+    // Gmail muet : on préfère préparer une réponse en trop qu'en manquer une.
+    return false;
+  }
+}
+
 export function getFullMessage(accessToken: string, id: string) {
   return gmail<GmailFullMessage>(`/messages/${id}`, accessToken, new URLSearchParams({ format: "full" }));
 }
