@@ -528,6 +528,23 @@ export async function trierToutesLesBoites(): Promise<Array<{ email: string } & 
   const admin = createAdminClient();
   if (!admin) return [];
 
+  /*
+    L'interrupteur, lu à chaque passage plutôt qu'au démarrage.
+
+    Il coupe l'automatisme, jamais le bouton « Trier » : ce qu'on suspend, c'est
+    qu'une machine touche à la boîte pendant qu'on n'y est pas. Retirer aussi le
+    geste manuel reviendrait à retirer l'outil.
+  */
+  const { data: reglage } = await admin
+    .from("app_settings")
+    .select("value")
+    .eq("key", "mail")
+    .maybeSingle();
+
+  if ((reglage?.value as { tri_auto?: boolean } | null)?.tri_auto === false) {
+    return [];
+  }
+
   const { data: comptes } = await admin.from("google_accounts").select("user_id, email");
 
   const resultats = [];

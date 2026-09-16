@@ -13,6 +13,7 @@ import {
   ListChecks,
   Mail,
   RefreshCw,
+  Reply,
   Repeat,
   RotateCcw,
   Send,
@@ -26,6 +27,7 @@ import {
   Button,
   Card,
   EmptyState,
+  Field,
   Input,
   Modal,
   SectionTitle,
@@ -133,11 +135,15 @@ export function MailReview({
           description={`Le compte ${compteConnecte} a été connecté quand l'application ne savait que lire.`}
         />
         <p className="mt-3 text-[13px] leading-relaxed text-[var(--text-muted)]">
-          Pour ranger, écarter un spam et préparer des réponses, il faut réautoriser le compte —
-          une seule fois. Gmail n&apos;accordera jamais la suppression définitive : un mail écarté
-          reste récupérable trente jours.
+          Pour ranger, écarter un spam et préparer des réponses, il faut
+          réautoriser le compte — une seule fois. Gmail n&apos;accordera jamais
+          la suppression définitive : un mail écarté reste récupérable trente
+          jours.
         </p>
-        <Button className="mt-4" onClick={() => router.push("/parametres?onglet=google")}>
+        <Button
+          className="mt-4"
+          onClick={() => router.push("/parametres?onglet=google")}
+        >
           <Mail className="size-4" />
           Reconnecter le compte
         </Button>
@@ -167,10 +173,18 @@ export function MailReview({
               </p>
               <p className="mt-0.5 text-[11.5px] text-[var(--text-muted)]">
                 {[
-                  dernierPassage.spams > 0 ? `${dernierPassage.spams} à la corbeille` : null,
-                  dernierPassage.factures > 0 ? `${dernierPassage.factures} facture(s)` : null,
-                  dernierPassage.brouillons > 0 ? `${dernierPassage.brouillons} réponse(s) prête(s)` : null,
-                  dernierPassage.a_traiter > 0 ? `${dernierPassage.a_traiter} pour toi` : null,
+                  dernierPassage.spams > 0
+                    ? `${dernierPassage.spams} à la corbeille`
+                    : null,
+                  dernierPassage.factures > 0
+                    ? `${dernierPassage.factures} facture(s)`
+                    : null,
+                  dernierPassage.brouillons > 0
+                    ? `${dernierPassage.brouillons} réponse(s) prête(s)`
+                    : null,
+                  dernierPassage.a_traiter > 0
+                    ? `${dernierPassage.a_traiter} pour toi`
+                    : null,
                 ]
                   .filter(Boolean)
                   .join(" · ") || "aucune action"}
@@ -238,7 +252,12 @@ export function MailReview({
             <p className="text-[13px] text-[var(--text-muted)]">
               Le tri ne s&apos;est encore jamais exécuté sur {compteConnecte}.
             </p>
-            <Button variant="secondary" size="sm" loading={busy} onClick={() => trier()}>
+            <Button
+              variant="secondary"
+              size="sm"
+              loading={busy}
+              onClick={() => trier()}
+            >
               <RefreshCw className="size-3.5" />
               Lancer le premier tri
             </Button>
@@ -255,8 +274,13 @@ export function MailReview({
           </p>
           <ul className="mt-2 space-y-1">
             {aSavoir.slice(0, 4).map((mail) => (
-              <li key={mail.id} className="truncate text-[12px] text-[var(--text-secondary)]">
-                <span className="font-medium">{mail.from_name || mail.from_email}</span>
+              <li
+                key={mail.id}
+                className="truncate text-[12px] text-[var(--text-secondary)]"
+              >
+                <span className="font-medium">
+                  {mail.from_name || mail.from_email}
+                </span>
                 {" — "}
                 {mail.subject}
               </li>
@@ -275,10 +299,11 @@ export function MailReview({
       <p className="flex items-start gap-1.5 text-[11.5px] leading-relaxed text-[var(--text-muted)]">
         <ShieldCheck className="mt-0.5 size-3.5 shrink-0 text-emerald-500" />
         <span>
-          Tout ce qui est trié sort de ta boîte de réception et se range dans son dossier Gmail
-          — cet écran devient donc l&apos;endroit où tu vois ce qui attend une réponse. Un
-          expéditeur déjà dans le CRM n&apos;est jamais mis à la corbeille, et la corbeille
-          n&apos;est pas une suppression : Gmail garde trente jours.
+          Tout ce qui est trié sort de ta boîte de réception et se range dans
+          son dossier Gmail — cet écran devient donc l&apos;endroit où tu vois
+          ce qui attend une réponse. Un expéditeur déjà dans le CRM n&apos;est
+          jamais mis à la corbeille, et la corbeille n&apos;est pas une
+          suppression : Gmail garde trente jours.
         </span>
       </p>
 
@@ -306,7 +331,11 @@ export function MailReview({
 
       <HistoriqueModal open={historique} onClose={() => setHistorique(false)} />
 
-      <RecapModal open={recap} onClose={() => setRecap(false)} onChange={refresh} />
+      <RecapModal
+        open={recap}
+        onClose={() => setRecap(false)}
+        onChange={refresh}
+      />
 
       {pourToi.length > 0 ? (
         <section>
@@ -332,7 +361,9 @@ function MailCard({ mail, onDone }: { mail: MailTriage; onDone: () => void }) {
   const [objet, setObjet] = useState(
     mail.draft_subject ?? (mail.subject ? `Re: ${mail.subject}` : ""),
   );
-  const [busy, setBusy] = useState<"enregistre" | "envoi" | "ignore" | "corbeille" | null>(null);
+  const [busy, setBusy] = useState<
+    "enregistre" | "envoi" | "ignore" | "corbeille" | null
+  >(null);
 
   const categorie = MAIL_CATEGORY[mail.category];
   const action = MAIL_ACTION[mail.action];
@@ -393,7 +424,9 @@ function MailCard({ mail, onDone }: { mail: MailTriage; onDone: () => void }) {
           {/* Le raisonnement du tri, écrit pour être contesté. */}
           {mail.reason ? (
             <p className="rounded-lg bg-[var(--surface-base)]/60 px-3 py-2 text-[12px] text-[var(--text-muted)]">
-              <span className="font-medium text-[var(--text-secondary)]">Pourquoi ce classement :</span>{" "}
+              <span className="font-medium text-[var(--text-secondary)]">
+                Pourquoi ce classement :
+              </span>{" "}
               {mail.reason}
               {mail.confidence > 0 ? (
                 <span className="ml-1 tabular-nums">
@@ -410,7 +443,9 @@ function MailCard({ mail, onDone }: { mail: MailTriage; onDone: () => void }) {
             <p className="flex items-start gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[12px] text-amber-700 dark:text-amber-300">
               <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
               <span>
-                <span className="font-medium">Je n&apos;ai pas su répondre :</span>{" "}
+                <span className="font-medium">
+                  Je n&apos;ai pas su répondre :
+                </span>{" "}
                 {mail.draft_blocked_reason}
               </span>
             </p>
@@ -444,7 +479,13 @@ function MailCard({ mail, onDone }: { mail: MailTriage; onDone: () => void }) {
               variant="primary"
               disabled={!corps.trim() || !mail.from_email}
               loading={busy === "envoi"}
-              onClick={() => agir("envoi", () => envoyerBrouillon(mail.id, corps, objet), "Envoyé.")}
+              onClick={() =>
+                agir(
+                  "envoi",
+                  () => envoyerBrouillon(mail.id, corps, objet),
+                  "Envoyé.",
+                )
+              }
             >
               <Send className="size-3.5" />
               Envoyer
@@ -471,7 +512,13 @@ function MailCard({ mail, onDone }: { mail: MailTriage; onDone: () => void }) {
               size="sm"
               variant="ghost"
               loading={busy === "ignore"}
-              onClick={() => agir("ignore", () => classerSansSuite(mail.id), "Classé sans suite.")}
+              onClick={() =>
+                agir(
+                  "ignore",
+                  () => classerSansSuite(mail.id),
+                  "Classé sans suite.",
+                )
+              }
             >
               <Archive className="size-3.5" />
               Sans suite
@@ -498,10 +545,16 @@ function MailCard({ mail, onDone }: { mail: MailTriage; onDone: () => void }) {
             </Button>
 
             {mail.draft_body ? (
-              <AiVerdict kind="mail_brouillon" refId={mail.id} className="ml-1" />
+              <AiVerdict
+                kind="mail_brouillon"
+                refId={mail.id}
+                className="ml-1"
+              />
             ) : null}
 
-            <span className={cn("ml-auto text-[11px] text-[var(--text-muted)]")}>
+            <span
+              className={cn("ml-auto text-[11px] text-[var(--text-muted)]")}
+            >
               {mail.from_email}
             </span>
           </div>
@@ -542,8 +595,39 @@ function MailCard({ mail, onDone }: { mail: MailTriage; onDone: () => void }) {
  * montre le récapitulatif du jour — mêmes groupes, mêmes lignes : un historique
  * qui présenterait les choses autrement obligerait à réapprendre à le lire.
  */
-function HistoriqueModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+function HistoriqueModal({
+  open,
+  onClose,
+}: {
+  open: boolean;
+  onClose: () => void;
+}) {
+  const toast = useToast();
   const [passages, setPassages] = useState<PassageDetaille[] | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [repondreA, setRepondreA] = useState<MailTriage | null>(null);
+
+  const charger = useCallback(async () => {
+    setPassages(await chargerHistorique());
+  }, []);
+
+  /*
+    Les mêmes gestes qu'au récapitulatif, sur des mails plus anciens.
+
+    C'est souvent là qu'ils servent le plus : on revient sur l'historique
+    parce qu'on cherche quelque chose qui n'a pas été fait, et devoir alors
+    rouvrir Gmail pour agir viderait l'écran de son intérêt. Gmail garde la
+    corbeille trente jours, l'historique en garde quinze : tout ce qui est
+    listé ici reste rattrapable.
+  */
+  async function basculer(mail: MailTriage, versLaCorbeille: boolean) {
+    setBusy(mail.id);
+    const resultat = await basculerCorbeille(mail.id, versLaCorbeille);
+    setBusy(null);
+    if (!resultat.ok) return toast(resultat.error, "error");
+    toast(versLaCorbeille ? "Mis à la corbeille." : "Remis dans la boîte.");
+    await charger();
+  }
 
   useEffect(() => {
     if (!open) return;
@@ -556,133 +640,265 @@ function HistoriqueModal({ open, onClose }: { open: boolean; onClose: () => void
     };
   }, [open]);
 
-  const total = (passages ?? []).reduce((somme, entree) => somme + entree.passage.lus, 0);
+  const total = (passages ?? []).reduce(
+    (somme, entree) => somme + entree.passage.lus,
+    0,
+  );
   const cout = (passages ?? []).reduce(
     (somme, entree) => somme + Number(entree.passage.cout_centimes),
     0,
   );
 
   return (
+    <>
+      <Modal
+        open={open}
+        onClose={onClose}
+        size="lg"
+        title="Historique du tri"
+        description={
+          passages === null
+            ? "Chargement…"
+            : `${passages.length} passage(s) sur ${RETENTION_JOURS} jours · ${total} mail(s) examinés` +
+              (cout > 0 ? ` · ${cout.toFixed(1)} centime(s)` : "")
+        }
+        footer={
+          <Button variant="ghost" onClick={onClose}>
+            Fermer
+          </Button>
+        }
+      >
+        {passages === null ? (
+          <p className="text-[12.5px] text-[var(--text-muted)]">Chargement…</p>
+        ) : passages.length === 0 ? (
+          <p className="text-[12.5px] text-[var(--text-muted)]">
+            Aucun passage dans les {RETENTION_JOURS} derniers jours.
+          </p>
+        ) : (
+          <>
+            <ul className="space-y-2">
+              {passages.map(({ passage, mails }) => (
+                <li
+                  key={passage.id}
+                  className="overflow-hidden rounded-[10px] border border-[var(--border-subtle)]"
+                >
+                  {/* `details` natif : replier une liste ne justifie pas un état
+                    React, et le navigateur le fait déjà bien. */}
+                  <details>
+                    <summary className="flex cursor-pointer list-none flex-wrap items-center gap-2 px-3 py-2.5 transition-colors hover:bg-[var(--surface-hover)]/60">
+                      <ChevronDown className="size-3.5 shrink-0 text-[var(--text-muted)]" />
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-[12.5px] font-medium">
+                          {formatRelative(passage.started_at)}
+                          <span className="ml-1.5 font-normal text-[var(--text-muted)]">
+                            {new Date(passage.started_at).toLocaleString(
+                              "fr-FR",
+                              {
+                                day: "2-digit",
+                                month: "2-digit",
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              },
+                            )}
+                          </span>
+                        </span>
+                        <span className="block text-[11.5px] text-[var(--text-muted)]">
+                          {passage.lus === 0
+                            ? "rien de neuf"
+                            : resumePassage(passage)}
+                        </span>
+                      </span>
+
+                      <span className="flex shrink-0 items-center gap-1.5">
+                        {Number(passage.cout_centimes) > 0 ? (
+                          <span className="text-[11px] tabular-nums text-[var(--text-muted)]">
+                            {Number(passage.cout_centimes).toFixed(1)} ct
+                          </span>
+                        ) : null}
+                        {passage.erreur ? (
+                          <Badge tone="rose">échec</Badge>
+                        ) : (
+                          <Badge tone="stone">{passage.lus}</Badge>
+                        )}
+                      </span>
+                    </summary>
+
+                    <div className="border-t border-[var(--border-subtle)] px-3 py-2.5">
+                      {passage.erreur ? (
+                        <p className="mb-2.5 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-[11.5px] text-rose-600 dark:text-rose-300">
+                          {passage.erreur}
+                        </p>
+                      ) : null}
+
+                      {mails.length === 0 ? (
+                        <p className="text-[11.5px] text-[var(--text-muted)]">
+                          {/* Un passage sans ligne n'est pas forcément un passage
+                            raté : il peut n'avoir rien trouvé à trier. */}
+                          {passage.lus > 0
+                            ? "Le détail de ce passage a été effacé, seul le bilan subsiste."
+                            : "Aucun mail à trier ce jour-là."}
+                        </p>
+                      ) : (
+                        <div className="space-y-4">
+                          {grouperMails(mails)
+                            .filter((groupe) => groupe.mails.length > 0)
+                            .map((groupe) => (
+                              <section key={groupe.clef}>
+                                <h4
+                                  className={cn(
+                                    "flex flex-wrap items-baseline gap-2 text-[12.5px] font-medium",
+                                    groupe.clef === "signale" &&
+                                      "text-amber-600 dark:text-amber-300",
+                                  )}
+                                >
+                                  {groupe.titre}
+                                  <span className="text-[11px] font-normal text-[var(--text-muted)]">
+                                    {groupe.mails.length}
+                                  </span>
+                                </h4>
+                                <ul className="mt-1.5 space-y-1">
+                                  {groupe.mails.map((mail) => (
+                                    <LigneMail
+                                      key={mail.id}
+                                      mail={mail}
+                                      occupe={busy === mail.id}
+                                      onRestaurer={() =>
+                                        void basculer(mail, false)
+                                      }
+                                      onSupprimer={() =>
+                                        void basculer(mail, true)
+                                      }
+                                      onRepondre={() => setRepondreA(mail)}
+                                    />
+                                  ))}
+                                </ul>
+                              </section>
+                            ))}
+                        </div>
+                      )}
+                    </div>
+                  </details>
+                </li>
+              ))}
+            </ul>
+
+            <p className="mt-4 text-[11px] text-[var(--text-muted)]">
+              Passé {RETENTION_JOURS} jours, les passages et leur détail sont
+              effacés automatiquement. Les mails eux-mêmes restent dans Gmail.
+            </p>
+          </>
+        )}
+      </Modal>
+
+      {/* Hors du Modal : deux fenêtres ne s'imbriquent pas. */}
+      <RepondreModal
+        mail={repondreA}
+        onClose={() => setRepondreA(null)}
+        onChange={() => void charger()}
+      />
+    </>
+  );
+}
+
+/**
+ * Répondre depuis le bilan, sans quitter l'écran.
+ *
+ * Le tri prépare des brouillons pour ce qu'il sait rédiger ; le reste
+ * n'attendait aucune réponse, jusqu'au jour où l'on décide que si. Ouvrir
+ * Gmail pour trois lignes fait perdre le fil du bilan qu'on était en train de
+ * relire — et on ne revient pas.
+ *
+ * L'envoi reste un geste distinct, et c'est la règle qui n'a pas changé depuis
+ * le début : ce qui s'écrit ici part en brouillon dans Gmail, et c'est un
+ * humain qui appuie.
+ */
+function RepondreModal({
+  mail,
+  onClose,
+  onChange,
+}: {
+  mail: MailTriage | null;
+  onClose: () => void;
+  onChange: () => void;
+}) {
+  const toast = useToast();
+  const [objet, setObjet] = useState("");
+  const [corps, setCorps] = useState("");
+  const [busy, setBusy] = useState<"brouillon" | "envoi" | null>(null);
+
+  useEffect(() => {
+    if (!mail) return;
+    const sujet = mail.subject ?? "";
+    setObjet(
+      mail.draft_subject ??
+        (sujet.toLowerCase().startsWith("re") ? sujet : `Re: ${sujet}`),
+    );
+    setCorps(mail.draft_body ?? "");
+  }, [mail]);
+
+  async function agir(quoi: "brouillon" | "envoi") {
+    if (!mail) return;
+    setBusy(quoi);
+    const resultat =
+      quoi === "envoi"
+        ? await envoyerBrouillon(mail.id, corps, objet)
+        : await enregistrerBrouillon(mail.id, corps, objet);
+    setBusy(null);
+    if (!resultat.ok) return toast(resultat.error, "error");
+    toast(quoi === "envoi" ? "Envoyé." : "Brouillon enregistré dans Gmail.");
+    onChange();
+    onClose();
+  }
+
+  return (
     <Modal
-      open={open}
+      open={mail !== null}
       onClose={onClose}
-      size="lg"
-      title="Historique du tri"
+      title="Répondre"
       description={
-        passages === null
-          ? "Chargement…"
-          : `${passages.length} passage(s) sur ${RETENTION_JOURS} jours · ${total} mail(s) examinés` +
-            (cout > 0 ? ` · ${cout.toFixed(1)} centime(s)` : "")
+        mail ? `À ${mail.from_name || mail.from_email || "l'expéditeur"}` : ""
       }
       footer={
-        <Button variant="ghost" onClick={onClose}>
-          Fermer
-        </Button>
+        <>
+          <Button variant="ghost" onClick={onClose}>
+            Annuler
+          </Button>
+          <Button
+            variant="secondary"
+            loading={busy === "brouillon"}
+            disabled={busy !== null || !corps.trim()}
+            onClick={() => void agir("brouillon")}
+          >
+            Enregistrer le brouillon
+          </Button>
+          <Button
+            variant="primary"
+            loading={busy === "envoi"}
+            disabled={busy !== null || !corps.trim()}
+            onClick={() => void agir("envoi")}
+          >
+            <Send className="size-4" />
+            Envoyer
+          </Button>
+        </>
       }
     >
-      {passages === null ? (
-        <p className="text-[12.5px] text-[var(--text-muted)]">Chargement…</p>
-      ) : passages.length === 0 ? (
-        <p className="text-[12.5px] text-[var(--text-muted)]">
-          Aucun passage dans les {RETENTION_JOURS} derniers jours.
-        </p>
-      ) : (
-        <>
-          <ul className="space-y-2">
-            {passages.map(({ passage, mails }) => (
-              <li
-                key={passage.id}
-                className="overflow-hidden rounded-[10px] border border-[var(--border-subtle)]"
-              >
-                {/* `details` natif : replier une liste ne justifie pas un état
-                    React, et le navigateur le fait déjà bien. */}
-                <details>
-                  <summary className="flex cursor-pointer list-none flex-wrap items-center gap-2 px-3 py-2.5 transition-colors hover:bg-[var(--surface-hover)]/60">
-                    <ChevronDown className="size-3.5 shrink-0 text-[var(--text-muted)]" />
-                    <span className="min-w-0 flex-1">
-                      <span className="block text-[12.5px] font-medium">
-                        {formatRelative(passage.started_at)}
-                        <span className="ml-1.5 font-normal text-[var(--text-muted)]">
-                          {new Date(passage.started_at).toLocaleString("fr-FR", {
-                            day: "2-digit",
-                            month: "2-digit",
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}
-                        </span>
-                      </span>
-                      <span className="block text-[11.5px] text-[var(--text-muted)]">
-                        {passage.lus === 0 ? "rien de neuf" : resumePassage(passage)}
-                      </span>
-                    </span>
-
-                    <span className="flex shrink-0 items-center gap-1.5">
-                      {Number(passage.cout_centimes) > 0 ? (
-                        <span className="text-[11px] tabular-nums text-[var(--text-muted)]">
-                          {Number(passage.cout_centimes).toFixed(1)} ct
-                        </span>
-                      ) : null}
-                      {passage.erreur ? (
-                        <Badge tone="rose">échec</Badge>
-                      ) : (
-                        <Badge tone="stone">{passage.lus}</Badge>
-                      )}
-                    </span>
-                  </summary>
-
-                  <div className="border-t border-[var(--border-subtle)] px-3 py-2.5">
-                    {passage.erreur ? (
-                      <p className="mb-2.5 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-[11.5px] text-rose-600 dark:text-rose-300">
-                        {passage.erreur}
-                      </p>
-                    ) : null}
-
-                    {mails.length === 0 ? (
-                      <p className="text-[11.5px] text-[var(--text-muted)]">
-                        {/* Un passage sans ligne n'est pas forcément un passage
-                            raté : il peut n'avoir rien trouvé à trier. */}
-                        {passage.lus > 0
-                          ? "Le détail de ce passage a été effacé, seul le bilan subsiste."
-                          : "Aucun mail à trier ce jour-là."}
-                      </p>
-                    ) : (
-                      <div className="space-y-4">
-                        {grouperMails(mails)
-                          .filter((groupe) => groupe.mails.length > 0)
-                          .map((groupe) => (
-                            <section key={groupe.clef}>
-                              <h4
-                                className={cn(
-                                  "flex flex-wrap items-baseline gap-2 text-[12.5px] font-medium",
-                                  groupe.clef === "signale" && "text-amber-600 dark:text-amber-300",
-                                )}
-                              >
-                                {groupe.titre}
-                                <span className="text-[11px] font-normal text-[var(--text-muted)]">
-                                  {groupe.mails.length}
-                                </span>
-                              </h4>
-                              <ul className="mt-1.5 space-y-1">
-                                {groupe.mails.map((mail) => (
-                                  <LigneMail key={mail.id} mail={mail} />
-                                ))}
-                              </ul>
-                            </section>
-                          ))}
-                      </div>
-                    )}
-                  </div>
-                </details>
-              </li>
-            ))}
-          </ul>
-
-          <p className="mt-4 text-[11px] text-[var(--text-muted)]">
-            Passé {RETENTION_JOURS} jours, les passages et leur détail sont effacés
-            automatiquement. Les mails eux-mêmes restent dans Gmail.
-          </p>
-        </>
-      )}
+      <div className="space-y-3">
+        <Field label="Objet">
+          <Input
+            value={objet}
+            onChange={(event) => setObjet(event.target.value)}
+          />
+        </Field>
+        <Field label="Message">
+          <Textarea
+            rows={9}
+            value={corps}
+            onChange={(event) => setCorps(event.target.value)}
+            placeholder="Ta réponse…"
+          />
+        </Field>
+      </div>
     </Modal>
   );
 }
@@ -700,12 +916,17 @@ function LigneMail({
   mail,
   occupe,
   onRestaurer,
+  onSupprimer,
+  onRepondre,
 }: {
   mail: MailTriage;
   occupe?: boolean;
   onRestaurer?: () => void;
+  onSupprimer?: () => void;
+  onRepondre?: () => void;
 }) {
   const categorie = MAIL_CATEGORY[mail.category];
+  const ecarte = mail.action === "corbeille";
 
   return (
     <li className="flex flex-wrap items-center gap-2 rounded-[10px] border border-[var(--border-subtle)] px-3 py-2">
@@ -716,7 +937,10 @@ function LigneMail({
           </span>
           <Badge tone={categorie.tone}>{categorie.label}</Badge>
           {mail.known_contact ? (
-            <ShieldCheck className="size-3 text-emerald-500" aria-label="Déjà dans le CRM" />
+            <ShieldCheck
+              className="size-3 text-emerald-500"
+              aria-label="Déjà dans le CRM"
+            />
           ) : null}
         </span>
         <span className="block truncate text-[11.5px] text-[var(--text-muted)]">
@@ -733,7 +957,15 @@ function LigneMail({
       <span className="flex shrink-0 items-center gap-1">
         <AiVerdict kind="mail_tri" refId={mail.id} />
 
-        {mail.action === "corbeille" && onRestaurer ? (
+        {/*
+          Le tri propose, on dispose — dans les deux sens.
+
+          Restaurer existait déjà ; supprimer manquait, et c'était l'asymétrie
+          la plus gênante du récapitulatif : on pouvait annuler une mise à la
+          corbeille, jamais en décider une. Or relire le bilan, c'est
+          précisément le moment où l'on voit ce qui aurait dû partir.
+        */}
+        {ecarte && onRestaurer ? (
           <button
             type="button"
             disabled={occupe}
@@ -742,6 +974,30 @@ function LigneMail({
             className="rounded-md p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--surface-hover)] hover:text-emerald-500 disabled:opacity-40"
           >
             <RotateCcw className="size-3.5" />
+          </button>
+        ) : null}
+
+        {!ecarte && onRepondre ? (
+          <button
+            type="button"
+            disabled={occupe}
+            onClick={onRepondre}
+            title="Préparer une réponse"
+            className="rounded-md p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--surface-hover)] hover:text-brand-500 disabled:opacity-40"
+          >
+            <Reply className="size-3.5" />
+          </button>
+        ) : null}
+
+        {!ecarte && onSupprimer ? (
+          <button
+            type="button"
+            disabled={occupe}
+            onClick={onSupprimer}
+            title="Mettre à la corbeille"
+            className="rounded-md p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--surface-hover)] hover:text-rose-500 disabled:opacity-40"
+          >
+            <Trash2 className="size-3.5" />
           </button>
         ) : null}
 
@@ -797,9 +1053,15 @@ function grouperMails(mails: MailTriage[]) {
 /** Le bilan d'un passage en une ligne de texte. */
 function resumePassage(passage: MailRun): string {
   const morceaux = [
-    passage.spams > 0 ? `${passage.spams} écarté${passage.spams > 1 ? "s" : ""}` : null,
-    passage.factures > 0 ? `${passage.factures} facture${passage.factures > 1 ? "s" : ""}` : null,
-    passage.brouillons > 0 ? `${passage.brouillons} réponse${passage.brouillons > 1 ? "s" : ""}` : null,
+    passage.spams > 0
+      ? `${passage.spams} écarté${passage.spams > 1 ? "s" : ""}`
+      : null,
+    passage.factures > 0
+      ? `${passage.factures} facture${passage.factures > 1 ? "s" : ""}`
+      : null,
+    passage.brouillons > 0
+      ? `${passage.brouillons} réponse${passage.brouillons > 1 ? "s" : ""}`
+      : null,
     passage.a_traiter > 0 ? `${passage.a_traiter} pour toi` : null,
   ].filter(Boolean);
   return morceaux.length > 0 ? morceaux.join(" · ") : "aucune action";
@@ -818,6 +1080,7 @@ function RecapModal({
   const [mails, setMails] = useState<MailTriage[] | null>(null);
   const [passage, setPassage] = useState<MailRun | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [repondreA, setRepondreA] = useState<MailTriage | null>(null);
 
   const charger = useCallback(async () => {
     const bilan = await fetchBilanTri();
@@ -829,12 +1092,12 @@ function RecapModal({
     if (open) void charger();
   }, [open, charger]);
 
-  async function restaurer(mail: MailTriage) {
+  async function basculer(mail: MailTriage, versLaCorbeille: boolean) {
     setBusy(mail.id);
-    const resultat = await basculerCorbeille(mail.id, false);
+    const resultat = await basculerCorbeille(mail.id, versLaCorbeille);
     setBusy(null);
     if (!resultat.ok) return toast(resultat.error, "error");
-    toast("Remis dans la boîte.");
+    toast(versLaCorbeille ? "Mis à la corbeille." : "Remis dans la boîte.");
     await charger();
     onChange();
   }
@@ -842,63 +1105,79 @@ function RecapModal({
   const groupes = grouperMails(mails ?? []);
 
   return (
-    <Modal
-      open={open}
-      onClose={onClose}
-      size="lg"
-      title="Ce que j'ai fait de tes mails"
-      description={
-        passage
-          ? `Passage ${formatRelative(passage.started_at)} · ${passage.lus} mail(s) examinés` +
-            (Number(passage.cout_centimes) > 0
-              ? ` · ${Number(passage.cout_centimes).toFixed(1)} centime(s)`
-              : "")
-          : "Le tri ne s'est encore jamais exécuté."
-      }
-      footer={
-        <Button variant="ghost" onClick={onClose}>
-          Fermer
-        </Button>
-      }
-    >
-      {mails === null ? (
-        <p className="text-[12.5px] text-[var(--text-muted)]">Chargement…</p>
-      ) : mails.length === 0 ? (
-        <p className="text-[12.5px] text-[var(--text-muted)]">
-          Aucun mail traité lors du dernier passage.
-        </p>
-      ) : (
-        <div className="space-y-5">
-          {groupes
-            .filter((groupe) => groupe.mails.length > 0)
-            .map((groupe) => (
-              <section key={groupe.clef}>
-                <h4
-                  className={cn(
-                    "flex flex-wrap items-baseline gap-2 text-[13px] font-medium",
-                    groupe.clef === "signale" && "text-amber-600 dark:text-amber-300",
-                  )}
-                >
-                  {groupe.titre}
-                  <span className="text-[11.5px] font-normal text-[var(--text-muted)]">
-                    {groupe.mails.length} · {groupe.note}
-                  </span>
-                </h4>
+    <>
+      <Modal
+        open={open}
+        onClose={onClose}
+        size="lg"
+        title="Ce que j'ai fait de tes mails"
+        description={
+          passage
+            ? `Passage ${formatRelative(passage.started_at)} · ${passage.lus} mail(s) examinés` +
+              (Number(passage.cout_centimes) > 0
+                ? ` · ${Number(passage.cout_centimes).toFixed(1)} centime(s)`
+                : "")
+            : "Le tri ne s'est encore jamais exécuté."
+        }
+        footer={
+          <Button variant="ghost" onClick={onClose}>
+            Fermer
+          </Button>
+        }
+      >
+        {mails === null ? (
+          <p className="text-[12.5px] text-[var(--text-muted)]">Chargement…</p>
+        ) : mails.length === 0 ? (
+          <p className="text-[12.5px] text-[var(--text-muted)]">
+            Aucun mail traité lors du dernier passage.
+          </p>
+        ) : (
+          <div className="space-y-5">
+            {groupes
+              .filter((groupe) => groupe.mails.length > 0)
+              .map((groupe) => (
+                <section key={groupe.clef}>
+                  <h4
+                    className={cn(
+                      "flex flex-wrap items-baseline gap-2 text-[13px] font-medium",
+                      groupe.clef === "signale" &&
+                        "text-amber-600 dark:text-amber-300",
+                    )}
+                  >
+                    {groupe.titre}
+                    <span className="text-[11.5px] font-normal text-[var(--text-muted)]">
+                      {groupe.mails.length} · {groupe.note}
+                    </span>
+                  </h4>
 
-                <ul className="mt-2 space-y-1">
-                  {groupe.mails.map((mail) => (
-                    <LigneMail
-                      key={mail.id}
-                      mail={mail}
-                      occupe={busy === mail.id}
-                      onRestaurer={() => void restaurer(mail)}
-                    />
-                  ))}
-                </ul>
-              </section>
-            ))}
-        </div>
-      )}
-    </Modal>
+                  <ul className="mt-2 space-y-1">
+                    {groupe.mails.map((mail) => (
+                      <LigneMail
+                        key={mail.id}
+                        mail={mail}
+                        occupe={busy === mail.id}
+                        onRestaurer={() => void basculer(mail, false)}
+                        onSupprimer={() => void basculer(mail, true)}
+                        onRepondre={() => setRepondreA(mail)}
+                      />
+                    ))}
+                  </ul>
+                </section>
+              ))}
+          </div>
+        )}
+      </Modal>
+
+      {/* Hors du Modal : deux fenêtres ne s'imbriquent pas, et la réponse doit
+          survivre à la fermeture du récapitulatif qui l'a ouverte. */}
+      <RepondreModal
+        mail={repondreA}
+        onClose={() => setRepondreA(null)}
+        onChange={() => {
+          void charger();
+          onChange();
+        }}
+      />
+    </>
   );
 }

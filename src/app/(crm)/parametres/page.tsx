@@ -3,6 +3,8 @@ import { Activity, Mail, MoonStar, UserCog, Video } from "lucide-react";
 
 import { PageHeader } from "@/components/layout/page-header";
 import { GmailConnection, type GmailAccountView } from "@/components/crm/gmail-connection";
+import { TriAutoSetting } from "@/components/crm/tri-auto-setting";
+import { fetchTriAuto } from "@/app/(crm)/parametres/mail-actions";
 import { DiagnosticPanel } from "@/components/crm/diagnostic-panel";
 import { PasswordForm } from "@/components/crm/password-form";
 import { ClaapSettings } from "@/components/crm/claap-settings";
@@ -133,6 +135,10 @@ export default async function ParametresPage({
                   : undefined
               }
             />
+
+            {/* L'interrupteur vit à côté de la connexion : c'est là qu'on vient
+                quand on veut que l'application cesse de toucher à la boîte. */}
+            <TriAutoSetting actif={await fetchTriAuto()} isAdmin={isAdmin} />
           </>
         ) : null}
 
