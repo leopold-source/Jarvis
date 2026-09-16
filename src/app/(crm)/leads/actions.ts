@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 
 import { buildLookup, classifyRow, companyKey, domainKey, emailKey, personKey, type ImportIndex } from "@/lib/leads-dedupe";
-import type { Lead, LeadStatus } from "@/lib/database.types";
+import type { Lead, LeadModifiable, LeadStatus } from "@/lib/database.types";
 import { NRP_MAX } from "@/lib/constants";
 import { requireStaff } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
@@ -12,26 +12,112 @@ export type ActionResult<T = undefined> =
   | { ok: true; data?: T }
   | { ok: false; error: string };
 
+/**
+ * Les colonnes qu'une fiche laisse écrire, et l'ordre n'a pas d'importance.
+ *
+ * Le type `LeadModifiable` dit la même chose au compilateur ; cette liste la
+ * dit à l'exécution. Les deux sont nécessaires : un argument d'action serveur
+ * traverse le réseau, et le typage a disparu quand il arrive.
+ */
+const CHAMPS_MODIFIABLES = [
+  "first_name",
+  "last_name",
+  "full_name",
+  "email",
+  "email_quality",
+  "phone",
+  "phone_standard",
+  "job_title",
+  "linkedin_url",
+  "company_name",
+  "company_legal_name",
+  "company_website",
+  "company_linkedin_url",
+  "company_activity",
+  "company_description",
+  "sector",
+  "segment",
+  "region",
+  "address",
+  "siren",
+  "siret",
+  "headcount",
+  "headcount_range",
+  "founded_year",
+  "revenue",
+  "revenue_year",
+  "source",
+  "status",
+  "comment",
+  "follow_up_on",
+  "owner_id",
+] as const satisfies readonly (keyof LeadModifiable)[];
+
+/**
+ * Enregistre une fiche, en ne gardant que ce qui lui appartient.
+ *
+ * Le tri n'est pas une précaution de style. Une action serveur est une adresse
+ * publique : elle reçoit ce qu'on lui envoie, pas ce que le formulaire a
+ * affiché. Sans ce filtre, un appel forgé réécrirait `touch_count` ou
+ * `converted_deal_id` — des colonnes qu'un déclencheur et la conversion
+ * tiennent, et qui perdraient tout sens si une main pouvait les contredire.
+ */
 export async function updateLead(
   id: string,
-  patch: {
-    status?: LeadStatus;
-    comment?: string | null;
-    follow_up_on?: string | null;
-    email?: string | null;
-    phone?: string | null;
-    company_name?: string | null;
-    revenue?: number | null;
-  },
+  patch: Partial<LeadModifiable>,
 ): Promise<ActionResult> {
   await requireStaff();
   const supabase = await createClient();
 
-  const { error } = await supabase.from("leads").update(patch).eq("id", id);
+  const retenu: Record<string, unknown> = {};
+  for (const champ of CHAMPS_MODIFIABLES) {
+    if (champ in patch) retenu[champ] = patch[champ] ?? null;
+  }
+  if (Object.keys(retenu).length === 0) return { ok: true };
+
+  /*
+    `owner_name` double `owner_id` pour que la liste affiche un nom sans
+    jointure. Changer l'un sans l'autre laisserait le nom de l'ancien
+    propriétaire sur une fiche qui a changé de main — et c'est le nom qu'on
+    lit, pas l'identifiant.
+  */
+  if ("owner_id" in retenu) {
+    const owner = retenu.owner_id
+      ? (
+          await supabase
+            .from("profiles")
+            .select("full_name, email")
+            .eq("id", String(retenu.owner_id))
+            .maybeSingle()
+        ).data
+      : null;
+    retenu.owner_name = owner?.full_name ?? owner?.email ?? null;
+  }
+
+  const { error } = await supabase.from("leads").update(retenu as Partial<Lead>).eq("id", id);
   if (error) return { ok: false, error: error.message };
 
   revalidatePath("/leads");
   return { ok: true };
+}
+
+/**
+ * La fiche entière, telle qu'elle est en base.
+ *
+ * La liste ne charge qu'une vingtaine de colonnes — envoyer les quarante pour
+ * 432 lignes coûtait 233 ko à chaque ouverture de l'écran. Mais on ne peut pas
+ * modifier ce qu'on n'a pas reçu : la fiche va chercher le reste à
+ * l'ouverture du tiroir, pour une ligne, ce qui ne coûte rien.
+ */
+export async function fetchLead(id: string): Promise<ActionResult<Lead>> {
+  await requireStaff();
+  const supabase = await createClient();
+
+  const { data, error } = await supabase.from("leads").select("*").eq("id", id).maybeSingle();
+  if (error) return { ok: false, error: error.message };
+  if (!data) return { ok: false, error: "Fiche introuvable." };
+
+  return { ok: true, data };
 }
 
 /**

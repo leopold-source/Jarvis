@@ -1117,6 +1117,7 @@ export function LeadsWorkspace({
       <LeadDrawer
         lead={selected}
         org={selected ? orgIndex.get(selected.id) : undefined}
+        members={members}
         onOpenLead={setSelected}
         onClose={() => setSelected(null)}
         onSaved={refresh}

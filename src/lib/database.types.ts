@@ -170,6 +170,54 @@ export type Lead = {
  * sans que rien ne les affiche. Ce type dit lesquelles voyagent, et le
  * compilateur refuse qu'on en lise une autre côté client.
  */
+/**
+ * Les colonnes d'un lead qu'une main peut écrire.
+ *
+ * Tout le reste de la table est tenu ailleurs, et l'écrire ici le mettrait en
+ * contradiction avec ce qui le produit : `org_key` et `phone_key` sont
+ * calculées par la base, `status_changed_at`, `last_touched_at` et
+ * `touch_count` par un déclencheur, `nrp_count` par le bouton « +1 », les
+ * colonnes `converted_*` par la conversion en affaire.
+ *
+ * C'est une liste blanche, pas une documentation : les arguments d'une action
+ * serveur arrivent par le réseau, et rien ne garantit qu'ils ressemblent à ce
+ * que le formulaire a envoyé.
+ */
+export type LeadModifiable = Pick<
+  Lead,
+  | "first_name"
+  | "last_name"
+  | "full_name"
+  | "email"
+  | "email_quality"
+  | "phone"
+  | "phone_standard"
+  | "job_title"
+  | "linkedin_url"
+  | "company_name"
+  | "company_legal_name"
+  | "company_website"
+  | "company_linkedin_url"
+  | "company_activity"
+  | "company_description"
+  | "sector"
+  | "segment"
+  | "region"
+  | "address"
+  | "siren"
+  | "siret"
+  | "headcount"
+  | "headcount_range"
+  | "founded_year"
+  | "revenue"
+  | "revenue_year"
+  | "source"
+  | "status"
+  | "comment"
+  | "follow_up_on"
+  | "owner_id"
+>;
+
 export type LeadListe = Omit<
   Lead,
   | "company_legal_name"
