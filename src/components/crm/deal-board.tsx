@@ -250,6 +250,7 @@ export function DealBoard({
         deal={selected}
         company={selected?.company_id ? companyById.get(selected.company_id) : undefined}
         contact={selected?.contact_id ? contactById.get(selected.contact_id) : undefined}
+        contacts={contacts}
         projectId={selected ? projectByDeal.get(selected.id) : undefined}
         members={members}
         isAdmin={isAdmin}

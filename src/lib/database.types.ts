@@ -257,6 +257,21 @@ export type Deal = {
   updated_at: string;
 }
 
+/**
+ * Un interlocuteur d'une affaire.
+ *
+ * `deals.contact_id` désigne le principal — celui qu'affichent le tableau, le
+ * portail et la conversion d'un lead. Cette table porte la liste entière, lui
+ * compris : un déclencheur l'y remet dès qu'il change.
+ */
+export type DealContact = {
+  deal_id: string;
+  contact_id: string;
+  /** Le rôle tenu dans cette affaire-là : « décideur », « technique »… */
+  role: string | null;
+  created_at: string;
+};
+
 export type Project = {
   id: string;
   code: string | null;
@@ -800,6 +815,7 @@ export type Database = {
       contacts: TableDef<Contact>;
       leads: TableDef<Lead>;
       deals: TableDef<Deal, "name">;
+      deal_contacts: TableDef<DealContact, "deal_id" | "contact_id">;
       projects: TableDef<Project, "name">;
       project_members: TableDef<ProjectMember, "project_id" | "user_id">;
       tasks: TableDef<Task, "project_id" | "title">;

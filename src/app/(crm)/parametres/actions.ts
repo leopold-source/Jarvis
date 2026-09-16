@@ -9,13 +9,21 @@ import { createAdminClient } from "@/lib/supabase/admin";
 
 export type ActionResult = { ok: true; message?: string } | { ok: false; error: string };
 
-/** Lance une synchronisation pour le compte de l'utilisateur connecté. */
-export async function syncGmail(): Promise<SyncOutcome> {
+/**
+ * Lance une synchronisation pour le compte de l'utilisateur connecté.
+ *
+ * `profond` rejoue quatre mois au lieu de reprendre à la dernière exécution.
+ * C'est ce qu'il faut après avoir ajouté un interlocuteur à une affaire : ses
+ * échanges passés sont antérieurs au dernier passage, et une exécution
+ * ordinaire ne les verrait jamais.
+ */
+export async function syncGmail(profond = false): Promise<SyncOutcome> {
   const profile = await requireStaff();
-  const result = await syncGmailForUser(profile.id);
+  const result = await syncGmailForUser(profile.id, profond ? { joursEnArriere: 120 } : {});
   if (result.ok) {
     revalidatePath("/parametres");
     revalidatePath("/affaires");
+    revalidatePath("/projets");
   }
   return result;
 }

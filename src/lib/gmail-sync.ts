@@ -18,8 +18,15 @@ import { createAdminClient } from "@/lib/supabase/admin";
  * une boîte mail dans le CRM.
  */
 
-/** Adresses par requête : Gmail tolère des `q` longs, mais pas illimités. */
-const EMAILS_PER_QUERY = 20;
+/*
+  Adresses par requête : Gmail tolère des `q` longs, mais pas illimités.
+
+  Dix et non vingt depuis que chaque adresse pèse trois opérateurs au lieu de
+  deux — `from:`, `to:` et `cc:`. Une requête reste ainsi sous les quinze cents
+  caractères, et trois appels de liste au lieu de deux ne coûtent rien à côté
+  d'une requête tronquée qu'on ne verrait pas passer.
+*/
+const EMAILS_PER_QUERY = 10;
 /** Plafond par exécution, pour tenir dans le temps d'une Server Action. */
 const MAX_NEW_MESSAGES = 150;
 /** Profondeur du premier passage, quand aucune synchro n'a encore eu lieu. */
@@ -46,7 +53,64 @@ function chunk<T>(items: T[], size: number): T[][] {
   return out;
 }
 
-export async function syncGmailForUser(userId: string): Promise<SyncOutcome> {
+/**
+ * De chaque interlocuteur vers son affaire — et pas seulement du principal.
+ *
+ * Une affaire se mène rarement à une voix : le dirigeant décide, le
+ * responsable technique cadre, l'assistante organise. Tant que seul
+ * `deals.contact_id` servait d'index, les échanges avec les deux autres ne
+ * trouvaient aucune affaire et n'étaient pas conservés — le fil d'une affaire
+ * montrait une partie de ce qui s'était dit, sans jamais indiquer qu'il en
+ * manquait.
+ *
+ * `deals` est attendu trié du plus récent au plus ancien, et parcouru dans cet
+ * ordre : la première affaire rencontrée pour un contact ou une entreprise est
+ * donc la plus vivante. Un contact qui suit deux affaires chez le même client
+ * voit ses messages aller à celle qui bouge.
+ */
+export function indexerAffaires(
+  deals: Array<Pick<DealRow, "id" | "contact_id" | "company_id">>,
+  liens: Array<{ deal_id: string; contact_id: string }>,
+): { dealByContact: Map<string, string>; dealByCompany: Map<string, string> } {
+  const contactsParAffaire = new Map<string, string[]>();
+  for (const lien of liens) {
+    const liste = contactsParAffaire.get(lien.deal_id);
+    if (liste) liste.push(lien.contact_id);
+    else contactsParAffaire.set(lien.deal_id, [lien.contact_id]);
+  }
+
+  const dealByContact = new Map<string, string>();
+  const dealByCompany = new Map<string, string>();
+
+  for (const deal of deals) {
+    for (const contactId of contactsParAffaire.get(deal.id) ?? []) {
+      if (!dealByContact.has(contactId)) dealByContact.set(contactId, deal.id);
+    }
+    // Le déclencheur garantit que le principal figure dans la liste ; cette
+    // ligne rattrape une affaire créée avant lui.
+    if (deal.contact_id && !dealByContact.has(deal.contact_id)) {
+      dealByContact.set(deal.contact_id, deal.id);
+    }
+    if (deal.company_id && !dealByCompany.has(deal.company_id)) {
+      dealByCompany.set(deal.company_id, deal.id);
+    }
+  }
+
+  return { dealByContact, dealByCompany };
+}
+
+/**
+ * Rapproche la boîte d'un utilisateur et le CRM.
+ *
+ * `joursEnArriere` force la profondeur au lieu de repartir de la dernière
+ * synchronisation. C'est ce qu'il faut après avoir ajouté un interlocuteur à
+ * une affaire : ses échanges passés sont antérieurs au dernier passage, et
+ * aucune exécution ordinaire n'irait les chercher.
+ */
+export async function syncGmailForUser(
+  userId: string,
+  options: { joursEnArriere?: number } = {},
+): Promise<SyncOutcome> {
   const admin = createAdminClient();
   if (!admin) {
     return { ok: false, error: "Clé SUPABASE_SERVICE_ROLE_KEY absente : synchronisation impossible." };
@@ -77,14 +141,17 @@ export async function syncGmailForUser(userId: string): Promise<SyncOutcome> {
   }
 
   // Le CRM fournit les adresses à surveiller ; sans contact, rien à chercher.
-  const [{ data: contacts }, { data: deals }, { data: projects }] = await Promise.all([
-    admin.from("contacts").select("id, email, company_id").not("email", "is", null),
-    admin.from("deals").select("id, contact_id, company_id, updated_at").order("updated_at", { ascending: false }),
-    admin.from("projects").select("id, deal_id, company_id"),
-  ]);
+  const [{ data: contacts }, { data: deals }, { data: dealContacts }, { data: projects }] =
+    await Promise.all([
+      admin.from("contacts").select("id, email, company_id").not("email", "is", null),
+      admin.from("deals").select("id, contact_id, company_id, updated_at").order("updated_at", { ascending: false }),
+      admin.from("deal_contacts").select("deal_id, contact_id"),
+      admin.from("projects").select("id, deal_id, company_id"),
+    ]);
 
   const contactRows = (contacts ?? []) as ContactRow[];
   const dealRows = (deals ?? []) as DealRow[];
+  const lienRows = (dealContacts ?? []) as Array<{ deal_id: string; contact_id: string }>;
   const projectRows = (projects ?? []) as ProjectRow[];
   const mailbox = account.email.toLowerCase();
 
@@ -96,14 +163,7 @@ export async function syncGmailForUser(userId: string): Promise<SyncOutcome> {
     return { ok: true, imported: 0, scanned: 0, since: account.last_synced_at ?? "" };
   }
 
-  // `deals` arrive trié du plus récent au plus ancien : le premier rencontré
-  // pour un contact ou une entreprise est donc l'affaire la plus vivante.
-  const dealByContact = new Map<string, string>();
-  const dealByCompany = new Map<string, string>();
-  for (const deal of dealRows) {
-    if (deal.contact_id && !dealByContact.has(deal.contact_id)) dealByContact.set(deal.contact_id, deal.id);
-    if (deal.company_id && !dealByCompany.has(deal.company_id)) dealByCompany.set(deal.company_id, deal.id);
-  }
+  const { dealByContact, dealByCompany } = indexerAffaires(dealRows, lienRows);
 
   /*
     Le projet, quand il y en a un.
@@ -123,9 +183,12 @@ export async function syncGmailForUser(userId: string): Promise<SyncOutcome> {
     }
   }
 
+  const profondeur = options.joursEnArriere ?? null;
   const since =
-    account.last_synced_at ??
-    new Date(Date.now() - FIRST_RUN_DAYS * 86_400_000).toISOString();
+    profondeur !== null
+      ? new Date(Date.now() - profondeur * 86_400_000).toISOString()
+      : (account.last_synced_at ??
+        new Date(Date.now() - FIRST_RUN_DAYS * 86_400_000).toISOString());
   const after = gmailDate(since);
 
   // Les identifiants déjà connus évitent de redemander à Gmail des messages
@@ -141,7 +204,18 @@ export async function syncGmailForUser(userId: string): Promise<SyncOutcome> {
 
   try {
     for (const group of chunk([...contactByEmail.keys()], EMAILS_PER_QUERY)) {
-      const clause = group.map((email) => `from:${email} OR to:${email}`).join(" OR ");
+      /*
+        Trois opérateurs, pas deux.
+
+        `from:` et `to:` couvraient déjà les deux sens — un message reçu comme
+        un message envoyé, l'étiquette « Envoyés » n'étant pas un filtre ici.
+        Mais `to:` ne regarde que le champ « À » : un client mis en copie d'un
+        échange — le cas de toutes les présentations à trois — n'était jamais
+        trouvé, et l'affaire n'en gardait aucune trace.
+      */
+      const clause = group
+        .map((email) => `from:${email} OR to:${email} OR cc:${email}`)
+        .join(" OR ");
       let pageToken: string | undefined;
 
       do {
@@ -224,10 +298,22 @@ export async function syncGmailForUser(userId: string): Promise<SyncOutcome> {
     if (error) return fail(error.message);
   }
 
+  /*
+    La borne n'avance que si le passage a tout vu.
+
+    Le plafond par exécution existe pour tenir dans le temps imparti, mais il
+    laissait derrière lui des messages que plus personne n'irait chercher :
+    `last_synced_at` sautait à maintenant, et le passage suivant commençait
+    après eux. En gardant la borne, l'exécution du lendemain reprend où
+    celle-ci s'est arrêtée — les identifiants déjà connus faisant qu'elle ne
+    refait pas deux fois le même travail.
+  */
+  const plafonne = pending.size >= MAX_NEW_MESSAGES;
+
   await admin
     .from("google_accounts")
     .update({
-      last_synced_at: new Date().toISOString(),
+      ...(plafonne ? {} : { last_synced_at: new Date().toISOString() }),
       last_error: null,
       synced_count: (account.synced_count ?? 0) + rows.length,
     })

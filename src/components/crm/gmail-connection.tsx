@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   CheckCircle2,
+  History,
   Link2,
   Link2Off,
   Mail,
@@ -45,12 +46,12 @@ export function GmailConnection({
   const router = useRouter();
   const toast = useToast();
   const [, startTransition] = useTransition();
-  const [syncing, setSyncing] = useState(false);
+  const [syncing, setSyncing] = useState<false | "normale" | "profonde">(false);
   const [disconnecting, setDisconnecting] = useState(false);
 
-  async function runSync() {
-    setSyncing(true);
-    const result = await syncGmail();
+  async function runSync(profond = false) {
+    setSyncing(profond ? "profonde" : "normale");
+    const result = await syncGmail(profond);
     setSyncing(false);
     if (!result.ok) {
       toast(result.error, "error");
@@ -143,9 +144,28 @@ export function GmailConnection({
           ) : null}
 
           <div className="mt-4 flex flex-wrap gap-2">
-            <Button variant="primary" loading={syncing} onClick={runSync}>
+            <Button
+              variant="primary"
+              loading={syncing === "normale"}
+              disabled={syncing !== false}
+              onClick={() => void runSync()}
+            >
               <RefreshCw className="size-3.5" />
               Synchroniser maintenant
+            </Button>
+            {/* Une exécution ordinaire reprend à la dernière : elle ne peut
+                pas voir ce qui la précède. Ajouter un interlocuteur à une
+                affaire ne remonte donc rien de son historique — d'où ce
+                second bouton, qui rejoue quatre mois. */}
+            <Button
+              variant="secondary"
+              loading={syncing === "profonde"}
+              disabled={syncing !== false}
+              onClick={() => void runSync(true)}
+              title="Rejouer les quatre derniers mois"
+            >
+              <History className="size-3.5" />
+              Rattraper l&apos;historique
             </Button>
             <Button variant="ghost" loading={disconnecting} onClick={disconnect}>
               <Link2Off className="size-3.5" />
@@ -153,9 +173,10 @@ export function GmailConnection({
             </Button>
           </div>
 
-          <p className="mt-3 text-[11.5px] text-[var(--text-muted)]">
-            Une synchronisation automatique tourne aussi chaque nuit — ce bouton ne sert qu'à
-            forcer un rafraîchissement immédiat.
+          <p className="mt-3 text-[11.5px] leading-relaxed text-[var(--text-muted)]">
+            Une synchronisation automatique tourne aussi chaque nuit — le premier bouton ne sert
+            qu&apos;à forcer un rafraîchissement immédiat. Les messages reçus comme ceux
+            qu&apos;on envoie sont rattachés, dans les deux sens.
           </p>
         </>
       ) : (

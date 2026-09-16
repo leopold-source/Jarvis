@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Building2, ExternalLink, FolderKanban, Mail, Trash2, User } from "lucide-react";
+import { Building2, ExternalLink, FolderKanban, Trash2, User } from "lucide-react";
 
 import { Badge, Button, Drawer, Field, Input, Select, Textarea, useToast } from "@/components/ui";
 import { DateField } from "@/components/ui/date-field";
@@ -11,6 +11,7 @@ import { DEAL_STAGE, DEAL_STAGE_ORDER } from "@/lib/constants";
 import type { Deal, DealStage } from "@/lib/database.types";
 import { formatDate, formatMoney } from "@/lib/utils";
 import { deleteDeal, moveDeal, updateDeal } from "@/app/(crm)/affaires/actions";
+import { DealContacts } from "@/components/crm/deal-contacts";
 import { DealEmails } from "@/components/crm/deal-emails";
 import { DealCalls } from "@/components/crm/deal-calls";
 import { DealDossier } from "@/components/crm/deal-dossier";
@@ -23,6 +24,7 @@ export function DealDrawer({
   deal,
   company,
   contact,
+  contacts,
   projectId,
   members,
   isAdmin,
@@ -32,6 +34,8 @@ export function DealDrawer({
   deal: Deal | null;
   company?: CompanyLite;
   contact?: ContactLite;
+  /** L'annuaire complet, pour choisir qui ajouter à l'affaire. */
+  contacts: ContactLite[];
   projectId?: string;
   members: MemberLite[];
   isAdmin: boolean;
@@ -180,21 +184,20 @@ export function DealDrawer({
           />
           <RelationTile
             icon={User}
-            label="Contact"
+            label="Contact principal"
             value={contact?.full_name || contact?.email}
             href={contact ? `/contacts?contact=${contact.id}` : undefined}
           />
         </div>
 
-        {contact?.email ? (
-          <a
-            href={`mailto:${contact.email}`}
-            className="inline-flex items-center gap-1.5 text-[12.5px] text-brand-400 hover:text-brand-300"
-          >
-            <Mail className="size-3.5" />
-            {contact.email}
-          </a>
-        ) : null}
+        {/* La liste entière sous la tuile : celle-ci dit qui répond de
+            l'affaire, celle-là dit avec qui on parle. */}
+        <DealContacts
+          dealId={deal.id}
+          companyId={deal.company_id}
+          contacts={contacts}
+          onChanged={onSaved}
+        />
 
         <div className="grid gap-3.5 sm:grid-cols-2">
           <Field label="Nom de l'affaire" className="sm:col-span-2">
