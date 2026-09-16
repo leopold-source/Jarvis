@@ -38,11 +38,22 @@ export default async function LeadsPage() {
     supabase.from("app_settings").select("value").eq("key", "prospection").maybeSingle(),
   ]);
 
-  // Le délai au-delà duquel un appel chez la même organisation n'est plus un
-  // doublon. Réglable depuis Réglages : c'est un arbitrage commercial.
-  const cooldown = Number(
-    (reglages?.value as { org_cooldown_days?: number } | null)?.org_cooldown_days ?? 30,
-  );
+  /*
+    Les deux arbitrages commerciaux de la prospection, réglés dans Réglages.
+
+    Le délai au-delà duquel un appel chez la même organisation n'est plus un
+    doublon, et le seuil de dormance. Ce dernier vaut `null` tant qu'il n'a pas
+    été choisi, et ce `null` n'est pas un zéro : il éteint la notion.
+  */
+  const brut = (reglages?.value ?? {}) as {
+    org_cooldown_days?: number;
+    lead_dormancy_days?: number | null;
+  };
+  const cooldown = Number(brut.org_cooldown_days ?? 30);
+  const dormance =
+    typeof brut.lead_dormancy_days === "number" && brut.lead_dormancy_days > 0
+      ? Math.round(brut.lead_dormancy_days)
+      : null;
 
   return (
     <div className="mx-auto flex max-w-7xl flex-col gap-5">
@@ -55,6 +66,7 @@ export default async function LeadsPage() {
         members={members ?? []}
         currentUserId={profile.id}
         orgCooldownDays={cooldown}
+        dormanceJours={dormance}
         isAdmin={profile.role === "admin"}
       />
     </div>

@@ -12,6 +12,7 @@ import {
   Eye,
   Linkedin,
   Loader2,
+  MoonStar,
   EyeOff,
   Phone,
   Plus,
@@ -134,12 +135,21 @@ export function LeadsWorkspace({
   members,
   currentUserId,
   orgCooldownDays,
+  dormanceJours,
   isAdmin,
 }: {
   leads: LeadListe[];
   members: MemberLite[];
   currentUserId: string;
   orgCooldownDays: number;
+  /**
+   * Jours sans changement de statut au-delà desquels un lead est dit endormi.
+   *
+   * `null` éteint la notion : ni marque, ni filtre, ni mot nulle part. Un seuil
+   * par défaut aurait marqué des centaines de fiches sans que personne l'ait
+   * demandé, et on l'aurait découvert en constatant ses effets.
+   */
+  dormanceJours: number | null;
   isAdmin: boolean;
 }) {
   const router = useRouter();
@@ -287,6 +297,30 @@ export function LeadsWorkspace({
   // Les filtres, repliés par défaut sur téléphone seulement : à partir de
   // `sm` le bloc est toujours affiché, quel que soit cet état.
   const [filtresOuverts, setFiltresOuverts] = useState(false);
+  const [seulementEndormis, setSeulementEndormis] = useState(false);
+
+  /*
+    Les fiches endormies, calculées une fois pour toute la liste.
+
+    Une fiche arrivée au bout — convertie, écartée, non qualifiée — ne dort
+    pas : elle a fini sa course. Les compter parmi les endormies gonflerait le
+    chiffre de tout ce qu'on a déjà traité, et le filtre ne servirait à rien.
+  */
+  const endormis = useMemo(() => {
+    if (dormanceJours === null) return new Set<string>();
+    const limite = Date.now() - dormanceJours * 86_400_000;
+    const closes: LeadStatus[] = ["call_pris", "non_qualifie", "pas_interesse"];
+    return new Set(
+      rows
+        .filter(
+          (lead) =>
+            !closes.includes(lead.status) &&
+            lead.status_changed_at !== null &&
+            new Date(lead.status_changed_at).getTime() < limite,
+        )
+        .map((lead) => lead.id),
+    );
+  }, [rows, dormanceJours]);
 
   const tourner = useCallback((groupId: string) => {
     setRotation((courant) => {
@@ -312,6 +346,7 @@ export function LeadsWorkspace({
       if (owner === "moi" && lead.owner_id !== currentUserId) return false;
       if (owner !== "tous" && owner !== "moi" && lead.owner_id !== owner) return false;
       if (onlyGrouped && !orgIndex.has(lead.id)) return false;
+      if (seulementEndormis && !endormis.has(lead.id)) return false;
       if (!PHONE_FILTERS[phoneFilter].keep(lead)) return false;
       if (!needle) return true;
       return normalize(
@@ -348,7 +383,7 @@ export function LeadsWorkspace({
     // même ligne — c'est là, en descendant la file sans réfléchir, qu'on
     // rappelait la même boîte deux fois.
     return collapseByOrg(queue, orgIndex, rotation);
-  }, [rows, search, statuses, region, segment, owner, currentUserId, view, showOverdue, today, onlyGrouped, phoneFilter, orgIndex, rotation]);
+  }, [rows, search, statuses, region, segment, owner, currentUserId, view, showOverdue, today, onlyGrouped, phoneFilter, orgIndex, rotation, seulementEndormis, endormis]);
 
   // Les lignes, et ce qu'il faut pour en changer l'occupant. Deux vues d'une
   // même liste : le rendu ne connaît que des leads, le bouton que des groupes.
@@ -416,7 +451,8 @@ export function LeadsWorkspace({
     (segment !== "tous" ? 1 : 0) +
     (owner !== "tous" ? 1 : 0) +
     (phoneFilter !== "tous" ? 1 : 0) +
-    (onlyGrouped ? 1 : 0);
+    (onlyGrouped ? 1 : 0) +
+    (seulementEndormis ? 1 : 0);
 
   // La sélection ne porte que sur les lignes réellement affichées : coller sur
   // une ligne qu'on ne voit pas serait une modification à l'aveugle.
@@ -760,6 +796,20 @@ export function LeadsWorkspace({
             ))}
           </span>
 
+          {/* Le filtre n'existe que si le seuil existe : proposer « 0 endormi »
+              inviterait à chercher un réglage qu'on ne sait pas absent. */}
+          {dormanceJours !== null && endormis.size > 0 ? (
+            <Button
+              variant={seulementEndormis ? "secondary" : "subtle"}
+              size="sm"
+              onClick={() => setSeulementEndormis((valeur) => !valeur)}
+              title={`Sans changement de statut depuis plus de ${dormanceJours} jours`}
+            >
+              <MoonStar className="size-3.5" />
+              {endormis.size} endormi{endormis.size > 1 ? "s" : ""}
+            </Button>
+          ) : null}
+
           {grouped > 0 ? (
             <Button
               variant={onlyGrouped ? "secondary" : "subtle"}
@@ -850,6 +900,7 @@ export function LeadsWorkspace({
                   rang={index + 1}
                   aujourdhui={today}
                   prospection={view === "prospection"}
+                  endormi={endormis.has(lead.id)}
                   entree={alternatives.get(lead.id)}
                   lien={orgIndex.get(lead.id)}
                   onTourner={tourner}
@@ -928,6 +979,12 @@ export function LeadsWorkspace({
                     <td className={cn("max-w-52 px-2.5", size.cell)}>
                       <p className="flex items-center gap-1.5 truncate" title={lead.company_activity ?? undefined}>
                         <span className="truncate">{lead.company_name ?? "—"}</span>
+                        {endormis.has(lead.id) ? (
+                          <MoonStar
+                            className="size-3 shrink-0 text-violet-500 dark:text-violet-300"
+                            aria-label="Endormi"
+                          />
+                        ) : null}
                         <OrgChip
                           link={orgIndex.get(lead.id)}
                           entree={alternatives.get(lead.id)}
@@ -1492,6 +1549,7 @@ function LeadCard({
   rang,
   aujourdhui,
   prospection,
+  endormi,
   entree,
   lien,
   onTourner,
@@ -1504,6 +1562,7 @@ function LeadCard({
   rang: number;
   aujourdhui: string;
   prospection: boolean;
+  endormi: boolean;
   entree?: FileEntry;
   lien?: OrgLink;
   onTourner: (groupId: string) => void;
@@ -1541,6 +1600,12 @@ function LeadCard({
           </span>
           <span className="mt-0.5 flex items-center gap-1.5 text-[12.5px] text-[var(--text-muted)]">
             <span className="truncate">{lead.company_name ?? "—"}</span>
+            {endormi ? (
+              <MoonStar
+                className="size-3 shrink-0 text-violet-500 dark:text-violet-300"
+                aria-label="Endormi"
+              />
+            ) : null}
           </span>
           {lead.job_title ? (
             <span className="mt-0.5 block truncate text-[11.5px] text-[var(--text-muted)]">

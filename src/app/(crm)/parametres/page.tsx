@@ -7,8 +7,13 @@ import { DiagnosticPanel } from "@/components/crm/diagnostic-panel";
 import { PasswordForm } from "@/components/crm/password-form";
 import { ClaapSettings } from "@/components/crm/claap-settings";
 import { DormancySettings } from "@/components/crm/dormancy-settings";
+import { LeadDormancySetting } from "@/components/crm/lead-dormancy-setting";
 import { OrgCooldownSetting } from "@/components/crm/org-cooldown-setting";
-import { fetchDormancyRules, fetchOrgCooldown } from "@/app/(crm)/parametres/dormancy-actions";
+import {
+  compterLeadsEndormis,
+  fetchDormancyRules,
+  fetchProspectionSettings,
+} from "@/app/(crm)/parametres/dormancy-actions";
 import { fetchClaapSettings } from "@/app/(crm)/parametres/claap-actions";
 import { requireStaff } from "@/lib/auth";
 import { googleCredentials } from "@/lib/google";
@@ -143,14 +148,24 @@ export default async function ParametresPage({
 
 /** Les seuils de dormance, avec ce qu'ils font basculer aujourd'hui. */
 async function PipelinePanel({ isAdmin }: { isAdmin: boolean }) {
-  const [{ rules, dormants }, cooldown] = await Promise.all([
+  const [{ rules, dormants }, reglages] = await Promise.all([
     fetchDormancyRules(),
-    fetchOrgCooldown(),
+    fetchProspectionSettings(),
   ]);
+
+  // Le compte des endormis n'a de sens qu'avec un seuil : sans lui, il n'y a
+  // rien à compter, et interroger la base pour l'apprendre serait absurde.
+  const endormis = await compterLeadsEndormis(reglages.lead_dormancy_days);
+
   return (
     <>
       <DormancySettings rules={rules} dormants={dormants} isAdmin={isAdmin} />
-      <OrgCooldownSetting days={cooldown} isAdmin={isAdmin} />
+      <LeadDormancySetting
+        days={reglages.lead_dormancy_days}
+        endormis={endormis}
+        isAdmin={isAdmin}
+      />
+      <OrgCooldownSetting days={reglages.org_cooldown_days} isAdmin={isAdmin} />
     </>
   );
 }
