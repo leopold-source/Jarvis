@@ -166,6 +166,8 @@ export function LeadsWorkspace({
   const [showOverdue, setShowOverdue] = useState(true);
   const [onlyGrouped, setOnlyGrouped] = useState(false);
   const [phoneFilter, setPhoneFilter] = useState<PhoneFilter>("tous");
+  /** Les niveaux de NRP retenus, de 1 à 9. Vide = pas de filtre. */
+  const [nrpNiveaux, setNrpNiveaux] = useState<number[]>([]);
   const [visible, setVisible] = useState(PAGE_SIZE);
   const [density, setDensity] = useState<Density>("compacte");
 
@@ -269,6 +271,19 @@ export function LeadsWorkspace({
     return map;
   }, [rows]);
 
+  // Combien de fiches à chaque niveau d'appel sans réponse. Comptées sur
+  // l'ensemble et non sur la vue filtrée : un compteur qui change en cochant
+  // une case ne dit plus ce qu'il reste à faire.
+  const comptesNrp = useMemo(() => {
+    const map = new Map<number, number>();
+    for (const lead of rows) {
+      if (lead.status !== "nrp") continue;
+      const niveau = lead.nrp_count ?? 0;
+      if (niveau >= 1) map.set(niveau, (map.get(niveau) ?? 0) + 1);
+    }
+    return map;
+  }, [rows]);
+
   const today = todayIso();
 
   /*
@@ -338,9 +353,16 @@ export function LeadsWorkspace({
   const entrees: FileEntry[] = useMemo(() => {
     const needle = normalize(search.trim());
     const wanted = new Set(statuses);
+    const niveaux = new Set(nrpNiveaux);
 
     const base = rows.filter((lead) => {
       if (wanted.size > 0 && !wanted.has(lead.status)) return false;
+      // Un niveau coché suppose le statut : demander « NRP 3 » sans être en
+      // NRP n'aurait aucun sens, et cocher le statut en plus serait un geste
+      // de trop.
+      if (niveaux.size > 0 && (lead.status !== "nrp" || !niveaux.has(lead.nrp_count ?? 0))) {
+        return false;
+      }
       if (region !== "toutes" && lead.region !== region) return false;
       if (segment !== "tous" && lead.segment !== segment) return false;
       if (owner === "moi" && lead.owner_id !== currentUserId) return false;
@@ -356,7 +378,29 @@ export function LeadsWorkspace({
       ).includes(needle);
     });
 
-    if (view === "lecture") return base.map((lead) => ({ lead, groupId: null, candidats: [lead] }));
+    /*
+      « Les 1 d'abord, puis les 2 ».
+
+      L'ordre ne s'impose que lorsque la liste se réduit à la pile NRP — un
+      niveau coché, ou le seul statut NRP retenu. Ailleurs, trier par nombre
+      d'appels manqués bousculerait une liste où ce nombre ne veut rien dire
+      pour les neuf dixièmes des lignes.
+
+      Le sens est celui de la chance qu'il reste : celui qu'on a tenté une
+      fois décroche encore, celui qu'on a tenté huit fois demande une décision
+      plutôt qu'un neuvième appel. À niveau égal, le plus ancien d'abord.
+    */
+    const pileNrp = niveaux.size > 0 || (statuses.length === 1 && statuses[0] === "nrp");
+    const parNiveau = (a: LeadListe, b: LeadListe) => {
+      const ecart = (a.nrp_count ?? 0) - (b.nrp_count ?? 0);
+      if (ecart !== 0) return ecart;
+      return a.status_changed_at < b.status_changed_at ? -1 : a.status_changed_at > b.status_changed_at ? 1 : 0;
+    };
+
+    if (view === "lecture") {
+      const liste = pileNrp ? [...base].sort(parNiveau) : base;
+      return liste.map((lead) => ({ lead, groupId: null, candidats: [lead] }));
+    }
 
     // Mode prospection : la file d'appel. Les retards d'abord, puis le jour
     // même, puis les relances orphelines, puis les fiches jamais appelées.
@@ -370,6 +414,12 @@ export function LeadsWorkspace({
         return RELANCE_SANS_DATE.includes(lead.status) || JAMAIS_APPELE.includes(lead.status);
       })
       .sort((a, b) => {
+        // Dans la pile NRP, le compteur passe avant la file d'appel : c'est
+        // lui qu'on est venu suivre.
+        if (pileNrp) {
+          const ecart = parNiveau(a, b);
+          if (ecart !== 0) return ecart;
+        }
         const rankA = prospectionRank(a, today);
         const rankB = prospectionRank(b, today);
         if (rankA !== rankB) return rankA - rankB;
@@ -383,7 +433,7 @@ export function LeadsWorkspace({
     // même ligne — c'est là, en descendant la file sans réfléchir, qu'on
     // rappelait la même boîte deux fois.
     return collapseByOrg(queue, orgIndex, rotation);
-  }, [rows, search, statuses, region, segment, owner, currentUserId, view, showOverdue, today, onlyGrouped, phoneFilter, orgIndex, rotation, seulementEndormis, endormis]);
+  }, [rows, search, statuses, nrpNiveaux, region, segment, owner, currentUserId, view, showOverdue, today, onlyGrouped, phoneFilter, orgIndex, rotation, seulementEndormis, endormis]);
 
   // Les lignes, et ce qu'il faut pour en changer l'occupant. Deux vues d'une
   // même liste : le rendu ne connaît que des leads, le bouton que des groupes.
@@ -447,6 +497,7 @@ export function LeadsWorkspace({
 
   const filtresActifs =
     statuses.length +
+    nrpNiveaux.length +
     (region !== "toutes" ? 1 : 0) +
     (segment !== "tous" ? 1 : 0) +
     (owner !== "tous" ? 1 : 0) +
@@ -664,6 +715,18 @@ export function LeadsWorkspace({
             total={leads.length}
             onChange={setStatuses}
           />
+
+          {/* Le filtre n'apparaît que s'il y a une pile à trier : neuf niveaux
+              tous à zéro n'apprendraient rien et prendraient la place d'un
+              filtre utile. */}
+          {(counts.get("nrp") ?? 0) > 0 ? (
+            <NrpFilter
+              selected={nrpNiveaux}
+              counts={comptesNrp}
+              total={counts.get("nrp") ?? 0}
+              onChange={setNrpNiveaux}
+            />
+          ) : null}
 
           {regions.length > 0 ? (
             <Select
@@ -1402,16 +1465,39 @@ function CopyableCell({
   );
 }
 
-function StatusFilter({
+/** Une valeur proposée par un filtre multiple, avec ce qu'elle pèse. */
+type OptionMulti<T extends string | number> = {
+  valeur: T;
+  label: string;
+  /** Classe de pastille colorée, quand la valeur en porte une. */
+  pastille?: string;
+  compte: number;
+};
+
+/**
+ * Un filtre à cases, générique.
+ *
+ * La coquille est la même pour les statuts et pour le compteur NRP — même
+ * bouton, même panneau, même « tout effacer », même fermeture au clic
+ * extérieur. La recopier aurait fait deux dropdowns qui se seraient
+ * lentement écartés l'un de l'autre, et dont l'un aurait fini par ne plus se
+ * fermer pareil.
+ */
+function FiltreMulti<T extends string | number>({
   selected,
-  counts,
-  total,
+  options,
   onChange,
+  resume,
+  ariaLabel,
+  className,
 }: {
-  selected: LeadStatus[];
-  counts: Map<LeadStatus, number>;
-  total: number;
-  onChange: (value: LeadStatus[]) => void;
+  selected: T[];
+  options: OptionMulti<T>[];
+  onChange: (value: T[]) => void;
+  /** Ce qu'affiche le bouton, selon ce qui est retenu. */
+  resume: (selected: T[]) => string;
+  ariaLabel: string;
+  className?: string;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -1425,48 +1511,44 @@ function StatusFilter({
     return () => document.removeEventListener("mousedown", onClickOutside);
   }, [open]);
 
-  function toggle(status: LeadStatus) {
+  function toggle(valeur: T) {
     onChange(
-      selected.includes(status)
-        ? selected.filter((value) => value !== status)
-        : [...selected, status],
+      selected.includes(valeur)
+        ? selected.filter((value) => value !== valeur)
+        : [...selected, valeur],
     );
   }
 
-  const label =
-    selected.length === 0
-      ? `Tous les statuts (${total})`
-      : selected.length === 1
-        ? LEAD_STATUS[selected[0]].label
-        : `${selected.length} statuts`;
+  const pastilleDe = (valeur: T) => options.find((option) => option.valeur === valeur)?.pastille;
 
   return (
-    <div className="relative" ref={ref}>
+    <div className={cn("relative", className)} ref={ref}>
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
         aria-haspopup="listbox"
         aria-expanded={open}
+        aria-label={ariaLabel}
         className={cn(
           "flex h-9.5 min-w-48 items-center gap-2 rounded-[10px] px-3 text-sm transition-all",
           "bg-[var(--surface-input)] ring-1 ring-[var(--border-subtle)] hover:ring-[var(--border-strong)]",
           selected.length > 0 && "ring-brand-500/60",
         )}
       >
-        {selected.length > 0 ? (
+        {selected.length > 0 && pastilleDe(selected[0]) ? (
           <span className="flex -space-x-1">
-            {selected.slice(0, 4).map((status) => (
+            {selected.slice(0, 4).map((valeur) => (
               <span
-                key={status}
+                key={valeur}
                 className={cn(
                   "size-2.5 rounded-full ring-2 ring-[var(--surface-input)]",
-                  TONE_DOT[LEAD_STATUS[status].tone],
+                  pastilleDe(valeur),
                 )}
               />
             ))}
           </span>
         ) : null}
-        <span className="truncate">{label}</span>
+        <span className="truncate">{resume(selected)}</span>
         <ChevronDown className="ml-auto size-4 shrink-0 text-[var(--text-muted)]" />
       </button>
 
@@ -1494,15 +1576,15 @@ function StatusFilter({
           </div>
 
           <ul className="max-h-80 overflow-y-auto py-1">
-            {LEAD_STATUS_ORDER.map((status) => {
-              const active = selected.includes(status);
+            {options.map((option) => {
+              const active = selected.includes(option.valeur);
               return (
-                <li key={status}>
+                <li key={option.valeur}>
                   <button
                     type="button"
                     role="option"
                     aria-selected={active}
-                    onClick={() => toggle(status)}
+                    onClick={() => toggle(option.valeur)}
                     className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-[13px] transition-colors hover:bg-[var(--surface-hover)]"
                   >
                     <span
@@ -1515,10 +1597,12 @@ function StatusFilter({
                     >
                       {active ? <Check className="size-3" /> : null}
                     </span>
-                    <span className={cn("size-2 shrink-0 rounded-full", TONE_DOT[LEAD_STATUS[status].tone])} />
-                    <span className="flex-1 truncate">{LEAD_STATUS[status].label}</span>
+                    {option.pastille ? (
+                      <span className={cn("size-2 shrink-0 rounded-full", option.pastille)} />
+                    ) : null}
+                    <span className="flex-1 truncate">{option.label}</span>
                     <span className="text-[11px] tabular-nums text-[var(--text-muted)]">
-                      {counts.get(status) ?? 0}
+                      {option.compte}
                     </span>
                   </button>
                 </li>
@@ -1530,6 +1614,81 @@ function StatusFilter({
     </div>
   );
 }
+
+function StatusFilter({
+  selected,
+  counts,
+  total,
+  onChange,
+}: {
+  selected: LeadStatus[];
+  counts: Map<LeadStatus, number>;
+  total: number;
+  onChange: (value: LeadStatus[]) => void;
+}) {
+  return (
+    <FiltreMulti
+      selected={selected}
+      onChange={onChange}
+      ariaLabel="Filtrer par statut"
+      options={LEAD_STATUS_ORDER.map((status) => ({
+        valeur: status,
+        label: LEAD_STATUS[status].label,
+        pastille: TONE_DOT[LEAD_STATUS[status].tone],
+        compte: counts.get(status) ?? 0,
+      }))}
+      resume={(retenus) =>
+        retenus.length === 0
+          ? `Tous les statuts (${total})`
+          : retenus.length === 1
+            ? LEAD_STATUS[retenus[0]].label
+            : `${retenus.length} statuts`
+      }
+    />
+  );
+}
+
+/**
+ * Le compteur d'appels sans réponse, comme filtre.
+ *
+ * « NRP » sans le nombre mélange celui qu'on a tenté une fois et celui qu'on
+ * a tenté huit : le premier vaut un rappel, le second vaut une décision. Les
+ * neuf niveaux sont tous proposés, même vides — chercher le 7 et ne pas le
+ * trouver ferait douter de l'endroit plutôt que de la donnée.
+ */
+function NrpFilter({
+  selected,
+  counts,
+  total,
+  onChange,
+}: {
+  selected: number[];
+  counts: Map<number, number>;
+  total: number;
+  onChange: (value: number[]) => void;
+}) {
+  return (
+    <FiltreMulti
+      selected={selected}
+      onChange={onChange}
+      ariaLabel="Filtrer par nombre d'appels sans réponse"
+      className="min-w-0"
+      options={Array.from({ length: NRP_MAX }, (_, index) => index + 1).map((niveau) => ({
+        valeur: niveau,
+        label: `NRP ${niveau}`,
+        compte: counts.get(niveau) ?? 0,
+      }))}
+      resume={(retenus) =>
+        retenus.length === 0
+          ? `Tous les NRP (${total})`
+          : retenus.length === 1
+            ? `NRP ${retenus[0]}`
+            : `NRP ${[...retenus].sort((a, b) => a - b).join(", ")}`
+      }
+    />
+  );
+}
+
 
 /* --------------------------------------------------- Cellules éditables */
 
