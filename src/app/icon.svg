@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="Antichaos">
+  <!--
+    La marque Antichaos, relevée sur le logo fourni.
+
+    Les proportions viennent de la mesure et non de l'œil : le point et la
+    barre ont le même diamètre — 19,4 sur 100 — et c'est ce qui fait tenir le
+    signe. Les arrondir séparément l'aurait défait.
+
+    Tracé en SVG plutôt qu'exporté en PNG : un onglet demande 16 pixels, un
+    signet 32, un raccourci Android 192. Une seule définition les sert tous,
+    et reste nette sur un écran qui double la densité.
+  -->
+  <rect width="100" height="100" rx="11.5" fill="#111111" />
+  <circle cx="23.5" cy="56.2" r="9.7" fill="#E0E5EB" />
+  <path d="M45.3 72.5 76.2 31.2" stroke="#E0E5EB" stroke-width="19.4" stroke-linecap="round" fill="none" />
+</svg>
