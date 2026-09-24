@@ -1,8 +1,9 @@
-import { NextResponse, type NextRequest } from "next/server";
+import { after, NextResponse, type NextRequest } from "next/server";
 import { createHmac, timingSafeEqual } from "node:crypto";
 
 import { normalizeClaapPayload } from "@/lib/claap";
 import { attachCall } from "@/lib/claap-sync";
+import { avancerRecapsDe } from "@/lib/deal-recap";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 /**
@@ -25,11 +26,25 @@ import { createAdminClient } from "@/lib/supabase/admin";
  */
 const SENSITIVE = /signature|secret|token|authorization|api-?key/i;
 
+/*
+  Trois caractères, pas dix.
+
+  Claap envoie son secret en clair dans un en-tête. En journaliser la moitié,
+  c'était en publier la moitié dans une table que tout l'effectif peut lire.
+  Trois caractères et la longueur suffisent à reconnaître le bon secret d'un
+  mauvais, et ne réduisent presque rien de ce qu'il faudrait deviner.
+*/
+const VISIBLES = 3;
+
+function masquer(value: string): string {
+  return `${value.slice(0, VISIBLES)}… (${value.length} car.)`;
+}
+
 function collectHeaders(request: NextRequest): Record<string, string> {
   const headers: Record<string, string> = {};
   request.headers.forEach((value, name) => {
     if (name === "cookie") return;
-    headers[name] = SENSITIVE.test(name) ? `${value.slice(0, 10)}… (${value.length} car.)` : value;
+    headers[name] = SENSITIVE.test(name) ? masquer(value) : value;
   });
   return headers;
 }
@@ -63,6 +78,9 @@ async function log(
   });
 }
 
+/** Le transcript se télécharge et le récap se rédige dans la foulée : une minute suffit. */
+export const maxDuration = 60;
+
 export async function POST(request: NextRequest) {
   const body = await request.text();
   const secret = process.env.CLAAP_WEBHOOK_SECRET?.trim();
@@ -81,7 +99,26 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "CLAAP_WEBHOOK_SECRET absente" }, { status: 503 });
   }
 
-  {
+  /*
+    Claap n'envoie pas de signature : il envoie le secret lui-même, dans
+    `x-claap-webhook-secret`. Le code attendait une empreinte HMAC et a refusé
+    les trente-deux premiers événements reçus — tous authentiques. La
+    comparaison directe passe d'abord ; la vérification HMAC reste en repli,
+    pour le jour où Claap signerait ses envois.
+  */
+  const secretRecu = request.headers.get("x-claap-webhook-secret");
+  if (secretRecu !== null) {
+    if (!memeSecret(secretRecu.trim(), secret)) {
+      await log(
+        "secret_different",
+        `En-tête x-claap-webhook-secret présent (${masquer(secretRecu)}) mais différent de CLAAP_WEBHOOK_SECRET (${masquer(secret)}).`,
+        request,
+        body,
+        safeParse(body),
+      );
+      return NextResponse.json({ error: "secret invalide" }, { status: 401 });
+    }
+  } else {
     const candidates = signatureHeaders(request);
 
     if (candidates.length === 0) {
@@ -129,7 +166,22 @@ export async function POST(request: NextRequest) {
 
   const outcome = await attachCall(call, raw);
   await log(outcome.status, "reason" in outcome ? outcome.reason : call.title, request, body, raw);
+
+  // Un call qui arrive peut être celui qu'attendait un récap de R2. La
+  // rédaction prend quelques secondes : Claap n'a pas à les attendre.
+  if (outcome.status === "rattache" && outcome.dealId) {
+    const dealId = outcome.dealId;
+    after(() => avancerRecapsDe(dealId));
+  }
+
   return NextResponse.json(outcome);
+}
+
+/** Comparaison à temps constant : la durée ne doit rien dire du secret. */
+function memeSecret(recu: string, attendu: string): boolean {
+  const a = Buffer.from(recu);
+  const b = Buffer.from(attendu);
+  return a.length === b.length && timingSafeEqual(a, b);
 }
 
 function safeParse(body: string): unknown {

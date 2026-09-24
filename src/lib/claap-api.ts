@@ -13,10 +13,51 @@ const BASES = ["https://api.claap.io/v1", "https://api.claap.io"];
 /** Schémas d'authentification rencontrés chez la plupart des fournisseurs. */
 function authVariants(key: string): Array<[string, Record<string, string>]> {
   return [
+    ["X-Claap-Key", { "X-Claap-Key": key }],
     ["Bearer", { Authorization: `Bearer ${key}` }],
     ["X-API-Key", { "X-API-Key": key }],
     ["X-Claap-Api-Key", { "X-Claap-Api-Key": key }],
   ];
+}
+
+/*
+  La combinaison qui a répondu, gardée le temps que vit l'instance.
+
+  Sans elle, chaque appel referait la tournée des huit essais — et taperait
+  sept fois l'API en erreur pour une réponse utile. Une fois trouvée, on s'y
+  tient ; un refus la fait oublier, au cas où Claap aurait changé.
+*/
+let retenue: { base: string; headers: Record<string, string> } | null = null;
+
+export type ClaapReponse = { ok: true; data: unknown } | { ok: false; detail: string };
+
+/** Un GET sur l'API Claap, avec la première combinaison qui répond. */
+export async function claapGet(path: string): Promise<ClaapReponse> {
+  const key = claapKey();
+  if (!key) return { ok: false, detail: "CLAAP_API_KEY absente." };
+
+  const essais = retenue
+    ? [retenue]
+    : BASES.flatMap((base) => authVariants(key).map(([, headers]) => ({ base, headers })));
+
+  let dernier = "aucune réponse";
+  for (const essai of essais) {
+    try {
+      const reponse = await fetch(`${essai.base}${path}`, {
+        headers: { ...essai.headers, Accept: "application/json" },
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (reponse.ok) {
+        retenue = essai;
+        return { ok: true, data: await reponse.json() };
+      }
+      dernier = `${reponse.status} sur ${essai.base}${path}`;
+      if (retenue) retenue = null;
+    } catch (caught) {
+      dernier = caught instanceof Error ? caught.message : "échec réseau";
+    }
+  }
+  return { ok: false, detail: `API Claap injoignable (${dernier}).` };
 }
 
 export type ProbeResult = {

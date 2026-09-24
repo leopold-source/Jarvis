@@ -4,6 +4,8 @@ import { revalidatePath } from "next/cache";
 
 import { requireAdmin, requireStaff } from "@/lib/auth";
 import type { CallKind, CallKindRule, WebhookEvent } from "@/lib/database.types";
+import { rejouerEvenementsClaap } from "@/lib/claap-rejeu";
+import { avancerRecapsDe } from "@/lib/deal-recap";
 import { createClient } from "@/lib/supabase/server";
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
@@ -99,4 +101,35 @@ export async function reapplyKindRules(): Promise<{ ok: true; updated: number } 
   revalidatePath("/affaires");
   revalidatePath("/parametres");
   return { ok: true, updated };
+}
+
+/**
+ * Rejoue les webhooks Claap refusés par l'ancienne vérification.
+ *
+ * Réservé aux administrateurs : l'action écrit des calls en base à partir du
+ * journal, et seul quelqu'un qui sait pourquoi ils ont été refusés doit
+ * pouvoir la lancer.
+ */
+export async function rejouerWebhooksClaap(): Promise<
+  | { ok: true; rattaches: number; enAttente: number; ignores: number; refuses: number }
+  | { ok: false; error: string }
+> {
+  await requireAdmin();
+  if (!process.env.CLAAP_WEBHOOK_SECRET?.trim()) {
+    return { ok: false, error: "CLAAP_WEBHOOK_SECRET absente : impossible de vérifier l'origine des événements." };
+  }
+
+  const bilan = await rejouerEvenementsClaap();
+  // Des récaps de R2 attendaient peut-être l'un de ces calls.
+  for (const dealId of bilan.affaires) await avancerRecapsDe(dealId);
+
+  revalidatePath("/parametres");
+  revalidatePath("/affaires");
+  return {
+    ok: true,
+    rattaches: bilan.rattaches,
+    enAttente: bilan.enAttente,
+    ignores: bilan.ignores,
+    refuses: bilan.refuses,
+  };
 }

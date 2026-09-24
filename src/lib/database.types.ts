@@ -422,6 +422,12 @@ export type CallRecord = {
   participants: Json;
   /** Resume produit par le fournisseur, tel quel. */
   summary: string | null;
+  /** Le verbatim, telecharge a la reception : le lien Claap expire en 24 h. */
+  transcript: string | null;
+  /** Calculee par la base : dit qu'un transcript existe sans le transferer. */
+  has_transcript: boolean;
+  started_at: string | null;
+  ended_at: string | null;
   /** Fiche structuree tiree du resume, pour comparer les calls entre eux. */
   insights: Json;
   insights_model: string | null;
@@ -441,6 +447,10 @@ export type CallInbox = {
   participants: Json;
   suggested_company: string | null;
   folder_title: string | null;
+  summary: string | null;
+  transcript: string | null;
+  started_at: string | null;
+  ended_at: string | null;
   status: "en_attente" | "traite" | "ignore";
   resolved_deal_id: string | null;
   resolved_project_id: string | null;
@@ -449,6 +459,36 @@ export type CallInbox = {
   raw_payload: Json;
   created_at: string;
 }
+
+export type RecapStatut = "en_attente_call" | "redaction" | "pret" | "envoye" | "ecarte" | "echec";
+
+/**
+ * Le mail récap d'un call, de sa demande à son envoi.
+ *
+ * Né d'un passage en R2, il attend son call, se rédige, attend qu'on le relise,
+ * puis part ou est écarté. Jamais envoyé sans qu'une main appuie sur le bouton.
+ */
+export type DealRecap = {
+  id: string;
+  deal_id: string;
+  /** Celui qui a déplacé la carte : le mail part de sa boîte, avec sa signature. */
+  requested_by: string | null;
+  /** L'instant du passage en R2 ; le call retenu est le plus récent avant lui. */
+  requested_at: string;
+  status: RecapStatut;
+  call_record_id: string | null;
+  to_emails: string[];
+  cc_emails: string[];
+  subject: string | null;
+  body: string | null;
+  tutoiement: boolean | null;
+  model: string | null;
+  error: string | null;
+  sent_at: string | null;
+  gmail_message_id: string | null;
+  created_at: string;
+  updated_at: string;
+};
 
 export type LeadEvent = {
   id: string;
@@ -816,6 +856,7 @@ export type Database = {
       leads: TableDef<Lead>;
       deals: TableDef<Deal, "name">;
       deal_contacts: TableDef<DealContact, "deal_id" | "contact_id">;
+      deal_recaps: TableDef<DealRecap, "deal_id">;
       projects: TableDef<Project, "name">;
       project_members: TableDef<ProjectMember, "project_id" | "user_id">;
       tasks: TableDef<Task, "project_id" | "title">;

@@ -20,6 +20,7 @@ import { formatRelative } from "@/lib/utils";
 import {
   deleteKindRule,
   reapplyKindRules,
+  rejouerWebhooksClaap,
   saveKindRule,
 } from "@/app/(crm)/parametres/claap-actions";
 import { runClaapProbe } from "@/app/(crm)/parametres/claap-probe-actions";
@@ -28,7 +29,10 @@ import { extractCallInsights } from "@/app/(crm)/affaires/insight-actions";
 import type { ProbeResult } from "@/lib/claap-api";
 
 /** Un résultat de webhook n'est « bon » que s'il a abouti quelque part. */
-const GOOD_OUTCOMES = ["rattache", "en_attente"];
+const GOOD_OUTCOMES = ["rattache", "en_attente", "rejeu_rattache", "rejeu_en_attente", "rejeu_doublon"];
+
+/** Les refus qui venaient de l'ancienne vérification, et qu'on sait rejouer. */
+const REJOUABLES = ["signature_refusee", "signature_absente", "secret_different", "identifiant_absent"];
 
 export function ClaapSettings({
   rules,
@@ -121,6 +125,23 @@ export function ClaapSettings({
     }
     startTransition(() => router.refresh());
   }
+
+  async function rejouer() {
+    setBusy(true);
+    const result = await rejouerWebhooksClaap();
+    setBusy(false);
+    if (!result.ok) {
+      toast(result.error, "error");
+      return;
+    }
+    toast(
+      `${result.rattaches} call(s) rattaché(s), ${result.enAttente} en attente de tri` +
+        (result.refuses ? `, ${result.refuses} écarté(s) faute de preuve d'origine.` : "."),
+    );
+    startTransition(() => router.refresh());
+  }
+
+  const aRejouer = events.filter((event) => REJOUABLES.includes(event.outcome)).length;
 
   async function reapply() {
     setBusy(true);
@@ -291,7 +312,26 @@ export function ClaapSettings({
             </span>
           }
           description="Toute requête entrante est tracée, y compris refusée. Si cette liste est vide, aucun appel n'atteint l'application."
+          action={
+            isAdmin && aRejouer > 0 ? (
+              <Button variant="secondary" size="sm" loading={busy} onClick={rejouer}>
+                <RefreshCw className="size-3.5" />
+                Rejouer les refusés
+              </Button>
+            ) : null
+          }
         />
+
+        {/* Les premiers événements ont été refusés par une vérification qui
+            attendait une signature que Claap n'envoie pas. Ils sont authentiques
+            et leur contenu est resté dans le journal : on les rejoue. */}
+        {isAdmin && aRejouer > 0 ? (
+          <p className="mt-3 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-[12.5px] text-amber-800 dark:text-amber-200">
+            {aRejouer} événement{aRejouer > 1 ? "s" : ""} refusé{aRejouer > 1 ? "s" : ""} par l&apos;ancienne
+            vérification. Leur résumé est conservé ; le transcript ne l&apos;est que si son lien
+            (valable 24 h) n&apos;a pas expiré.
+          </p>
+        ) : null}
 
         {events.length === 0 ? (
           <p className="mt-3 rounded-xl border border-dashed border-[var(--border-strong)] p-3 text-[12.5px] text-[var(--text-muted)]">

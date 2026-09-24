@@ -1,27 +1,41 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 
 import { requireStaff } from "@/lib/auth";
 import type { CallInbox, CallKind, CallRecord } from "@/lib/database.types";
+import { avancerRecapsDe } from "@/lib/deal-recap";
 import { createClient } from "@/lib/supabase/server";
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
 
-/** Calls rattachés à une affaire ou à un projet, du plus récent au plus ancien. */
+/** Un call tel que la fiche l'affiche : tout, sauf le transcript. */
+export type CallAffiche = Omit<CallRecord, "transcript" | "raw_payload">;
+
+/**
+ * Calls rattachés à une affaire ou à un projet, du plus récent au plus ancien.
+ *
+ * Sans le transcript ni le corps brut : cent cinquante mille caractères par
+ * call, pour une liste qui n'affiche que le résumé, feraient d'un tiroir qui
+ * s'ouvre un téléchargement.
+ */
 export async function fetchCalls(
   target: CallTarget,
-): Promise<{ ok: true; calls: CallRecord[] } | { ok: false; error: string }> {
+): Promise<{ ok: true; calls: CallAffiche[] } | { ok: false; error: string }> {
   await requireStaff();
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("call_records")
-    .select("*")
+    .select(
+      "id, provider, provider_call_id, deal_id, project_id, company_id, contact_id, title, url, occurred_on, started_at, ended_at, duration_minutes, kind, folder_title, has_external, participants, summary, has_transcript, insights, insights_model, insights_at, synced_by, created_at",
+    )
     .eq(target.kind === "affaire" ? "deal_id" : "project_id", target.id)
-    .order("occurred_on", { ascending: false });
+    .order("occurred_on", { ascending: false })
+    .order("started_at", { ascending: false, nullsFirst: false });
 
   if (error) return { ok: false, error: error.message };
-  return { ok: true, calls: (data ?? []) as CallRecord[] };
+  return { ok: true, calls: (data ?? []) as CallAffiche[] };
 }
 
 /** Requalifie un call (R1, R2…) sans quitter la fiche de l'affaire. */
@@ -86,10 +100,22 @@ export async function resolvePendingCall(
     occurred_on: pending.occurred_on,
     has_external: true,
     participants: pending.participants,
+    // Le contenu suit le call : un rattachement à la main ne doit rien perdre
+    // de ce qu'un rattachement automatique aurait gardé.
+    summary: pending.summary,
+    transcript: pending.transcript,
+    started_at: pending.started_at,
+    ended_at: pending.ended_at,
     raw_payload: pending.raw_payload,
     synced_by: profile.id,
   });
   if (insertError) return { ok: false, error: insertError.message };
+
+  // Ce call était peut-être celui qu'attendait un récap de R2.
+  if (target.kind === "affaire") {
+    const dealId = target.id;
+    after(() => avancerRecapsDe(dealId));
+  }
 
   const { error } = await supabase
     .from("call_inbox")

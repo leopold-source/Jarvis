@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   DndContext,
@@ -32,6 +32,7 @@ import { DEAL_STAGE, DEAL_STAGE_ORDER, OPEN_STAGES, TONE_DOT } from "@/lib/const
 import type { Deal, DealStage } from "@/lib/database.types";
 import { cn, daysUntil, formatMoney, normalize, positionBetween } from "@/lib/utils";
 import { createDeal, moveDeal } from "@/app/(crm)/affaires/actions";
+import { RecapBadge, RecapsProvider, type RecapLeger } from "@/components/crm/recap-modal";
 import { DealDrawer } from "@/components/crm/deal-drawer";
 
 type CompanyLite = { id: string; name: string; sector: string | null; region: string | null };
@@ -45,6 +46,7 @@ export function DealBoard({
   contacts,
   members,
   projects,
+  recaps,
   isAdmin,
 }: {
   deals: Deal[];
@@ -52,6 +54,8 @@ export function DealBoard({
   contacts: ContactLite[];
   members: MemberLite[];
   projects: ProjectLink[];
+  /** Les récaps de R2 encore ouverts : en attente, en rédaction, prêts, en échec. */
+  recaps: RecapLeger[];
   isAdmin: boolean;
 }) {
   const router = useRouter();
@@ -68,6 +72,28 @@ export function DealBoard({
   const [creating, setCreating] = useState(false);
 
   useEffect(() => setItems(deals), [deals]);
+
+  /*
+    Les récaps signalés avant que le serveur ne les connaisse.
+
+    Le passage en R2 crée le récap après la réponse : le rechargement qui suit
+    peut arriver avant lui. Sans cette mémoire, le badge n'apparaîtrait qu'au
+    rechargement suivant — et on croirait que rien ne se passe.
+  */
+  const [signales, setSignales] = useState<string[]>([]);
+  const recapsVus = useMemo(() => {
+    const connus = new Set(recaps.map((r) => r.deal_id));
+    return [
+      ...recaps,
+      ...signales
+        .filter((id) => !connus.has(id))
+        .map((id): RecapLeger => ({ id: `local-${id}`, deal_id: id, status: "en_attente_call", updated_at: "" })),
+    ];
+  }, [recaps, signales]);
+  const nomDe = useCallback(
+    (dealId: string) => items.find((deal) => deal.id === dealId)?.name ?? "Affaire",
+    [items],
+  );
 
   useEffect(() => {
     const id = params.get("affaire");
@@ -161,6 +187,9 @@ export function DealBoard({
 
     if (targetStage === "gagne" && result.data?.projectId) {
       toast("Affaire gagnée : le projet a été créé avec son plan de démarrage.");
+    } else if (result.data?.recap) {
+      setSignales((liste) => [...liste, deal.id]);
+      toast("Passée en R2 : je prépare le récap du call, il apparaîtra sur la carte.");
     } else {
       toast(`Déplacée vers « ${DEAL_STAGE[targetStage].label} »`);
     }
@@ -168,7 +197,7 @@ export function DealBoard({
   }
 
   return (
-    <>
+    <RecapsProvider initial={recapsVus} nomDe={nomDe}>
       <Card className="flex flex-wrap items-center gap-2.5 p-3.5">
         <SearchInput
           value={search}
@@ -269,7 +298,7 @@ export function DealBoard({
           startTransition(() => router.refresh());
         }}
       />
-    </>
+    </RecapsProvider>
   );
 }
 
@@ -431,6 +460,7 @@ function DealCard({
       <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
         {deal.amount ? <Badge tone="cyan">{formatMoney(deal.amount, true)}</Badge> : null}
         {hasProject ? <Badge tone="emerald">Projet</Badge> : null}
+        {overlay ? null : <RecapBadge dealId={deal.id} />}
         {deal.next_step_on ? (
           <Badge tone={(daysUntil(deal.next_step_on) ?? 0) < 0 ? "rose" : "amber"}>
             <CalendarDays className="size-3" />

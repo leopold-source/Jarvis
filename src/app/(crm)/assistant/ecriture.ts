@@ -1,10 +1,12 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 
 import { requireStaff } from "@/lib/auth";
 import { LEAD_STATUS, DEAL_STAGE } from "@/lib/constants";
 import type { DealStage, LeadStatus } from "@/lib/database.types";
+import { demanderRecap } from "@/lib/deal-recap";
 import { createClient } from "@/lib/supabase/server";
 import { formatDate } from "@/lib/utils";
 
@@ -145,14 +147,33 @@ export async function executerAction(action: ActionProposee): Promise<ActionResu
         };
       }
 
+      const { data: avant } = await supabase
+        .from("deals")
+        .select("stage")
+        .eq("id", action.cible_id)
+        .maybeSingle();
+
       const { error } = await supabase
         .from("deals")
         .update({ stage: valeur as DealStage, stage_changed_at: new Date().toISOString() })
         .eq("id", action.cible_id);
       if (error) return { ok: false, error: error.message };
 
+      // Le même récap qu'au glisser-déposer : l'étape change de la même façon,
+      // elle doit produire la même chose.
+      const recap = avant?.stage === "r1" && valeur === "r2";
+      if (recap) {
+        const dealId = action.cible_id;
+        after(() => demanderRecap(dealId, profile.id));
+      }
+
       revalidatePath("/affaires");
-      return { ok: true, message: `Affaire passée en « ${DEAL_STAGE[valeur as DealStage].label} ».` };
+      return {
+        ok: true,
+        message: `Affaire passée en « ${DEAL_STAGE[valeur as DealStage].label} ».${
+          recap ? " Je prépare le récap du call." : ""
+        }`,
+      };
     }
 
     case "creer_tache": {

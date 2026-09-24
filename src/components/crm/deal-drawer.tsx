@@ -3,15 +3,16 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Building2, ExternalLink, FolderKanban, Trash2, User } from "lucide-react";
+import { Building2, ChevronRight, ExternalLink, FolderKanban, Loader2, Mail, Trash2, User } from "lucide-react";
 
 import { Badge, Button, Drawer, Field, Input, Select, Textarea, useToast } from "@/components/ui";
 import { DateField } from "@/components/ui/date-field";
 import { DEAL_STAGE, DEAL_STAGE_ORDER } from "@/lib/constants";
-import type { Deal, DealStage } from "@/lib/database.types";
-import { formatDate, formatMoney } from "@/lib/utils";
+import type { Deal, DealStage, RecapStatut } from "@/lib/database.types";
+import { cn, formatDate, formatMoney } from "@/lib/utils";
 import { deleteDeal, moveDeal, updateDeal } from "@/app/(crm)/affaires/actions";
 import { DealContacts } from "@/components/crm/deal-contacts";
+import { useRecaps } from "@/components/crm/recap-modal";
 import { DealEmails } from "@/components/crm/deal-emails";
 import { DealCalls } from "@/components/crm/deal-calls";
 import { DealDossier } from "@/components/crm/deal-dossier";
@@ -44,6 +45,7 @@ export function DealDrawer({
 }) {
   const router = useRouter();
   const toast = useToast();
+  const recaps = useRecaps();
 
   const [form, setForm] = useState({
     name: "",
@@ -104,6 +106,10 @@ export function DealDrawer({
         return;
       }
       if (form.stage === "gagne") toast("Affaire gagnée : projet créé.");
+      if (moved.data?.recap) {
+        recaps.signaler(deal.id);
+        toast("Passée en R2 : je prépare le récap du call.");
+      }
     }
 
     setSaving(false);
@@ -190,6 +196,8 @@ export function DealDrawer({
           />
         </div>
 
+        <BandeauRecap dealId={deal.id} />
+
         {/* La liste entière sous la tuile : celle-ci dit qui répond de
             l'affaire, celle-là dit avec qui on parle. */}
         <DealContacts
@@ -275,6 +283,53 @@ export function DealDrawer({
         {deal ? <DealEmails dealId={deal.id} /> : null}
       </div>
     </Drawer>
+  );
+}
+
+const LIBELLE_RECAP: Record<RecapStatut, string> = {
+  en_attente_call: "En attente du call Claap",
+  redaction: "Rédaction en cours…",
+  pret: "Brouillon prêt à relire",
+  echec: "La rédaction a échoué",
+  envoye: "Envoyé",
+  ecarte: "Écarté",
+};
+
+/**
+ * L'accès au mail récap depuis la fiche.
+ *
+ * Toujours présent, même sans récap en cours : on peut vouloir en envoyer un
+ * après un call qui n'était pas un R1 → R2.
+ */
+function BandeauRecap({ dealId }: { dealId: string }) {
+  const { statutDe, ouvrir } = useRecaps();
+  const statut = statutDe(dealId);
+  const pret = statut === "pret";
+
+  return (
+    <button
+      type="button"
+      onClick={() => ouvrir(dealId)}
+      className={cn(
+        "flex w-full items-center gap-3 rounded-xl border px-3.5 py-2.5 text-left transition-colors",
+        pret
+          ? "border-brand-500/35 bg-brand-500/8 hover:bg-brand-500/12"
+          : "border-[var(--border-subtle)] bg-[var(--surface-base)]/50 hover:border-[var(--border-strong)]",
+      )}
+    >
+      {statut === "redaction" ? (
+        <Loader2 className="size-4 shrink-0 animate-spin text-[var(--text-muted)]" />
+      ) : (
+        <Mail className={cn("size-4 shrink-0", pret ? "text-brand-500 dark:text-brand-300" : "text-[var(--text-muted)]")} />
+      )}
+      <span className="min-w-0 flex-1">
+        <span className="block text-[13px] font-medium">Mail récap du call</span>
+        <span className="block text-[11.5px] text-[var(--text-muted)]">
+          {statut ? LIBELLE_RECAP[statut] : "Préparer un récap à partir du dernier call"}
+        </span>
+      </span>
+      <ChevronRight className="size-4 shrink-0 text-[var(--text-muted)]" />
+    </button>
   );
 }
 

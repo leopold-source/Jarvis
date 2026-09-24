@@ -1,10 +1,12 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 
 import { PROJECT_TEMPLATE } from "@/lib/constants";
 import type { DealStage } from "@/lib/database.types";
 import { requireStaff } from "@/lib/auth";
+import { demanderRecap } from "@/lib/deal-recap";
 import { createClient } from "@/lib/supabase/server";
 
 export type ActionResult<T = undefined> = { ok: true; data?: T } | { ok: false; error: string };
@@ -20,8 +22,8 @@ export async function moveDeal(
   id: string,
   stage: DealStage,
   position: number,
-): Promise<ActionResult<{ projectId?: string }>> {
-  await requireStaff();
+): Promise<ActionResult<{ projectId?: string; recap?: boolean }>> {
+  const profile = await requireStaff();
   const supabase = await createClient();
 
   const { data: before } = await supabase.from("deals").select("stage").eq("id", id).single();
@@ -34,9 +36,18 @@ export async function moveDeal(
     projectId = (await seedProjectForDeal(id)) ?? undefined;
   }
 
+  /*
+    R1 → R2 : un call vient presque toujours d'avoir lieu, et c'est le moment
+    d'en envoyer le récap. On le prépare après la réponse — la carte change de
+    colonne tout de suite, le brouillon arrive quand Claap et le modèle ont
+    fini. Rien ne part sans qu'on l'ait relu.
+  */
+  const recap = before?.stage === "r1" && stage === "r2";
+  if (recap) after(() => demanderRecap(id, profile.id));
+
   revalidatePath("/affaires");
   revalidatePath("/projets");
-  return { ok: true, data: { projectId } };
+  return { ok: true, data: { projectId, recap } };
 }
 
 export async function updateDeal(

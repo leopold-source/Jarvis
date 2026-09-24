@@ -489,6 +489,100 @@ export function sendDraft(accessToken: string, draftId: string) {
   });
 }
 
+/* ------------------------------------------------ Gmail : envoi direct */
+
+function enteteEncode(valeur: string): string {
+  return /^[\x20-\x7E]*$/.test(valeur) ? valeur : `=?UTF-8?B?${Buffer.from(valeur, "utf8").toString("base64")}?=`;
+}
+
+function base64Lignes(texte: string): string {
+  // RFC 2045 : 76 caractères par ligne au plus. Certains serveurs de réception
+  // rejettent une seule ligne de plusieurs kilo-octets.
+  return (Buffer.from(texte, "utf8").toString("base64").match(/.{1,76}/g) ?? []).join("\r\n");
+}
+
+/**
+ * Un message en deux versions, texte et HTML.
+ *
+ * Le HTML porte la mise en forme et la signature Gmail ; le texte est ce que
+ * lisent les clients qui refusent le HTML, et ce que les filtres anti-spam
+ * comparent au HTML. Un message HTML seul se classe plus facilement en
+ * indésirable.
+ */
+export function composeHtmlRaw({
+  to,
+  cc,
+  subject,
+  text,
+  html,
+}: {
+  to: string[];
+  cc: string[];
+  subject: string;
+  text: string;
+  html: string;
+}): string {
+  const frontiere = `antichaos-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  const lignes = [
+    `To: ${to.join(", ")}`,
+    ...(cc.length ? [`Cc: ${cc.join(", ")}`] : []),
+    `Subject: ${enteteEncode(subject)}`,
+    "MIME-Version: 1.0",
+    `Content-Type: multipart/alternative; boundary="${frontiere}"`,
+    "",
+    `--${frontiere}`,
+    'Content-Type: text/plain; charset="UTF-8"',
+    "Content-Transfer-Encoding: base64",
+    "",
+    base64Lignes(text),
+    `--${frontiere}`,
+    'Content-Type: text/html; charset="UTF-8"',
+    "Content-Transfer-Encoding: base64",
+    "",
+    base64Lignes(html),
+    `--${frontiere}--`,
+    "",
+  ];
+
+  return Buffer.from(lignes.join("\r\n"), "utf8")
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+}
+
+/** Envoie un message composé. Le seul geste de cette couche qui parte chez un client. */
+export function sendMessage(accessToken: string, raw: string) {
+  return gmail<{ id: string; threadId: string }>("/messages/send", accessToken, undefined, {
+    method: "POST",
+    body: { raw },
+  });
+}
+
+type SendAs = { sendAsEmail: string; isPrimary?: boolean; isDefault?: boolean; signature?: string };
+
+/**
+ * La signature telle que Gmail la connaît.
+ *
+ * Réglée dans Gmail, elle vit dans les paramètres « Envoyer en tant que » de
+ * l'adresse. On la reprend telle quelle — logo, lien, mentions — plutôt que
+ * d'en tenir une copie qui divergerait au premier changement.
+ */
+export async function getSignature(accessToken: string, email: string): Promise<string | null> {
+  try {
+    const reponse = await gmail<{ sendAs?: SendAs[] }>("/settings/sendAs", accessToken);
+    const adresses = reponse.sendAs ?? [];
+    const cible = email.trim().toLowerCase();
+    const retenue =
+      adresses.find((a) => a.sendAsEmail.toLowerCase() === cible) ??
+      adresses.find((a) => a.isDefault) ??
+      adresses.find((a) => a.isPrimary);
+    return retenue?.signature?.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
 /* ------------------------------------------------------ Google Agenda */
 
 const CALENDAR_BASE = "https://www.googleapis.com/calendar/v3";
