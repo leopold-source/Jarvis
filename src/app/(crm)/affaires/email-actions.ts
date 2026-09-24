@@ -2,6 +2,7 @@
 
 import { requireStaff } from "@/lib/auth";
 import type { EmailMessage } from "@/lib/database.types";
+import { estNotificationAgenda } from "@/lib/mail-bruit";
 import { createClient } from "@/lib/supabase/server";
 
 export type DealEmails =
@@ -24,5 +25,9 @@ export async function fetchDealEmails(dealId: string): Promise<DealEmails> {
   ]);
 
   if (error) return { ok: false, error: error.message };
-  return { ok: true, messages: (messages ?? []) as EmailMessage[], connected: Boolean(account) };
+  // Les notifications d'agenda rangées avant qu'on ne les écarte à la source.
+  const echanges = ((messages ?? []) as EmailMessage[]).filter(
+    (m) => !estNotificationAgenda({ subject: m.subject, from: m.from_email }),
+  );
+  return { ok: true, messages: echanges, connected: Boolean(account) };
 }

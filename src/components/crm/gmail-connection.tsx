@@ -58,9 +58,10 @@ export function GmailConnection({
       return;
     }
     toast(
-      result.imported > 0
-        ? `${result.imported} message(s) rattaché(s) à une affaire.`
-        : "Aucun nouveau message à rattacher.",
+      (result.imported > 0
+        ? `${result.imported} message(s) rattaché(s), toutes boîtes de l'équipe confondues.`
+        : "Aucun nouveau message à rattacher.") + (result.since ? ` ${result.since}.` : ""),
+      result.since ? "error" : "success",
     );
     startTransition(() => router.refresh());
   }
@@ -151,7 +152,7 @@ export function GmailConnection({
               onClick={() => void runSync()}
             >
               <RefreshCw className="size-3.5" />
-              Synchroniser maintenant
+              Synchroniser l&apos;équipe
             </Button>
             {/* Une exécution ordinaire reprend à la dernière : elle ne peut
                 pas voir ce qui la précède. Ajouter un interlocuteur à une
@@ -174,9 +175,10 @@ export function GmailConnection({
           </div>
 
           <p className="mt-3 text-[11.5px] leading-relaxed text-[var(--text-muted)]">
-            Une synchronisation automatique tourne aussi chaque nuit — le premier bouton ne sert
-            qu&apos;à forcer un rafraîchissement immédiat. Les messages reçus comme ceux
-            qu&apos;on envoie sont rattachés, dans les deux sens.
+            Les deux boutons synchronisent toutes les boîtes connectées de l&apos;équipe : un mail
+            de Romain au client rejoint l&apos;affaire comme un mail de Léopold, et un échange à
+            plusieurs n&apos;apparaît qu&apos;une fois. Les invitations et réponses d&apos;agenda
+            sont écartées. Une synchronisation tourne aussi chaque nuit.
           </p>
         </>
       ) : (

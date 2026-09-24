@@ -4,28 +4,42 @@ import { revalidatePath } from "next/cache";
 
 import { requireStaff } from "@/lib/auth";
 import { revokeToken } from "@/lib/google";
-import { syncGmailForUser, type SyncOutcome } from "@/lib/gmail-sync";
+import { syncAllGoogleAccounts, type SyncOutcome } from "@/lib/gmail-sync";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export type ActionResult = { ok: true; message?: string } | { ok: false; error: string };
 
 /**
- * Lance une synchronisation pour le compte de l'utilisateur connecté.
+ * Synchronise les boîtes de toute l'équipe.
  *
- * `profond` rejoue quatre mois au lieu de reprendre à la dernière exécution.
- * C'est ce qu'il faut après avoir ajouté un interlocuteur à une affaire : ses
- * échanges passés sont antérieurs au dernier passage, et une exécution
- * ordinaire ne les verrait jamais.
+ * Le fil d'une affaire est commun : un mail de Romain au client en fait
+ * partie autant qu'un mail de Léopold. Synchroniser seulement la boîte de qui
+ * clique laissait l'autre moitié des échanges attendre la nuit — et le
+ * rattrapage d'historique ne la rattrapait jamais.
+ *
+ * `profond` rejoue quatre mois au lieu de reprendre à la dernière exécution :
+ * c'est ce qu'il faut après avoir ajouté un interlocuteur à une affaire.
  */
 export async function syncGmail(profond = false): Promise<SyncOutcome> {
-  const profile = await requireStaff();
-  const result = await syncGmailForUser(profile.id, profond ? { joursEnArriere: 120 } : {});
-  if (result.ok) {
-    revalidatePath("/parametres");
-    revalidatePath("/affaires");
-    revalidatePath("/projets");
+  await requireStaff();
+  const bilan = await syncAllGoogleAccounts(profond ? { joursEnArriere: 120 } : {});
+
+  revalidatePath("/parametres");
+  revalidatePath("/affaires");
+  revalidatePath("/projets");
+
+  if (bilan.accounts === 0) return { ok: false, error: "Aucune boîte Gmail connectée." };
+  if (bilan.failed.length === bilan.accounts) {
+    return { ok: false, error: bilan.failed.map((f) => `${f.email} : ${f.error}`).join(" · ") };
   }
-  return result;
+  return {
+    ok: true,
+    imported: bilan.imported,
+    scanned: 0,
+    since: bilan.failed.length
+      ? `Échec pour ${bilan.failed.map((f) => f.email).join(", ")}`
+      : "",
+  };
 }
 
 /** Déconnecte le compte : jeton révoqué côté Google, ligne supprimée en base. */

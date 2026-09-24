@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { requireStaff } from "@/lib/auth";
 import type { DealRecap, RecapStatut } from "@/lib/database.types";
 import { avancerRecap, demanderRecap } from "@/lib/deal-recap";
-import { composeHtmlRaw, getSignature, refreshAccessToken, sendMessage } from "@/lib/google";
+import { composeHtmlRaw, getMessage, getSignature, header, refreshAccessToken, sendMessage } from "@/lib/google";
 import { choisirCall, corpsEnHtml, type CallPourRecap } from "@/lib/recap-logique";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
@@ -185,6 +185,16 @@ export async function envoyerRecap(id: string, brouillon: Brouillon): Promise<Ac
     };
   }
 
+  // Le Message-ID du mail parti : sans lui, la copie reçue par l'associé
+  // reviendrait dans le fil de l'affaire comme un second message.
+  let rfc: string | null = null;
+  try {
+    const { access_token } = await refreshAccessToken(compte.refresh_token);
+    rfc = header(await getMessage(access_token, envoye.id), "Message-ID").trim() || null;
+  } catch {
+    rfc = null;
+  }
+
   const maintenant = new Date().toISOString();
   await supabase
     .from("deal_recaps")
@@ -214,6 +224,7 @@ export async function envoyerRecap(id: string, brouillon: Brouillon): Promise<Ac
       snippet: brouillon.body.replace(/\s+/g, " ").slice(0, 200),
       sent_at: maintenant,
       synced_by: profile.id,
+      rfc_message_id: rfc,
     } as never,
     { onConflict: "provider,provider_message_id", ignoreDuplicates: true },
   );

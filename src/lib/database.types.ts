@@ -386,6 +386,8 @@ export type EmailMessage = {
   body_text: string | null;
   sent_at: string | null;
   synced_by: string | null;
+  /** En-tête `Message-ID` : commun aux copies d'un même mail dans deux boîtes. */
+  rfc_message_id: string | null;
   created_at: string;
 }
 

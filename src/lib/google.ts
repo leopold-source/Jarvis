@@ -190,7 +190,7 @@ export function listMessages(accessToken: string, query: string, pageToken?: str
 /** En-têtes seuls : suffisant pour rattacher un échange, sans aspirer les corps. */
 export function getMessage(accessToken: string, id: string) {
   const params = new URLSearchParams({ format: "metadata" });
-  for (const header of ["From", "To", "Cc", "Subject", "Date"]) {
+  for (const header of ["From", "To", "Cc", "Subject", "Date", "Message-ID"]) {
     params.append("metadataHeaders", header);
   }
   return gmail<GmailMessage>(`/messages/${id}`, accessToken, params);

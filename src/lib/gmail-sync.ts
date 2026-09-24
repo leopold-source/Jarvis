@@ -5,6 +5,8 @@ import {
   parseAddresses,
   refreshAccessToken,
 } from "@/lib/google";
+import { isInternal } from "@/lib/claap";
+import { EXCLUSIONS_GMAIL, estNotificationAgenda } from "@/lib/mail-bruit";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 /**
@@ -173,7 +175,7 @@ async function suivreMailsLeads(
   const aLire = new Set<string>();
   for (const groupe of chunk([...leadParAdresse.keys()], LEADS_PAR_REQUETE)) {
     const clause = groupe.map((email) => `from:${email} OR to:${email}`).join(" OR ");
-    const page = await listMessages(accessToken, `after:${after} (${clause})`);
+    const page = await listMessages(accessToken, `after:${after} (${clause}) ${EXCLUSIONS_GMAIL}`);
     for (const message of page.messages ?? []) {
       if (!dejaLus.has(message.id)) aLire.add(message.id);
     }
@@ -313,6 +315,21 @@ export async function syncGmailForUser(
     .eq("provider", "gmail");
   const seen = new Set((known ?? []).map((row) => row.provider_message_id).filter(Boolean) as string[]);
 
+  /*
+    Le même mail, vu depuis deux boîtes.
+
+    Gmail donne à chaque boîte son propre identifiant de message : un mail que
+    Léopold envoie à un client avec Romain en copie existe deux fois, sous deux
+    identifiants. Seul l'en-tête `Message-ID`, posé par l'expéditeur, est
+    commun aux deux copies — c'est lui qui départage, sans quoi chaque échange
+    à plusieurs apparaîtrait en double dans le fil de l'affaire.
+  */
+  const { data: rfcConnus } = await admin
+    .from("email_messages")
+    .select("rfc_message_id")
+    .not("rfc_message_id", "is", null);
+  const rfcVus = new Set((rfcConnus ?? []).map((row) => row.rfc_message_id as string));
+
   const pending = new Set<string>();
   let scanned = 0;
 
@@ -333,7 +350,7 @@ export async function syncGmailForUser(
       let pageToken: string | undefined;
 
       do {
-        const page = await listMessages(accessToken, `after:${after} (${clause})`, pageToken);
+        const page = await listMessages(accessToken, `after:${after} (${clause}) ${EXCLUSIONS_GMAIL}`, pageToken);
         for (const message of page.messages ?? []) {
           scanned += 1;
           if (!seen.has(message.id)) pending.add(message.id);
@@ -359,12 +376,21 @@ export async function syncGmailForUser(
         ...parseAddresses(header(message, "Cc")),
       ];
 
-      // Le correspondant est la première adresse connue du CRM qui ne soit pas
-      // la boîte elle-même — sans quoi un message à soi-même s'auto-rattacherait.
+      // Invitations, acceptations, refus : l'agenda parle, pas les gens.
+      const objet = header(message, "Subject") || null;
+      if (estNotificationAgenda({ subject: objet, from: from[0] ?? null })) continue;
+
+      const rfc = header(message, "Message-ID").trim() || null;
+      if (rfc && rfcVus.has(rfc)) continue;
+
+      // Le correspondant est la première adresse connue du CRM qui ne soit ni
+      // la boîte elle-même ni un associé — sans quoi un échange interne
+      // s'auto-rattacherait.
       const counterpart = [...from, ...recipients].find(
-        (address) => address !== mailbox && contactByEmail.has(address),
+        (address) => address !== mailbox && !isInternal(address) && contactByEmail.has(address),
       );
       if (!counterpart) continue;
+      if (rfc) rfcVus.add(rfc);
 
       const contact = contactByEmail.get(counterpart)!;
       const dealId =
@@ -392,10 +418,13 @@ export async function syncGmailForUser(
         provider: "gmail",
         provider_message_id: message.id,
         thread_id: message.threadId,
-        direction: from.includes(mailbox) ? "outbound" : "inbound",
+        // Sortant s'il vient de l'équipe, quelle que soit la boîte qui le lit :
+        // un mail de Romain, vu depuis la boîte de Léopold, reste un envoi.
+        direction: from.includes(mailbox) || from.some(isInternal) ? "outbound" : "inbound",
         from_email: from[0] ?? null,
         to_emails: recipients,
-        subject: header(message, "Subject") || null,
+        subject: objet,
+        rfc_message_id: rfc,
         snippet: message.snippet ?? null,
         sent_at: sentAt,
         synced_by: userId,
@@ -456,7 +485,9 @@ export type SyncAllOutcome = {
  * fois, et une exécution planifiée n'a aucune urgence à gagner quelques
  * secondes — mieux vaut rester loin des limites de débit de l'API.
  */
-export async function syncAllGoogleAccounts(): Promise<SyncAllOutcome> {
+export async function syncAllGoogleAccounts(
+  options: { joursEnArriere?: number } = {},
+): Promise<SyncAllOutcome> {
   const admin = createAdminClient();
   if (!admin) return { accounts: 0, imported: 0, failed: [] };
 
@@ -465,7 +496,7 @@ export async function syncAllGoogleAccounts(): Promise<SyncAllOutcome> {
   let imported = 0;
 
   for (const account of accounts ?? []) {
-    const result = await syncGmailForUser(account.user_id);
+    const result = await syncGmailForUser(account.user_id, options);
     if (result.ok) {
       imported += result.imported;
     } else {

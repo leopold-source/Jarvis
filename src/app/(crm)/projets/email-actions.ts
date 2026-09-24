@@ -2,6 +2,7 @@
 
 import { requireStaff } from "@/lib/auth";
 import type { EmailMessage } from "@/lib/database.types";
+import { estNotificationAgenda } from "@/lib/mail-bruit";
 import { createClient } from "@/lib/supabase/server";
 
 export type ProjectEmails =
@@ -70,6 +71,7 @@ export async function fetchProjectEmails(projectId: string): Promise<ProjectEmai
   const parId = new Map<string, EmailMessage>();
   for (const resultat of resultats) {
     for (const message of (resultat.data ?? []) as EmailMessage[]) {
+      if (estNotificationAgenda({ subject: message.subject, from: message.from_email })) continue;
       parId.set(message.id, message);
     }
   }
