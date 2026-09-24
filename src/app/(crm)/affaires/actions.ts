@@ -3,10 +3,10 @@
 import { revalidatePath } from "next/cache";
 import { after } from "next/server";
 
-import { PROJECT_TEMPLATE } from "@/lib/constants";
 import type { DealStage } from "@/lib/database.types";
 import { requireStaff } from "@/lib/auth";
 import { demanderRecap } from "@/lib/deal-recap";
+import { amorcerProjet } from "@/lib/projet-amorce";
 import { createClient } from "@/lib/supabase/server";
 
 export type ActionResult<T = undefined> = { ok: true; data?: T } | { ok: false; error: string };
@@ -33,7 +33,7 @@ export async function moveDeal(
 
   let projectId: string | undefined;
   if (stage === "gagne" && before?.stage !== "gagne") {
-    projectId = (await seedProjectForDeal(id)) ?? undefined;
+    projectId = (await amorcerProjet(supabase, id)) ?? undefined;
   }
 
   /*
@@ -110,44 +110,6 @@ export async function deleteDeal(id: string): Promise<ActionResult> {
 
   revalidatePath("/affaires");
   return { ok: true };
-}
-
-/**
- * Ajoute le squelette de tâches et de jalons au projet issu d'une affaire
- * gagnée. Sans effet si le projet a déjà des tâches.
- */
-async function seedProjectForDeal(dealId: string): Promise<string | null> {
-  const supabase = await createClient();
-
-  const { data: project } = await supabase
-    .from("projects")
-    .select("id, start_on, owner_id")
-    .eq("deal_id", dealId)
-    .maybeSingle();
-
-  if (!project) return null;
-
-  const { count } = await supabase
-    .from("tasks")
-    .select("id", { count: "exact", head: true })
-    .eq("project_id", project.id);
-
-  if ((count ?? 0) > 0) return project.id;
-
-  const start = project.start_on ? new Date(project.start_on) : new Date();
-
-  const rows = PROJECT_TEMPLATE.map((step, index) => ({
-    project_id: project.id,
-    title: step.title,
-    kind: step.kind,
-    is_client_visible: step.clientVisible ?? false,
-    position: (index + 1) * 100,
-    assignee_id: project.owner_id,
-    due_on: new Date(start.getTime() + step.offsetDays * 86_400_000).toISOString().slice(0, 10),
-  }));
-
-  await supabase.from("tasks").insert(rows);
-  return project.id;
 }
 
 /* ------------------------------------------- Les interlocuteurs d'une affaire */

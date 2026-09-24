@@ -12,6 +12,7 @@ import type { Deal, DealStage, RecapStatut } from "@/lib/database.types";
 import { cn, formatDate, formatMoney } from "@/lib/utils";
 import { deleteDeal, moveDeal, updateDeal } from "@/app/(crm)/affaires/actions";
 import { DealContacts } from "@/components/crm/deal-contacts";
+import { DealDevis } from "@/components/crm/deal-devis";
 import { useRecaps } from "@/components/crm/recap-modal";
 import { DealEmails } from "@/components/crm/deal-emails";
 import { DealCalls } from "@/components/crm/deal-calls";
@@ -275,6 +276,8 @@ export function DealDrawer({
             placeholder="Contexte, besoins exprimés, points de vigilance…"
           />
         </Field>
+
+        {deal ? <DealDevis dealId={deal.id} onChanged={onSaved} /> : null}
 
         {deal ? <DealDossier dealId={deal.id} isAdmin={isAdmin} /> : null}
 

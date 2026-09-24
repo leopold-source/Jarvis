@@ -3,6 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { syncAllGoogleAccounts } from "@/lib/gmail-sync";
 import { trierToutesLesBoites } from "@/lib/mail-triage";
 import { envoyerBriefs } from "@/lib/brief-matinal";
+import { synchroniserDevis } from "@/lib/devis-pennylane";
 import { runSuggestions } from "@/app/(crm)/suggestions-actions";
 
 /**
@@ -53,6 +54,13 @@ export async function GET(request: NextRequest) {
   // veille — c'est elle qui empêche un client de partir à la corbeille.
   const tri = await trierToutesLesBoites();
 
+  // Les devis Pennylane : un devis signé dans la nuit fait gagner son affaire
+  // avant que le brief ne parte. Un échec ici n'arrête pas la routine.
+  const devis = await synchroniserDevis({ force: true }).catch((caught: unknown) => ({
+    ok: false as const,
+    error: caught instanceof Error ? caught.message : "Synchro des devis impossible.",
+  }));
+
   const suggestions = await runSuggestions(true);
 
   // Le brief part en dernier : il résume tout ce qui précède, y compris les
@@ -62,6 +70,7 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     sync,
     tri,
+    devis,
     suggestions: suggestions.ok ? "ok" : suggestions.error,
     briefs,
   });

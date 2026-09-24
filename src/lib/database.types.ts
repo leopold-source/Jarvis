@@ -505,6 +505,28 @@ export type DealRecap = {
   updated_at: string;
 };
 
+/** Le miroir d'un devis Pennylane, rattaché à son affaire. */
+export type DevisPennylane = {
+  id: string;
+  pennylane_id: string;
+  numero: string | null;
+  statut: "brouillon" | "en_attente" | "accepte" | "refuse" | "facture" | "expire" | "inconnu";
+  statut_brut: string | null;
+  montant_ht: number | null;
+  emis_le: string | null;
+  echeance_le: string | null;
+  client_pennylane_id: string | null;
+  client_nom: string | null;
+  url: string | null;
+  deal_id: string | null;
+  /** Rattaché à la main : la synchronisation ne le défait jamais. */
+  lie_a_la_main: boolean;
+  statut_change_le: string | null;
+  raw: Json;
+  synced_at: string;
+  created_at: string;
+};
+
 export type LeadEvent = {
   id: string;
   lead_id: string;
@@ -872,6 +894,7 @@ export type Database = {
       deals: TableDef<Deal, "name">;
       deal_contacts: TableDef<DealContact, "deal_id" | "contact_id">;
       deal_recaps: TableDef<DealRecap, "deal_id">;
+      devis_pennylane: TableDef<DevisPennylane, "pennylane_id">;
       projects: TableDef<Project, "name">;
       project_members: TableDef<ProjectMember, "project_id" | "user_id">;
       tasks: TableDef<Task, "project_id" | "title">;

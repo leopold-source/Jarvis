@@ -103,6 +103,36 @@ export async function callPennylane<T = unknown>(call: PennylaneCall): Promise<P
 }
 
 /**
+ * Une lecture, sans journal quand elle réussit.
+ *
+ * `callPennylane` journalise tout, et c'est voulu pour ce qui crée un devis ou
+ * une facture. La relecture quotidienne des devis, elle, remplirait le journal
+ * de centaines de lignes identiques : seules ses erreurs sont gardées.
+ */
+export async function lirePennylane<T = unknown>(path: string): Promise<PennylaneResult<T>> {
+  const key = pennylaneKey();
+  if (!key) return { ok: false, status: 0, error: "Clé PENNYLANE_API_KEY absente." };
+
+  const call: PennylaneCall = { operation: "lecture", method: "GET", path };
+  try {
+    const response = await fetch(`${BASE}${path}`, {
+      headers: { Authorization: `Bearer ${key}`, Accept: "application/json" },
+      signal: AbortSignal.timeout(15_000),
+    });
+    const text = await response.text();
+    if (!response.ok) {
+      await record(call, response.status, false, { raw: text.slice(0, 1000) });
+      return { ok: false, status: response.status, error: text.slice(0, 400) || `HTTP ${response.status}` };
+    }
+    return { ok: true, status: response.status, data: (text ? JSON.parse(text) : null) as T };
+  } catch (caught) {
+    const message = caught instanceof Error ? caught.message : "Appel impossible.";
+    await record(call, 0, false, null, message);
+    return { ok: false, status: 0, error: message };
+  }
+}
+
+/**
  * Sonde l'API depuis le serveur, qui l'atteint — contrairement à
  * l'environnement de développement. Lecture seule : aucun document n'est créé.
  */

@@ -1,8 +1,11 @@
+import { after } from "next/server";
+
 import { PageHeader } from "@/components/layout/page-header";
 import { DealBoard } from "@/components/crm/deal-board";
 import { CallInbox } from "@/components/crm/call-inbox";
 import { requireStaff } from "@/lib/auth";
 import type { CallInbox as CallInboxRow } from "@/lib/database.types";
+import { synchroniserDevis } from "@/lib/devis-pennylane";
 import { createClient } from "@/lib/supabase/server";
 
 export const metadata = { title: "Affaires" };
@@ -29,7 +32,12 @@ export default async function DealsPage() {
       supabase.from("projects").select("id, deal_id, name").order("name"),
     ]);
 
-  const [{ data: pendingCalls }, { data: recaps }] = await Promise.all([
+  // Pennylane ne prévient pas quand un devis change : ouvrir les affaires est
+  // l'occasion de relire. Après la réponse, et pas plus d'une fois toutes les
+  // dix minutes — la page n'attend jamais Pennylane.
+  after(() => synchroniserDevis());
+
+  const [{ data: pendingCalls }, { data: recaps }, { data: devis }] = await Promise.all([
     // Sans le transcript : la file n'affiche que titre, date et participants.
     supabase
       .from("call_inbox")
@@ -43,6 +51,10 @@ export default async function DealsPage() {
       .select("id, deal_id, status, updated_at")
       .in("status", ["en_attente_call", "redaction", "pret", "echec"])
       .order("requested_at", { ascending: false }),
+    supabase
+      .from("devis_pennylane")
+      .select("deal_id, statut, montant_ht, echeance_le, emis_le")
+      .not("deal_id", "is", null),
   ]);
 
   return (
@@ -64,6 +76,7 @@ export default async function DealsPage() {
         members={members ?? []}
         projects={projects ?? []}
         recaps={recaps ?? []}
+        devis={devis ?? []}
         isAdmin={profile.role === "admin"}
       />
     </div>

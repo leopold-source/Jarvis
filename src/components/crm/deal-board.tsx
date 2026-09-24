@@ -33,6 +33,7 @@ import type { Deal, DealStage } from "@/lib/database.types";
 import { cn, daysUntil, formatMoney, normalize, positionBetween } from "@/lib/utils";
 import { createDeal, moveDeal } from "@/app/(crm)/affaires/actions";
 import { RecapBadge, RecapsProvider, type RecapLeger } from "@/components/crm/recap-modal";
+import { DevisBadge, DevisProvider, type DevisLeger } from "@/components/crm/deal-devis";
 import { DealDrawer } from "@/components/crm/deal-drawer";
 
 type CompanyLite = { id: string; name: string; sector: string | null; region: string | null };
@@ -47,6 +48,7 @@ export function DealBoard({
   members,
   projects,
   recaps,
+  devis,
   isAdmin,
 }: {
   deals: Deal[];
@@ -56,6 +58,8 @@ export function DealBoard({
   projects: ProjectLink[];
   /** Les récaps de R2 encore ouverts : en attente, en rédaction, prêts, en échec. */
   recaps: RecapLeger[];
+  /** Les devis Pennylane rattachés, pour le badge des cartes. */
+  devis: DevisLeger[];
   isAdmin: boolean;
 }) {
   const router = useRouter();
@@ -198,6 +202,7 @@ export function DealBoard({
 
   return (
     <RecapsProvider initial={recapsVus} nomDe={nomDe}>
+     <DevisProvider devis={devis}>
       <Card className="flex flex-wrap items-center gap-2.5 p-3.5">
         <SearchInput
           value={search}
@@ -298,6 +303,7 @@ export function DealBoard({
           startTransition(() => router.refresh());
         }}
       />
+     </DevisProvider>
     </RecapsProvider>
   );
 }
@@ -460,6 +466,7 @@ function DealCard({
       <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
         {deal.amount ? <Badge tone="cyan">{formatMoney(deal.amount, true)}</Badge> : null}
         {hasProject ? <Badge tone="emerald">Projet</Badge> : null}
+        {overlay ? null : <DevisBadge dealId={deal.id} />}
         {overlay ? null : <RecapBadge dealId={deal.id} />}
         {deal.next_step_on ? (
           <Badge tone={(daysUntil(deal.next_step_on) ?? 0) < 0 ? "rose" : "amber"}>
