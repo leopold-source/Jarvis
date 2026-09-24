@@ -95,6 +95,8 @@ export type Contact = {
   updated_at: string;
 }
 
+export type LeadAction = "statut" | "nrp" | "note" | "relance" | "mail" | "conversion";
+
 export type Lead = {
   id: string;
   first_name: string | null;
@@ -147,6 +149,17 @@ export type Lead = {
   status_changed_at: string;
   last_touched_at: string | null;
   touch_count: number;
+  /**
+   * Le dernier geste de prospection, tenu par la base.
+   *
+   * Le type et son detail sont bruts — `statut` + `nrp:3`, `relance` +
+   * `2026-10-02` — et se lisent avec `libelleAction`, qui reprend les
+   * intitules de statut de l'application.
+   */
+  last_action: LeadAction | null;
+  last_action_detail: string | null;
+  last_action_at: string | null;
+  last_action_by: string | null;
   owner_name: string | null;
   owner_id: string | null;
   comment: string | null;

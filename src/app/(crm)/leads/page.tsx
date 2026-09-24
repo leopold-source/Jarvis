@@ -26,7 +26,7 @@ export default async function LeadsPage() {
       // noms de colonnes — le filet qui a déjà rattrapé un `companies.city`
       // inexistant.
       .select(
-        "id, full_name, first_name, last_name, email, phone, phone_standard, company_name, company_website, company_activity, job_title, region, segment, status, nrp_count, follow_up_on, comment, owner_id, owner_name, revenue, siren, siret, headcount, headcount_range, linkedin_url, org_key, phone_key, status_changed_at, last_touched_at, touch_count, converted_at, converted_deal_id, created_at, updated_at",
+        "id, full_name, first_name, last_name, email, phone, phone_standard, company_name, company_website, company_activity, job_title, region, segment, status, nrp_count, follow_up_on, comment, owner_id, owner_name, revenue, siren, siret, headcount, headcount_range, linkedin_url, org_key, phone_key, status_changed_at, last_touched_at, touch_count, last_action, last_action_detail, last_action_at, last_action_by, converted_at, converted_deal_id, created_at, updated_at",
       )
       .order("created_at", { ascending: false }),
     supabase

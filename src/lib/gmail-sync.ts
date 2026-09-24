@@ -99,6 +99,120 @@ export function indexerAffaires(
   return { dealByContact, dealByCompany };
 }
 
+/** Ce qu'on retient d'un message échangé avec un lead. */
+export type MailLead = { leadId: string; at: string; sens: "envoye" | "recu"; objet: string | null };
+
+/**
+ * Le dernier mail échangé avec chaque lead, parmi des messages déjà lus.
+ *
+ * Un lead n'est pas un contact : ses échanges n'ont pas d'affaire où
+ * s'afficher, et on ne les garde pas. On en retient seulement le dernier —
+ * quand, dans quel sens, sous quel objet — pour dater sa dernière action.
+ */
+export function derniersMailsParLead(
+  messages: Array<{ from: string[]; to: string[]; at: string | null; objet: string | null }>,
+  leadParAdresse: Map<string, string>,
+  boite: string,
+): Map<string, MailLead> {
+  const moi = boite.toLowerCase();
+  const retenus = new Map<string, MailLead>();
+
+  for (const message of messages) {
+    if (!message.at) continue;
+    const envoye = message.from.includes(moi);
+    // Envoyé : le lead est parmi les destinataires. Reçu : il est l'expéditeur.
+    const candidats = envoye ? message.to : message.from;
+    const adresse = candidats.find((a) => a !== moi && leadParAdresse.has(a));
+    if (!adresse) continue;
+
+    const leadId = leadParAdresse.get(adresse)!;
+    const deja = retenus.get(leadId);
+    if (deja && deja.at >= message.at) continue;
+    retenus.set(leadId, { leadId, at: message.at, sens: envoye ? "envoye" : "recu", objet: message.objet });
+  }
+  return retenus;
+}
+
+/** Adresses de leads par requête : `from:` et `to:` seulement, pour tenir la longueur. */
+const LEADS_PAR_REQUETE = 40;
+/** Messages de leads lus par exécution. */
+const MAX_MESSAGES_LEADS = 100;
+
+/**
+ * Date la dernière action des leads d'après la boîte mail.
+ *
+ * Passe séparée de celle des contacts, et sans rien stocker : seule la
+ * colonne « dernière action » du lead bouge, et seulement si le mail est
+ * plus récent que ce qu'elle disait déjà. Un échec ici n'interrompt pas la
+ * synchronisation des affaires.
+ */
+async function suivreMailsLeads(
+  admin: NonNullable<ReturnType<typeof createAdminClient>>,
+  accessToken: string,
+  after: string,
+  boite: string,
+  userId: string,
+  dejaLus: Set<string>,
+): Promise<number> {
+  const { data: leads } = await admin
+    .from("leads")
+    .select("id, email, last_action_at, last_touched_at")
+    .not("email", "is", null)
+    .is("converted_deal_id", null);
+
+  const leadParAdresse = new Map<string, string>();
+  const etat = new Map<string, { last_action_at: string | null; last_touched_at: string | null }>();
+  for (const lead of leads ?? []) {
+    const adresse = lead.email?.trim().toLowerCase();
+    if (!adresse || adresse === boite) continue;
+    leadParAdresse.set(adresse, lead.id);
+    etat.set(lead.id, { last_action_at: lead.last_action_at, last_touched_at: lead.last_touched_at });
+  }
+  if (leadParAdresse.size === 0) return 0;
+
+  const aLire = new Set<string>();
+  for (const groupe of chunk([...leadParAdresse.keys()], LEADS_PAR_REQUETE)) {
+    const clause = groupe.map((email) => `from:${email} OR to:${email}`).join(" OR ");
+    const page = await listMessages(accessToken, `after:${after} (${clause})`);
+    for (const message of page.messages ?? []) {
+      if (!dejaLus.has(message.id)) aLire.add(message.id);
+    }
+    if (aLire.size >= MAX_MESSAGES_LEADS) break;
+  }
+
+  const lus = [];
+  for (const id of [...aLire].slice(0, MAX_MESSAGES_LEADS)) {
+    const message = await getMessage(accessToken, id);
+    lus.push({
+      from: parseAddresses(header(message, "From")),
+      to: [...parseAddresses(header(message, "To")), ...parseAddresses(header(message, "Cc"))],
+      at: message.internalDate ? new Date(Number(message.internalDate)).toISOString() : null,
+      objet: header(message, "Subject") || null,
+    });
+  }
+
+  let mis = 0;
+  for (const mail of derniersMailsParLead(lus, leadParAdresse, boite).values()) {
+    const avant = etat.get(mail.leadId);
+    if (avant?.last_action_at && avant.last_action_at >= mail.at) continue;
+
+    await admin
+      .from("leads")
+      .update({
+        last_action: "mail",
+        last_action_detail: `${mail.sens}|${(mail.objet ?? "").slice(0, 140)}`,
+        last_action_at: mail.at,
+        // Un mail qu'on envoie est de soi ; un mail reçu n'a pas d'auteur ici.
+        last_action_by: mail.sens === "envoye" ? userId : null,
+        // Un mail est un contact : « dernier contact » doit le voir aussi.
+        ...(!avant?.last_touched_at || avant.last_touched_at < mail.at ? { last_touched_at: mail.at } : {}),
+      })
+      .eq("id", mail.leadId);
+    mis += 1;
+  }
+  return mis;
+}
+
 /**
  * Rapproche la boîte d'un utilisateur et le CRM.
  *
@@ -296,6 +410,13 @@ export async function syncGmailForUser(
       .from("email_messages")
       .upsert(rows as never, { onConflict: "provider,provider_message_id", ignoreDuplicates: true });
     if (error) return fail(error.message);
+  }
+
+  try {
+    await suivreMailsLeads(admin, accessToken, after, mailbox, userId, new Set([...seen, ...pending]));
+  } catch {
+    // La dernière action des leads est un repère, pas une donnée d'affaire :
+    // elle se rattrapera au prochain passage.
   }
 
   /*

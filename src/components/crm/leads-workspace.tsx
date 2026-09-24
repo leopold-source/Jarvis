@@ -46,7 +46,8 @@ import {
 import { DateField } from "@/components/ui/date-field";
 import { LEAD_STATUS, LEAD_STATUS_ORDER, NRP_MAX, TONE_CLASSES, TONE_DOT } from "@/lib/constants";
 import type { LeadListe, LeadStatus } from "@/lib/database.types";
-import { cn, daysUntil, formatDate, formatMoney, normalize, todayIso } from "@/lib/utils";
+import { cn, daysUntil, formatDate, formatDateHeure, formatMoney, formatRelative, normalize, todayIso } from "@/lib/utils";
+import { libelleAction } from "@/lib/lead-action";
 import {
   assignLead,
   convertLead,
@@ -983,6 +984,7 @@ export function LeadsWorkspace({
                   <th className="px-2.5 py-1.5 font-medium">Poste</th>
                   <th className="px-2.5 py-1.5 font-medium">Entreprise</th>
                   <th className="px-2.5 py-1.5 font-medium">Statut</th>
+                  <th className="min-w-36 px-2.5 py-1.5 font-medium">Dernière action</th>
                   <th className="min-w-40 px-2.5 py-1.5 font-medium">Téléphone</th>
                   <th className="px-2.5 py-1.5 font-medium">Relance</th>
                   <th className="px-2.5 py-1.5 font-medium">Assigné</th>
@@ -1065,6 +1067,10 @@ export function LeadsWorkspace({
                     >
                       <StatusSelect lead={lead} onChange={handleStatusChange} onNrp={compterNrp} />
                     </CopyableCell>
+
+                    <td className={cn("max-w-48 px-2.5", size.cell)}>
+                      <DerniereAction lead={lead} members={members} dense={density === "compacte"} />
+                    </td>
 
                     <td className={cn("px-2.5", size.cell)} onClick={(event) => event.stopPropagation()}>
                       <CopyablePhone
@@ -1690,6 +1696,61 @@ function NrpFilter({
 }
 
 
+/**
+ * Ce qu'on a fait en dernier sur ce lead, et quand.
+ *
+ * « Il y a deux jours » ne suffisait pas : on veut savoir si c'était un NRP,
+ * une note après un vrai échange ou une relance posée. Le geste d'abord,
+ * l'ancienneté ensuite, l'auteur quand on est deux à prospecter.
+ */
+function DerniereAction({
+  lead,
+  members,
+  dense,
+}: {
+  lead: LeadListe;
+  members?: MemberLite[];
+  dense?: boolean;
+}) {
+  const action = libelleAction(lead.last_action, lead.last_action_detail);
+  if (!action || !lead.last_action_at) {
+    return <span className="text-[12px] text-[var(--text-muted)]">—</span>;
+  }
+
+  const auteur = lead.last_action_by
+    ? members?.find((m) => m.id === lead.last_action_by)
+    : undefined;
+  const prenom = auteur?.full_name?.split(/\s+/)[0] ?? null;
+  const quand = formatRelative(lead.last_action_at);
+  const infobulle = [action.titre, action.precision, `${formatDateHeure(lead.last_action_at, { avecAnnee: true })}${auteur ? ` · ${auteur.full_name ?? auteur.email}` : ""}`]
+    .filter(Boolean)
+    .join("\n");
+
+  if (dense) {
+    return (
+      <span title={infobulle} className="flex min-w-0 items-baseline gap-1.5 text-[12px]">
+        <span className="truncate font-medium text-[var(--text-secondary)]">{action.titre}</span>
+        <span className="shrink-0 text-[11px] text-[var(--text-muted)]">{quand}</span>
+      </span>
+    );
+  }
+
+  return (
+    <span title={infobulle} className="block min-w-0">
+      <span className="block truncate text-[12px] font-medium text-[var(--text-secondary)]">
+        {action.titre}
+        {action.precision ? (
+          <span className="font-normal text-[var(--text-muted)]"> · {action.precision}</span>
+        ) : null}
+      </span>
+      <span className="block text-[11px] text-[var(--text-muted)]">
+        {quand}
+        {prenom ? ` · ${prenom}` : ""}
+      </span>
+    </span>
+  );
+}
+
 /* --------------------------------------------------- Cellules éditables */
 
 /**
@@ -1770,6 +1831,11 @@ function LeadCard({
           {lead.job_title ? (
             <span className="mt-0.5 block truncate text-[11.5px] text-[var(--text-muted)]">
               {lead.job_title}
+            </span>
+          ) : null}
+          {lead.last_action ? (
+            <span className="mt-1 block">
+              <DerniereAction lead={lead} dense />
             </span>
           ) : null}
         </span>

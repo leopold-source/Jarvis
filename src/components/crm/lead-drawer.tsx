@@ -1,13 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, ArrowRight, BriefcaseBusiness, Building2, CalendarClock, Globe, Hash, Linkedin, Loader2, Mail, MapPin, Pencil, Phone, Rocket, Users, Users2, X } from "lucide-react";
+import { AlertTriangle, ArrowRight, BriefcaseBusiness, Building2, CalendarClock, Globe, Hash, History, Linkedin, Loader2, Mail, MapPin, Pencil, Phone, Rocket, Users, Users2, X } from "lucide-react";
 
 import { Badge, Button, Drawer, Field, Input, Select, Textarea, useToast } from "@/components/ui";
 import { DateField } from "@/components/ui/date-field";
 import { LEAD_STATUS, LEAD_STATUS_ORDER, NRP_MAX } from "@/lib/constants";
 import type { Lead, LeadListe, LeadModifiable, LeadStatus } from "@/lib/database.types";
 import { CHAMPS, nomAffiche, patchFiche, SECTIONS, texteDe } from "@/lib/lead-fiche";
+import { libelleAction } from "@/lib/lead-action";
 import { cn, formatDate, formatDateHeure, formatMoney, formatRelative } from "@/lib/utils";
 import type { OrgLink } from "@/lib/lead-orgs";
 import { fetchLead, incrementerNrp, updateLead } from "@/app/(crm)/leads/actions";
@@ -423,6 +424,10 @@ export function LeadDrawer({
             />
           </Field>
 
+          {/* Ce qu'on a fait en dernier, avant « combien de temps » : un NRP
+              d'hier et une note d'hier n'appellent pas le même appel. */}
+          <DerniereActionFiche lead={vue} members={members} />
+
           {/* Le suivi d'activité répond à la question qu'on se pose vraiment
               avant de décrocher : « ça fait combien de temps ? » */}
           <div className="grid grid-cols-3 gap-2 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-base)]/50 p-3">
@@ -464,6 +469,29 @@ export function LeadDrawer({
         </div>
       )}
     </Drawer>
+  );
+}
+
+function DerniereActionFiche({ lead, members }: { lead: LeadListe; members: MemberLite[] }) {
+  const action = libelleAction(lead.last_action, lead.last_action_detail);
+  if (!action || !lead.last_action_at) return null;
+  const auteur = members.find((m) => m.id === lead.last_action_by);
+
+  return (
+    <div className="flex items-start gap-3 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-base)]/50 px-3.5 py-2.5">
+      <History className="mt-0.5 size-4 shrink-0 text-[var(--text-muted)]" />
+      <div className="min-w-0 flex-1">
+        <p className="text-[10.5px] tracking-wide text-[var(--text-muted)] uppercase">Dernière action</p>
+        <p className="mt-0.5 text-[13px] font-medium">{action.titre}</p>
+        {action.precision ? (
+          <p className="mt-0.5 line-clamp-2 text-[12px] text-[var(--text-secondary)]">{action.precision}</p>
+        ) : null}
+        <p className="mt-0.5 text-[11px] text-[var(--text-muted)] tabular-nums">
+          {formatRelative(lead.last_action_at)} · {formatDateHeure(lead.last_action_at, { avecAnnee: true })}
+          {auteur ? ` · ${auteur.full_name ?? auteur.email}` : ""}
+        </p>
+      </div>
+    </div>
   );
 }
 

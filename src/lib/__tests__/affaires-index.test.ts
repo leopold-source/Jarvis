@@ -7,7 +7,8 @@
  * ne produit pas de message d'erreur — elle produit un fil incomplet, ce qui
  * est bien pire.
  */
-import { indexerAffaires } from "@/lib/gmail-sync";
+import { derniersMailsParLead, indexerAffaires } from "@/lib/gmail-sync";
+import { libelleAction } from "@/lib/lead-action";
 
 let pass = 0,
   fail = 0;
@@ -108,6 +109,47 @@ const deal = (id: string, contact_id: string | null, company_id: string | null) 
   const { dealByContact } = indexerAffaires([], [{ deal_id: "fantome", contact_id: "c1" }]);
   check("une liaison orpheline est sans effet", dealByContact.size, 0);
 }
+
+// --- Les mails échangés avec les leads ----------------------------------------
+
+{
+  const leads = new Map([
+    ["jean@acme.fr", "l1"],
+    ["paul@beta.fr", "l2"],
+  ]);
+  const boite = "leopold@antichaos.fr";
+  const mails = derniersMailsParLead(
+    [
+      { from: [boite], to: ["jean@acme.fr"], at: "2026-09-20T09:00:00Z", objet: "Présentation" },
+      { from: ["jean@acme.fr"], to: [boite], at: "2026-09-21T10:00:00Z", objet: "Re: Présentation" },
+      { from: [boite], to: ["paul@beta.fr", "romain@antichaos.fr"], at: "2026-09-19T08:00:00Z", objet: "Formation IA" },
+      { from: ["newsletter@x.fr"], to: [boite], at: "2026-09-22T08:00:00Z", objet: "Promo" },
+      { from: [boite], to: ["jean@acme.fr"], at: null, objet: "Sans date" },
+    ],
+    leads,
+    boite,
+  );
+  check("le plus récent l'emporte, dans son sens", mails.get("l1"), {
+    leadId: "l1",
+    at: "2026-09-21T10:00:00Z",
+    sens: "recu",
+    objet: "Re: Présentation",
+  });
+  check("un envoi à un lead est retenu", mails.get("l2")?.sens, "envoye");
+  check("un inconnu n'est pas un lead", mails.size, 2);
+}
+
+// --- Le libellé de la dernière action ------------------------------------------
+
+check("un NRP compté", libelleAction("statut", "nrp:3")?.titre, "→ NRP 3");
+check("un +1 NRP", libelleAction("nrp", "4")?.titre, "NRP 4");
+check("un statut ordinaire", libelleAction("statut", "a_recontacter")?.titre.startsWith("→ "), true);
+check("un mail reçu, avec son objet", libelleAction("mail", "recu|Re: Formation"), {
+  titre: "Mail reçu",
+  precision: "Re: Formation",
+});
+check("une relance datée", libelleAction("relance", "2026-10-02")?.titre, "Relance le 02/10/2026");
+check("rien n'a été fait", libelleAction(null, null), null);
 
 console.log(`\n${pass} succès, ${fail} échec(s).`);
 if (fail > 0) process.exit(1);
