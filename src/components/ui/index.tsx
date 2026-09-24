@@ -330,7 +330,7 @@ export function Modal({
   description?: ReactNode;
   children: ReactNode;
   footer?: ReactNode;
-  size?: "sm" | "md" | "lg";
+  size?: "sm" | "md" | "lg" | "xl";
 }) {
   useEffect(() => {
     if (!open) return;
@@ -348,7 +348,7 @@ export function Modal({
   const monte = useMonte();
   if (!open || !monte) return null;
 
-  const widths = { sm: "max-w-md", md: "max-w-xl", lg: "max-w-3xl" };
+  const widths = { sm: "max-w-md", md: "max-w-xl", lg: "max-w-3xl", xl: "max-w-5xl" };
 
   return createPortal(
     /*

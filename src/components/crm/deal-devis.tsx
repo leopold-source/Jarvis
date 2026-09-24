@@ -1,14 +1,20 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
-import { ExternalLink, FileSignature, Link2, Loader2, RefreshCw, Unlink } from "lucide-react";
+import { Eye, FileSignature, Link2, Loader2, Plus, RefreshCw, Send, Unlink } from "lucide-react";
 
 import { Badge, Button, Select, useToast } from "@/components/ui";
 import type { DevisPennylane } from "@/lib/database.types";
 import { aRelancer } from "@/lib/devis-logique";
 import type { Tone } from "@/lib/constants";
 import { formatDate, formatMoney, todayIso } from "@/lib/utils";
-import { fetchDevisAffaire, lierDevis, synchroniserDevisMaintenant } from "@/app/(crm)/affaires/devis-actions";
+import { DevisModal, type DevisOuvert } from "@/components/crm/devis-modal";
+import {
+  fetchDevisAffaire,
+  lierDevis,
+  marquerDevisEnvoye,
+  synchroniserDevisMaintenant,
+} from "@/app/(crm)/affaires/devis-actions";
 
 type Statut = DevisPennylane["statut"];
 
@@ -61,10 +67,11 @@ type DevisAffiche = Omit<DevisPennylane, "raw">;
 /**
  * Les devis Pennylane de l'affaire.
  *
- * Les devis se créent et partent en signature depuis Pennylane ; ici, on voit
- * où ils en sont, et l'affaire suit toute seule : devis envoyé, elle passe en
- * propale ; devis signé, elle est gagnée et son projet est créé. Un devis que
- * le rattachement automatique n'a pas trouvé se rattache à la main.
+ * Un devis s'émet d'ici : saisi dans l'application, créé chez Pennylane, relu
+ * sur son vrai PDF. L'e-signature part de Pennylane ; on confirme ensuite
+ * l'envoi d'un clic, et l'affaire suit : devis envoyé, elle passe en propale ;
+ * devis signé, elle est gagnée et son projet est créé. Un devis fait
+ * directement dans Pennylane se rattache seul, ou à la main.
  */
 export function DealDevis({ dealId, onChanged }: { dealId: string; onChanged: () => void }) {
   const toast = useToast();
@@ -72,6 +79,7 @@ export function DealDevis({ dealId, onChanged }: { dealId: string; onChanged: ()
   const [libres, setLibres] = useState<DevisAffiche[]>([]);
   const [choix, setChoix] = useState("");
   const [occupe, setOccupe] = useState(false);
+  const [modal, setModal] = useState<{ devis: DevisOuvert | null } | null>(null);
 
   const charger = useCallback(async () => {
     const resultat = await fetchDevisAffaire(dealId);
@@ -109,6 +117,16 @@ export function DealDevis({ dealId, onChanged }: { dealId: string; onChanged: ()
     onChanged();
   }
 
+  async function envoye(devisId: string) {
+    setOccupe(true);
+    const resultat = await marquerDevisEnvoye(devisId);
+    setOccupe(false);
+    if (!resultat.ok) return toast(resultat.error, "error");
+    toast(resultat.data?.vers ? "Devis envoyé — l'affaire passe en Propale envoyée." : "Devis marqué comme envoyé.");
+    await charger();
+    onChanged();
+  }
+
   const aujourdhui = todayIso();
 
   return (
@@ -118,10 +136,18 @@ export function DealDevis({ dealId, onChanged }: { dealId: string; onChanged: ()
         Devis Pennylane
         <button
           type="button"
+          onClick={() => setModal({ devis: null })}
+          className="ml-auto inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[12px] font-medium text-brand-600 transition-colors hover:bg-brand-500/10 dark:text-brand-300"
+        >
+          <Plus className="size-3.5" />
+          Émettre un devis
+        </button>
+        <button
+          type="button"
           onClick={() => void synchroniser()}
           disabled={occupe}
           title="Relire Pennylane maintenant"
-          className="ml-auto rounded-md p-1 text-[var(--text-muted)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)]"
+          className="rounded-md p-1 text-[var(--text-muted)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)]"
         >
           {occupe ? <Loader2 className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />}
         </button>
@@ -133,7 +159,7 @@ export function DealDevis({ dealId, onChanged }: { dealId: string; onChanged: ()
         </p>
       ) : lies.length === 0 ? (
         <p className="mt-2 text-[12.5px] text-[var(--text-muted)]">
-          Aucun devis rattaché. Créez-le et envoyez-le en signature depuis Pennylane : il apparaîtra
+          Aucun devis rattaché. Émettez-le d&apos;ici, ou créez-le dans Pennylane : il apparaîtra
           ici, et l&apos;affaire avancera toute seule à la signature.
         </p>
       ) : (
@@ -156,17 +182,36 @@ export function DealDevis({ dealId, onChanged }: { dealId: string; onChanged: ()
                     {devis.echeance_le ? ` · échéance ${formatDate(devis.echeance_le)}` : ""}
                   </p>
                 </div>
-                {devis.url ? (
-                  <a
-                    href={devis.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    aria-label="Ouvrir le devis"
-                    className="shrink-0 rounded-md p-1 text-[var(--text-muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)]"
+                {devis.statut === "brouillon" ? (
+                  <button
+                    type="button"
+                    onClick={() => void envoye(devis.id)}
+                    disabled={occupe}
+                    title="Je l'ai envoyé en e-signature depuis Pennylane"
+                    className="inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-[11.5px] text-[var(--text-muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)]"
                   >
-                    <ExternalLink className="size-3.5" />
-                  </a>
+                    <Send className="size-3" />
+                    Envoyé
+                  </button>
                 ) : null}
+                <button
+                  type="button"
+                  onClick={() =>
+                    setModal({
+                      devis: {
+                        id: devis.id,
+                        pennylaneId: devis.pennylane_id,
+                        numero: devis.numero,
+                        brouillon: devis.statut === "brouillon",
+                      },
+                    })
+                  }
+                  aria-label="Voir le devis"
+                  title="Voir le PDF Pennylane"
+                  className="shrink-0 rounded-md p-1 text-[var(--text-muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)]"
+                >
+                  <Eye className="size-3.5" />
+                </button>
                 <button
                   type="button"
                   onClick={() => void lier(devis.id, null)}
@@ -198,6 +243,17 @@ export function DealDevis({ dealId, onChanged }: { dealId: string; onChanged: ()
           </Button>
         </div>
       ) : null}
+
+      <DevisModal
+        dealId={dealId}
+        ouvert={modal !== null}
+        devis={modal?.devis ?? null}
+        onClose={() => setModal(null)}
+        onChanged={() => {
+          void charger();
+          onChanged();
+        }}
+      />
     </section>
   );
 }

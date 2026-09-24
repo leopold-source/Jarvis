@@ -127,6 +127,18 @@ export function etapeApresDevis(statut: StatutDevis, etape: DealStage): DealStag
   return null;
 }
 
+/**
+ * Le statut à garder en base, entre ce qu'on savait et ce que dit Pennylane.
+ *
+ * Un devis créé depuis l'application naît « pending » chez Pennylane — l'API
+ * n'a pas de brouillon — alors qu'il n'est pas encore parti en e-signature. On
+ * le tient pour brouillon jusqu'à ce qu'un associé dise l'avoir envoyé, ou que
+ * Pennylane rapporte autre chose qu'une attente : signé, refusé, expiré.
+ */
+export function statutRetenu(avant: StatutDevis | null | undefined, lu: StatutDevis): StatutDevis {
+  return avant === "brouillon" && lu === "en_attente" ? "brouillon" : lu;
+}
+
 /** Un devis qui attend une relance : expiré, ou toujours en attente passé son échéance. */
 export function aRelancer(devis: { statut: string; echeance_le: string | null }, aujourdhui: string): boolean {
   if (devis.statut === "expire") return true;

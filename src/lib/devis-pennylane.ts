@@ -7,6 +7,7 @@ import {
   lireDevis,
   nomReduit,
   pageSuivante,
+  statutRetenu,
   type DevisLu,
 } from "@/lib/devis-logique";
 import { lirePennylane, pennylaneKey } from "@/lib/pennylane";
@@ -130,6 +131,7 @@ export async function synchroniserDevis(options: { force?: boolean } = {}): Prom
     }
     if (dealId) lies += 1;
 
+    devis.statut = statutRetenu(avant?.statut, devis.statut);
     const change = avant?.statut !== devis.statut;
     await admin.from("devis_pennylane").upsert(
       {
