@@ -27,8 +27,9 @@ type ButtonSize = "sm" | "md" | "lg" | "icon";
 
 const BUTTON_VARIANTS: Record<ButtonVariant, string> = {
   // Le dégradé est doublé d'un halo au survol : discret mais vivant.
+  // `btn-primary` : l'accroche par laquelle la charte Atelier l'écrit à l'encre.
   primary:
-    "text-white bg-linear-to-r from-brand-600 to-brand-500 shadow-[0_1px_0_0_rgba(255,255,255,0.12)_inset] " +
+    "btn-primary text-white bg-linear-to-r from-brand-600 to-brand-500 shadow-[0_1px_0_0_rgba(255,255,255,0.12)_inset] " +
     "hover:from-brand-500 hover:to-accent-500 hover:shadow-[0_0_24px_-6px_var(--glow-brand)]",
   secondary:
     "bg-[var(--surface-raised)] text-[var(--text-primary)] ring-1 ring-[var(--border-subtle)] " +
@@ -97,7 +98,7 @@ export function Badge({
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11.5px] font-medium",
+        "badge inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11.5px] font-medium",
         "whitespace-nowrap ring-1 ring-inset",
         TONE_CLASSES[tone],
         className,
@@ -281,7 +282,7 @@ export function Avatar({
     <span
       style={{ width: size, height: size, fontSize: Math.max(10, size * 0.36) }}
       className={cn(
-        "inline-flex shrink-0 items-center justify-center rounded-full font-semibold text-white",
+        "avatar inline-flex shrink-0 items-center justify-center rounded-full font-semibold text-white",
         "bg-linear-to-br ring-1 ring-white/10",
         avatarGradient(seed),
         className,

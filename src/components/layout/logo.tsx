@@ -18,8 +18,29 @@ export function Logo({
 
   return (
     <span className={cn("inline-flex items-center gap-2.5", className)}>
+      {/* La marque telle qu'elle est dessinée — un point, un trait — sous la
+          charte Atelier. Les proportions sont celles du favicon : point et
+          barre de même diamètre. Elle suit le thème : noire sur le papier,
+          claire sur le noir. */}
+      <svg
+        viewBox="0 0 100 100"
+        width={dimensions}
+        height={dimensions}
+        aria-hidden
+        className="seulement-atelier shrink-0"
+      >
+        <rect width="100" height="100" rx="11.5" fill="var(--ink)" />
+        <circle cx="23.5" cy="56.2" r="9.7" fill="var(--ink-contrast)" />
+        <path
+          d="M45.3 72.5 76.2 31.2"
+          stroke="var(--ink-contrast)"
+          strokeWidth="19.4"
+          strokeLinecap="round"
+          fill="none"
+        />
+      </svg>
       <span
-        className="relative grid shrink-0 place-items-center rounded-[10px] bg-linear-to-br from-brand-600 to-accent-500 shadow-[0_0_28px_-8px_var(--glow-brand)]"
+        className="seulement-classique relative grid shrink-0 place-items-center rounded-[10px] bg-linear-to-br from-brand-600 to-accent-500 shadow-[0_0_28px_-8px_var(--glow-brand)]"
         style={{ width: dimensions, height: dimensions }}
       >
         <svg

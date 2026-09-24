@@ -363,3 +363,254 @@ body {
     scroll-behavior: auto !important;
   }
 }
+
+/* ==========================================================================
+   Charte « Atelier »
+   --------------------------------------------------------------------------
+   Tirée du logo : noir profond et papier, une seule couleur — la terre cuite,
+   l'orange de la marque assourdi —, une grotesque serrée pour le texte et une
+   chasse fixe pour les chiffres. Ni dégradé, ni halo, ni ombre qui flotte :
+   des filets d'un pixel, des coins à peine arrondis. Un outil de travail, pas
+   une vitrine.
+
+   Elle se superpose à la charte d'origine au lieu de la remplacer. Tout ce qui
+   suit ne vaut que sous `html[data-charte="atelier"]` ; retirer l'attribut —
+   c'est ce que fait le choix « Classique » du menu — rend l'application
+   exactement telle qu'elle était, sans rechargement.
+   ========================================================================== */
+
+:root[data-charte="atelier"] {
+  --font-sans: "Schibsted Grotesk", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", monospace;
+
+  /* Terre cuite : l'orange Antichaos, retenu. Il signale, il ne décore pas. */
+  --color-brand-50: #fbf3ee;
+  --color-brand-100: #f4e2d6;
+  --color-brand-200: #e8c3ab;
+  --color-brand-300: #d99c79;
+  --color-brand-400: #c97a52;
+  --color-brand-500: #b65f36;
+  --color-brand-600: #9c4d2a;
+  --color-brand-700: #7e3e23;
+  --color-brand-800: #62311d;
+  --color-brand-900: #4a2617;
+
+  /*
+    L'ambre disparaît en se confondant avec la terre cuite. Chaque dégradé
+    « marque → ambre » de l'application devient ainsi un aplat, sans qu'il
+    faille retoucher un seul composant.
+  */
+  --color-accent-300: var(--color-brand-300);
+  --color-accent-400: var(--color-brand-400);
+  --color-accent-500: var(--color-brand-500);
+  --color-accent-600: var(--color-brand-600);
+
+  /* Des coins à peine cassés. */
+  --radius-card: 8px;
+  --radius-sm: 3px;
+  --radius-md: 4px;
+  --radius-lg: 6px;
+  --radius-xl: 8px;
+  --radius-2xl: 10px;
+
+  --glow-brand: transparent;
+  --glow-accent: transparent;
+}
+
+/* Le noir du logo, et la lumière grise de son trait. */
+:root[data-charte="atelier"],
+:root[data-charte="atelier"][data-theme="dark"] {
+  --surface-base: #0f0f0f;
+  --surface-raised: #151515;
+  --surface-overlay: #1a1a1a;
+  --surface-hover: #202020;
+  --surface-input: #121212;
+
+  --border-subtle: rgba(224, 229, 235, 0.09);
+  --border-strong: rgba(224, 229, 235, 0.19);
+
+  --text-primary: #e0e5eb;
+  --text-secondary: #a4a9af;
+  --text-muted: #6f747a;
+
+  /* L'encre : ce qui se lit le plus fort, et la couleur des boutons d'action. */
+  --ink: #e0e5eb;
+  --ink-hover: #ffffff;
+  --ink-contrast: #111111;
+
+  --grid-line: rgba(224, 229, 235, 0.035);
+  --shadow-card: 0 0 0 0 transparent;
+  --shadow-pop: 0 18px 40px -22px rgba(0, 0, 0, 0.9);
+}
+
+/* Le papier, pour le jour. */
+:root[data-charte="atelier"][data-theme="light"] {
+  --surface-base: #f4f2ee;
+  --surface-raised: #fbfaf7;
+  --surface-overlay: #ffffff;
+  --surface-hover: #ebe8e2;
+  --surface-input: #ffffff;
+
+  --border-subtle: rgba(17, 17, 17, 0.1);
+  --border-strong: rgba(17, 17, 17, 0.22);
+
+  --text-primary: #141414;
+  --text-secondary: #4a4a47;
+  --text-muted: #85837e;
+
+  --ink: #111111;
+  --ink-hover: #2a2a2a;
+  --ink-contrast: #f4f2ee;
+
+  --grid-line: rgba(17, 17, 17, 0.045);
+  --shadow-card: 0 1px 0 rgba(17, 17, 17, 0.03);
+  --shadow-pop: 0 20px 44px -24px rgba(17, 17, 17, 0.38);
+}
+
+/* --- Typographie ---------------------------------------------------------- */
+
+[data-charte="atelier"] body {
+  font-feature-settings: "ss01", "cv11";
+  letter-spacing: -0.005em;
+}
+
+/* Les titres serrés, comme sur une planche. */
+[data-charte="atelier"] :is(h1, h2, h3) {
+  letter-spacing: -0.02em;
+}
+
+[data-charte="atelier"] h1 {
+  font-weight: 700;
+}
+
+/*
+  Les chiffres en chasse fixe.
+
+  Montants, dates, compteurs : tout ce que l'application marque déjà comme
+  tabulaire passe dans la mono. Les colonnes s'alignent, et l'œil distingue
+  d'un coup ce qui se lit de ce qui se compte.
+*/
+[data-charte="atelier"] :is(.tabular-nums, .font-mono) {
+  font-family: var(--font-mono);
+  font-feature-settings: normal;
+  letter-spacing: -0.01em;
+}
+
+/* Les petites capitales d'intitulé, un peu plus espacées : c'est leur rôle. */
+[data-charte="atelier"] .uppercase {
+  letter-spacing: 0.08em;
+}
+
+[data-charte="atelier"] ::selection {
+  background: color-mix(in srgb, var(--color-brand-500) 32%, transparent);
+}
+
+/* --- Ce qui disparaît ------------------------------------------------------ */
+
+/* Les halos derrière le contenu, et leur respiration. */
+[data-charte="atelier"] .aurora::before,
+[data-charte="atelier"] .aurora::after {
+  display: none;
+}
+
+/* Le liseré lumineux et son balayage. */
+[data-charte="atelier"] .edge-glow::before,
+[data-charte="atelier"] .edge-glow::after {
+  display: none;
+}
+
+/* Le texte en dégradé devient de l'encre, soulignée d'un trait de terre cuite. */
+[data-charte="atelier"] .text-gradient {
+  background: none;
+  color: var(--text-primary);
+  text-decoration: underline;
+  text-decoration-color: var(--color-brand-500);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 5px;
+}
+
+/* Une carte qu'on survole ne décolle pas : son filet se renforce, c'est tout. */
+[data-charte="atelier"] .card-interactive:hover {
+  transform: none;
+  box-shadow: none;
+  border-color: var(--border-strong);
+}
+
+/* La grille d'arrière-plan de la connexion reste, plus nette. */
+[data-charte="atelier"] .grid-backdrop {
+  background-size: 32px 32px;
+}
+
+/* --- Formes ----------------------------------------------------------------- */
+
+/*
+  Les rayons écrits en dur dans les composants.
+
+  Ceux qui passent par les jetons de Tailwind suivent déjà ; ceux-ci ont été
+  écrits au pixel près et doivent être rattrapés un par un. La liste est
+  courte parce que l'application n'en emploie que peu.
+*/
+[data-charte="atelier"] .rounded-\[14px\] { border-radius: 8px; }
+[data-charte="atelier"] .rounded-\[11px\] { border-radius: 7px; }
+[data-charte="atelier"] .rounded-\[10px\] { border-radius: 6px; }
+[data-charte="atelier"] .rounded-\[8px\] { border-radius: 5px; }
+[data-charte="atelier"] .rounded-\[5px\] { border-radius: 3px; }
+
+/* Les étiquettes en tampon plutôt qu'en pilule. */
+[data-charte="atelier"] .badge {
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+/*
+  Les avatars en gris d'atelier.
+
+  Six dégradés vifs pour distinguer deux associés et une poignée de clients :
+  sur une page noir et blanc, c'étaient les seules taches de couleur, et elles
+  attiraient l'œil vers ce qui compte le moins. Les initiales suffisent.
+*/
+[data-charte="atelier"] .avatar {
+  background-image: none;
+  background-color: var(--surface-hover);
+  color: var(--text-secondary);
+  --tw-ring-color: var(--border-strong);
+}
+
+/* --- Action ------------------------------------------------------------------ */
+
+/*
+  Le bouton principal, écrit à l'encre.
+
+  Dans la charte d'origine il porte le dégradé de la marque et s'allume au
+  survol. Ici il est noir sur le papier, clair sur le noir : l'action la plus
+  importante d'un écran se reconnaît à son contraste, pas à sa couleur. La
+  terre cuite reste pour ce qui signale — l'onglet actif, le focus, un récap
+  prêt.
+
+  Le bouton garde ses classes d'origine ; ces règles, hors couche, passent
+  simplement devant elles sous la charte Atelier.
+*/
+[data-charte="atelier"] .btn-primary {
+  color: var(--ink-contrast);
+  background-image: none;
+  background-color: var(--ink);
+  box-shadow: none;
+}
+
+[data-charte="atelier"] .btn-primary:hover {
+  background-image: none;
+  background-color: var(--ink-hover);
+  box-shadow: none;
+}
+
+[data-charte="atelier"] :focus-visible {
+  outline: 2px solid var(--color-brand-500);
+  outline-offset: 2px;
+}
+
+/* --- Ce qui n'appartient qu'à une charte --------------------------------------- */
+
+[data-charte="atelier"] .seulement-classique,
+:root:not([data-charte="atelier"]) .seulement-atelier {
+  display: none !important;
+}

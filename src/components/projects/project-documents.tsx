@@ -115,7 +115,7 @@ export function ProjectDocuments({
         <label className="inline-flex cursor-pointer">
           <span
             className={
-              "inline-flex h-9.5 items-center gap-2 rounded-[10px] bg-linear-to-r from-brand-600 to-brand-500 px-4 text-sm font-medium text-white " +
+              "btn-primary inline-flex h-9.5 items-center gap-2 rounded-[10px] bg-linear-to-r from-brand-600 to-brand-500 px-4 text-sm font-medium text-white " +
               "transition-all duration-200 hover:from-brand-500 hover:to-accent-500 hover:shadow-[0_0_24px_-6px_var(--glow-brand)]"
             }
           >

@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { Activity, ChevronDown, LogOut, Mail, Settings } from "lucide-react";
 
 import { Avatar } from "@/components/ui";
+import { CharteToggle } from "@/components/layout/charte-toggle";
 import { ROLE_LABEL } from "@/lib/constants";
 import type { Profile } from "@/lib/database.types";
 import { createClient } from "@/lib/supabase/client";
@@ -100,6 +101,13 @@ export function UserMenu({ profile }: { profile: Profile }) {
               </Link>
             ))}
           </div>
+
+          {/* Un choix d'équipe : le portail client garde la charte par défaut. */}
+          {profile.role !== "client" ? (
+            <div className="border-b border-[var(--border-subtle)]">
+              <CharteToggle />
+            </div>
+          ) : null}
 
           <button
             type="button"
