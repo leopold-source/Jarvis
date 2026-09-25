@@ -5,7 +5,9 @@ import {
   corpsCorrection,
   corpsDevis,
   decouperAdresse,
+  detailTva,
   idsDesLignes,
+  montantLigne,
   plusJours,
   totauxDevis,
   type SaisieDevis,
@@ -189,6 +191,12 @@ check("adresse sur deux lignes, avec pays", decouperAdresse("3 allée des Pins\n
 });
 check("adresse sans code postal", decouperAdresse("Zone artisanale"), { adresse: "Zone artisanale", codePostal: "", ville: "" });
 check("validité à 30 jours", plusJours("2026-09-24", 30), "2026-10-24");
+check("détail TVA par taux", detailTva(saisie.lignes), [
+  { code: "FR_200", libelle: "20%", base: 2501, montant: 500.2 },
+  { code: "exempt", libelle: "Exonéré", base: 100, montant: 0 },
+]);
+check("détail TVA = total TVA", detailTva(saisie.lignes, 10).reduce((s, t) => s + t.montant, 0), totauxDevis(saisie.lignes, 10).tva);
+check("montant de ligne", montantLigne({ quantite: 3, prixUnitaireHt: 333.333 }), 1000);
 check("ids des lignes", idsDesLignes({ items: [{ id: 3 }, { id: "4" }, {}] }), [3, 4]);
 
 console.log(`\n${pass} succès, ${fail} échec(s).`);

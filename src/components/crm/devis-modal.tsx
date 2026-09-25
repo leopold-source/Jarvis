@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import {
   AlertTriangle,
+  Eye,
   Building2,
   ExternalLink,
   FileSignature,
@@ -14,6 +15,7 @@ import {
 } from "lucide-react";
 
 import { Button, Field, Input, Modal, Select, Textarea, useToast } from "@/components/ui";
+import { DevisApercu } from "@/components/crm/devis-apercu";
 import {
   TAUX_TVA,
   UNITES,
@@ -90,7 +92,7 @@ export function DevisModal({
   onChanged: () => void;
 }) {
   const toast = useToast();
-  const [etape, setEtape] = useState<"chargement" | "saisie" | "apercu">("chargement");
+  const [etape, setEtape] = useState<"chargement" | "saisie" | "previsu" | "apercu">("chargement");
   const [erreur, setErreur] = useState<string | null>(null);
   const [prep, setPrep] = useState<PreparationDevis | null>(null);
   const [base, setBase] = useState<SaisieDevis | null>(null);
@@ -209,7 +211,11 @@ export function DevisModal({
   const titre =
     etape === "apercu"
       ? `Devis ${emis?.numero ?? ""}`.trim()
-      : correction
+      : etape === "previsu"
+        ? correction
+          ? "Aperçu de la correction"
+          : "Aperçu du devis"
+        : correction
         ? "Corriger le devis"
         : "Émettre un devis";
 
@@ -219,6 +225,17 @@ export function DevisModal({
         <Button variant="ghost" onClick={correction ? () => setEtape("apercu") : onClose}>
           {correction ? "Revenir à l'aperçu" : "Annuler"}
         </Button>
+        <Button variant="primary" disabled={erreurs.length > 0} onClick={() => setEtape("previsu")}>
+          <Eye className="size-4" />
+          Aperçu
+        </Button>
+      </>
+    ) : etape === "previsu" ? (
+      <>
+        <Button variant="ghost" onClick={() => setEtape("saisie")} disabled={occupe}>
+          <Pencil className="size-4" />
+          Modifier
+        </Button>
         <Button
           variant="primary"
           loading={occupe}
@@ -226,7 +243,7 @@ export function DevisModal({
           onClick={() => void creer()}
         >
           <FileSignature className="size-4" />
-          {correction ? "Enregistrer la correction" : "Créer dans Pennylane"}
+          {correction ? "Valider la correction" : "Valider et créer dans Pennylane"}
         </Button>
       </>
     ) : etape === "apercu" ? (
@@ -264,7 +281,9 @@ export function DevisModal({
           ? emis?.brouillon
             ? "Le PDF de Pennylane, tel que le client le recevra. Envoyez-le en e-signature depuis Pennylane, puis confirmez ici."
             : "Le PDF de Pennylane."
-          : "Le devis est créé chez Pennylane avec sa mise en page ; rien ne part chez le client."
+          : etape === "previsu"
+            ? "La mise en page de Pennylane, reproduite. Rien n'est créé chez Pennylane tant que vous ne validez pas."
+            : "Saisissez le devis, puis vérifiez-le en aperçu avant de le créer chez Pennylane."
       }
       footer={pied}
     >
@@ -276,6 +295,16 @@ export function DevisModal({
         <p className="flex items-center gap-2 text-[13px] text-[var(--text-muted)]">
           <Loader2 className="size-4 animate-spin" /> Lecture du client et du catalogue chez Pennylane…
         </p>
+      ) : etape === "previsu" && base && saisie ? (
+        <DevisApercu
+          saisie={saisie}
+          numero={correction ? (emis?.numero ?? null) : null}
+          client={
+            base.clientPennylaneId && prep?.clientPennylane?.id === base.clientPennylaneId && prep.clientPennylane.fiche
+              ? prep.clientPennylane.fiche
+              : base.client
+          }
+        />
       ) : etape === "apercu" && emis ? (
         <iframe
           key={version}

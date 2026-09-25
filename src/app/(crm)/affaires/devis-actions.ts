@@ -83,10 +83,37 @@ export type ProduitPennylane = {
   tva: CodeTva;
 };
 
+/** Un client tel que Pennylane le renvoie — ce qu'on en lit, du moins. */
+type ClientPennylane = {
+  id?: number;
+  name?: string;
+  reg_no?: string | null;
+  vat_number?: string | null;
+  emails?: string[];
+  recipient?: string | null;
+  billing_address?: { address?: string; postal_code?: string; city?: string; country_alpha2?: string } | null;
+};
+
+/** La fiche d'un client Pennylane, sous la forme de la saisie — pour l'aperçu. */
+function ficheDe(c: ClientPennylane): ClientSaisi {
+  return {
+    nom: c.name ?? "",
+    siret: c.reg_no ?? "",
+    tva: c.vat_number ?? "",
+    adresse: c.billing_address?.address ?? "",
+    codePostal: c.billing_address?.postal_code ?? "",
+    ville: c.billing_address?.city ?? "",
+    pays: c.billing_address?.country_alpha2 ?? "FR",
+    email: c.emails?.[0] ?? "",
+    destinataire: c.recipient ?? "",
+  };
+}
+
 export type PreparationDevis = {
   /** Faux tant que `PENNYLANE_ENABLED` n'est pas levé : on peut saisir, pas créer. */
   ecriturePermise: boolean;
-  clientPennylane: { id: string; nom: string } | null;
+  /** `fiche` : ce que Pennylane imprimera dans le bloc client, pour l'aperçu. */
+  clientPennylane: { id: string; nom: string; fiche: ClientSaisi | null } | null;
   saisie: SaisieDevis;
   produits: ProduitPennylane[];
 };
@@ -133,18 +160,17 @@ export async function preparerDevis(dealId: string): Promise<ActionResult<Prepar
   // Le client chez Pennylane : par l'identifiant déjà retenu, sinon par le nom.
   let clientPennylane: PreparationDevis["clientPennylane"] = null;
   if (entreprise?.pennylane_customer_id) {
-    const lu = await lirePennylane<{ id?: number; name?: string }>(
-      `/customers/${encodeURIComponent(entreprise.pennylane_customer_id)}`,
-    );
+    const lu = await lirePennylane<ClientPennylane>(`/customers/${encodeURIComponent(entreprise.pennylane_customer_id)}`);
     clientPennylane = {
       id: entreprise.pennylane_customer_id,
       nom: (lu.ok && lu.data?.name) || entreprise.name,
+      fiche: lu.ok && lu.data ? ficheDe(lu.data) : null,
     };
   } else if (entreprise?.name) {
     const filtre = encodeURIComponent(JSON.stringify([{ field: "name", operator: "eq", value: entreprise.name }]));
-    const lu = await lirePennylane<Liste<{ id?: number; name?: string }>>(`/customers?limit=5&filter=${filtre}`);
+    const lu = await lirePennylane<Liste<ClientPennylane>>(`/customers?limit=5&filter=${filtre}`);
     const trouve = lu.ok ? lu.data?.items?.find((c) => c.id != null) : undefined;
-    if (trouve) clientPennylane = { id: String(trouve.id), nom: trouve.name ?? entreprise.name };
+    if (trouve) clientPennylane = { id: String(trouve.id), nom: trouve.name ?? entreprise.name, fiche: ficheDe(trouve) };
   }
 
   const catalogue = await lirePennylane<
@@ -371,6 +397,8 @@ export async function relireSaisie(pennylaneId: string): Promise<ActionResult<Sa
   if (!devis.ok) return { ok: false, error: devis.error };
   if (!lignes.ok) return { ok: false, error: lignes.error };
   const d = devis.data;
+  const idClient = (d.customer as { id?: number } | null)?.id;
+  const client = idClient != null ? await lirePennylane<ClientPennylane>(`/customers/${idClient}`) : null;
   const remise = d.discount as { type?: string; value?: string } | null | undefined;
   const texte = (v: unknown) => (typeof v === "string" ? v : "");
 
@@ -378,7 +406,10 @@ export async function relireSaisie(pennylaneId: string): Promise<ActionResult<Sa
     ok: true,
     data: {
       clientPennylaneId: String((d.customer as { id?: number } | null)?.id ?? ""),
-      client: { nom: "", siret: "", tva: "", adresse: "", codePostal: "", ville: "", pays: "FR", email: "", destinataire: "" },
+      client:
+        client?.ok && client.data
+          ? ficheDe(client.data)
+          : { nom: "", siret: "", tva: "", adresse: "", codePostal: "", ville: "", pays: "FR", email: "", destinataire: "" },
       date: texte(d.date).slice(0, 10),
       echeance: texte(d.deadline).slice(0, 10),
       objet: texte(d.pdf_invoice_subject),

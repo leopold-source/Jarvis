@@ -81,6 +81,36 @@ export function totauxDevis(lignes: LigneDevis[], remisePct = 0): { ht: number; 
   return { ht: centimes(ht), tva: centimes(tva), ttc: centimes(ht + tva) };
 }
 
+/** Le montant HT d'une ligne, remise globale comprise, au centime. */
+export function montantLigne(ligne: Pick<LigneDevis, "quantite" | "prixUnitaireHt">, remisePct = 0): number {
+  const facteur = 1 - Math.min(Math.max(remisePct, 0), 100) / 100;
+  return centimes(ligne.quantite * ligne.prixUnitaireHt * facteur);
+}
+
+/**
+ * Le tableau « Détails TVA » du devis : une ligne par taux, base et montant.
+ * Calculé ligne à ligne comme `totauxDevis`, pour que les deux tombent juste.
+ */
+export function detailTva(
+  lignes: LigneDevis[],
+  remisePct = 0,
+): Array<{ code: CodeTva; libelle: string; base: number; montant: number }> {
+  const parTaux = new Map<CodeTva, { base: number; montant: number }>();
+  for (const ligne of lignes) {
+    const base = montantLigne(ligne, remisePct);
+    const deja = parTaux.get(ligne.tva) ?? { base: 0, montant: 0 };
+    parTaux.set(ligne.tva, {
+      base: centimes(deja.base + base),
+      montant: centimes(deja.montant + centimes(base * tauxDe(ligne.tva))),
+    });
+  }
+  return TAUX_TVA.filter((t) => parTaux.has(t.code)).map((t) => ({
+    code: t.code,
+    libelle: t.code === "exempt" ? "Exonéré" : `${String(t.taux * 100).replace(".", ",")}%`,
+    ...parTaux.get(t.code)!,
+  }));
+}
+
 /** Ce qui empêche l'envoi, dit en clair. Vide : la saisie peut partir. */
 export function controlerSaisie(saisie: SaisieDevis): string[] {
   const erreurs: string[] = [];
