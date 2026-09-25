@@ -442,8 +442,10 @@ export function LeadsWorkspace({
     const queue = base
       .filter((lead) => {
         if (SORTIS_DE_PROSPECTION.includes(lead.status)) return false;
-        // Sans responsable, c'est de la prospection libre : elle attend le plan.
-        if (!lead.owner_id && !libre) return false;
+        // Sans responsable et sans relance due, c'est de la prospection libre :
+        // elle attend le plan. Une relance en retard, elle, reste toujours là.
+        const due = lead.follow_up_on !== null && lead.follow_up_on <= today;
+        if (!lead.owner_id && !libre && !due) return false;
         if (lead.follow_up_on) {
           if (lead.follow_up_on > today) return false;
           if (!showOverdue && lead.follow_up_on < today) return false;
@@ -739,7 +741,7 @@ export function LeadsWorkspace({
               <span className="flex-1">
                 <strong className="font-medium">Prospection libre fermée.</strong> D&apos;abord le plan du jour :{" "}
                 {verrou.affaires} affaire{verrou.affaires > 1 ? "s" : ""} et {verrou.relances} relance
-                {verrou.relances > 1 ? "s" : ""}. La file ne montre que les relances des leads assignés.
+                {verrou.relances > 1 ? "s" : ""}. La file ne montre que les relances.
               </span>
               <Link href="/" className="font-medium text-brand-600 hover:underline dark:text-brand-300">
                 Voir le plan
