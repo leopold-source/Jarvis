@@ -246,6 +246,35 @@ export type LeadListe = Omit<
   | "converted_company_id"
 >;
 
+export type TodoStatut = "a_faire" | "en_cours" | "en_attente" | "probleme" | "fait";
+
+/** Une tâche du quotidien de l'équipe, à côté des chantiers. */
+export type Todo = {
+  id: string;
+  titre: string;
+  details: string | null;
+  categorie: string | null;
+  statut: TodoStatut;
+  prio: boolean;
+  assignee_ids: string[];
+  due_on: string | null;
+  deal_id: string | null;
+  chantier_id: string | null;
+  position: number;
+  done_at: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type TodoComment = {
+  id: string;
+  todo_id: string;
+  author_id: string;
+  body: string;
+  created_at: string;
+};
+
 /** Les notes de rendez-vous et la synthèse d'une affaire, chargées à part. */
 export type DealNotes = {
   note_r1: string | null;
@@ -932,6 +961,8 @@ export type Database = {
       mail_triage: TableDef<MailTriage, "user_id" | "provider_message_id" | "category">;
       mail_runs: TableDef<MailRun, "user_id">;
       ai_feedback: TableDef<AiFeedback, "kind" | "utile" | "user_id">;
+      todos: TableDef<Todo, "titre">;
+      todo_comments: TableDef<TodoComment, "todo_id" | "body">;
     };
     Views: {
       project_progress: { Row: ProjectProgress; Relationships: [] };
@@ -970,6 +1001,7 @@ export type Database = {
       review_state: ReviewState;
       entity_kind: EntityKind;
       chantier_status: ChantierStatus;
+      todo_statut: TodoStatut;
       metric_source: MetricSource;
       mail_category: MailCategory;
       mail_action: MailAction;

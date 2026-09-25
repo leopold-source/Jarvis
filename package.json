@@ -21,7 +21,8 @@
     "test:devis": "npx --yes tsx src/lib/__tests__/devis.test.ts",
     "test:rdv": "npx --yes tsx src/lib/__tests__/rdv.test.ts",
     "test:notes": "npx --yes tsx src/lib/__tests__/notes.test.ts",
-    "test:echeances": "npx --yes tsx src/lib/__tests__/echeances.test.ts"
+    "test:echeances": "npx --yes tsx src/lib/__tests__/echeances.test.ts",
+    "test:taches": "npx --yes tsx src/lib/__tests__/taches.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.122.0",

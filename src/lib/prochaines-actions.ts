@@ -39,6 +39,17 @@ export type Radar = {
   devis: Array<{ dealId: string; nom: string; numero: string | null; echeance: string | null; expire: boolean; ownerId: string | null }>;
   recaps: Array<{ dealId: string; nom: string; ownerId: string | null }>;
   sansSuite: Array<{ dealId: string; nom: string; etape: string; ownerId: string | null }>;
+  /** Les tâches d'équipe qui demandent un geste : en retard, du jour, prioritaires ou bloquées. */
+  taches: Array<{
+    id: string;
+    titre: string;
+    categorie: string | null;
+    le: string | null;
+    echeance: Echeance | null;
+    prio: boolean;
+    probleme: boolean;
+    assignees: string[];
+  }>;
   relances: Array<{
     leadId: string;
     nom: string;
@@ -54,7 +65,7 @@ export async function chargerRadar(client: SupabaseClient<Database>): Promise<Ra
   const aujourdhui = todayIso();
   const prochain = prochainOuvre(aujourdhui);
 
-  const [{ data: deals }, { data: devis }, { data: recaps }, { data: leads }] = await Promise.all([
+  const [{ data: deals }, { data: devis }, { data: recaps }, { data: leads }, { data: todos }] = await Promise.all([
     client
       .from("deals")
       .select("id, name, stage, next_step, next_step_on, owner_id")
@@ -74,6 +85,11 @@ export async function chargerRadar(client: SupabaseClient<Database>): Promise<Ra
       .lte("follow_up_on", aujourdhui)
       .order("follow_up_on")
       .limit(300),
+    client
+      .from("todos")
+      .select("id, titre, categorie, statut, prio, due_on, assignee_ids")
+      .neq("statut", "fait")
+      .limit(500),
   ]);
 
   const parId = new Map((deals ?? []).map((d) => [d.id, d]));
@@ -126,6 +142,22 @@ export async function chargerRadar(client: SupabaseClient<Database>): Promise<Ra
       return affaire ? [{ dealId: affaire.id, nom: affaire.name, ownerId: affaire.owner_id }] : [];
     }),
     sansSuite,
+    taches: (todos ?? [])
+      .map((t) => ({
+        id: t.id,
+        titre: t.titre,
+        categorie: t.categorie,
+        le: t.due_on,
+        echeance: classerEcheance(t.due_on, aujourdhui),
+        prio: t.prio,
+        probleme: t.statut === "probleme",
+        assignees: t.assignee_ids,
+      }))
+      .filter((t) => t.echeance || t.prio || t.probleme)
+      .sort((a, b) => {
+        const rang = (t: typeof a) => (t.probleme ? 0 : t.echeance === "retard" ? 1 : t.echeance === "jour" ? 2 : t.prio ? 3 : 4);
+        return rang(a) - rang(b) || (a.le ?? "9999").localeCompare(b.le ?? "9999");
+      }),
     relances: (leads ?? []).map((l) => ({
       leadId: l.id,
       nom: l.full_name ?? "Sans nom",

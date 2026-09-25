@@ -123,11 +123,35 @@ async function composer(admin: Admin, membres: Membre[]): Promise<{ sujet: strin
     );
   }
 
-  // --- Tâches prioritaires (les suggestions du jour)
+  // --- Tâches de l'équipe : bloquées, en retard, du jour, prioritaires
+  const taches = r.taches.filter((t) => t.echeance !== "prochain" || t.prio || t.probleme);
+  if (taches.length) {
+    const etat = (t: Radar["taches"][number]) =>
+      t.probleme
+        ? `<span style="color:${ROUGE}">problème</span>`
+        : t.echeance === "retard"
+          ? `<span style="color:${ROUGE}">en retard</span>`
+          : t.echeance === "jour"
+            ? "aujourd'hui"
+            : "prioritaire";
+    blocs.push(
+      titre("Tâches de l'équipe", taches.length) +
+        liste(
+          taches.slice(0, 15).map(
+            (t) =>
+              `${t.prio ? "★ " : ""}${lien("/taches", esc(t.titre))}${t.categorie ? ` <span style="color:${GRIS}">#${esc(t.categorie)}</span>` : ""} — ${etat(t)}<span style="color:${GRIS}"> · ${
+                t.assignees.map((id) => esc(prenomDe(id))).join(" + ") || "à attribuer"
+              }</span>`,
+          ),
+        ),
+    );
+  }
+
+  // --- Priorités commerciales (les suggestions du jour)
   const items = ((suggestions?.items ?? []) as Array<{ title: string; detail: string; href: string; urgency: string }>).slice(0, 8);
   if (items.length) {
     blocs.push(
-      titre("Tâches commerciales prioritaires") +
+      titre("Priorités commerciales du jour") +
         (suggestions?.focus ? `<p style="margin:0 0 6px;font-size:14px;color:#26262c"><em>${esc(suggestions.focus)}</em></p>` : "") +
         liste(
           items.map(
@@ -210,6 +234,7 @@ async function composer(admin: Admin, membres: Membre[]): Promise<{ sujet: strin
     rdv.length ? `${rdv.length} rendez-vous` : null,
     retard.length + jour.length ? `${retard.length + jour.length} action${retard.length + jour.length > 1 ? "s" : ""} affaires` : null,
     r.relances.length ? `${r.relances.length} relance${r.relances.length > 1 ? "s" : ""} leads` : null,
+    taches.length ? `${taches.length} tâche${taches.length > 1 ? "s" : ""}` : null,
   ].filter(Boolean);
 
   const date = JOUR_LONG.format(new Date());

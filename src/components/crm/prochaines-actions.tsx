@@ -3,7 +3,17 @@
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, ArrowRight, Check, CornerDownRight, FileSignature, Mail, PhoneCall, Target } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowRight,
+  Check,
+  CornerDownRight,
+  FileSignature,
+  ListTodo,
+  Mail,
+  PhoneCall,
+  Target,
+} from "lucide-react";
 
 import { Card, SectionTitle, useToast } from "@/components/ui";
 import type { Radar } from "@/lib/prochaines-actions";
@@ -45,6 +55,7 @@ export function ProchainesActions({
   const recaps = radar.recaps.filter(garder);
   const sansSuite = radar.sansSuite.filter(garder);
   const relances = radar.relances.filter(garder);
+  const taches = radar.taches.filter((t) => qui === "tous" || t.assignees.length === 0 || t.assignees.includes(moi));
 
   const nomDe = (id: string | null) => membres.find((m) => m.id === id)?.nom ?? null;
   const total = retard.length + jour.length + devis.length + recaps.length;
@@ -81,6 +92,48 @@ export function ProchainesActions({
         <Groupe titre="En retard" ton="retard" items={retard} nomDe={nomDe} radar={radar} onFait={(id) => setFaits((f) => new Set(f).add(id))} />
         <Groupe titre="Aujourd'hui" ton="jour" items={jour} nomDe={nomDe} radar={radar} onFait={(id) => setFaits((f) => new Set(f).add(id))} />
         <Groupe titre={radar.nomProchain} ton="prochain" items={prochain} nomDe={nomDe} radar={radar} onFait={(id) => setFaits((f) => new Set(f).add(id))} />
+
+        {taches.length ? (
+          <div className="border-t border-[var(--border-subtle)] pt-3">
+            <p className="mb-1 flex items-center justify-between text-[10.5px] font-medium tracking-wide text-[var(--text-muted)] uppercase">
+              Tâches · {taches.length}
+              <Link href="/taches" className="normal-case tracking-normal hover:text-[var(--text-primary)]">
+                Tout voir →
+              </Link>
+            </p>
+            <ul className="space-y-0.5 text-[12.5px]">
+              {taches.slice(0, 6).map((t) => (
+                <li key={t.id}>
+                  <Link href="/taches" className="flex items-center gap-2 rounded-md px-2 py-1 transition-colors hover:bg-[var(--surface-hover)]/60">
+                    <ListTodo
+                      className={cn(
+                        "size-3.5 shrink-0",
+                        t.probleme || t.echeance === "retard" ? "text-rose-500" : t.prio ? "text-amber-500" : "text-[var(--text-muted)]",
+                      )}
+                    />
+                    <span className="min-w-0 flex-1 truncate">{t.titre}</span>
+                    <span className="shrink-0 text-[11px] text-[var(--text-muted)]">
+                      {t.probleme
+                        ? "problème"
+                        : t.echeance === "retard"
+                          ? "en retard"
+                          : t.echeance === "jour"
+                            ? "aujourd'hui"
+                            : t.echeance === "prochain"
+                              ? radar.nomProchain.toLowerCase()
+                              : "prioritaire"}
+                    </span>
+                    {t.assignees.map((id) => (
+                      <span key={id} title={nomDe(id) ?? ""} className="grid size-5 shrink-0 place-items-center rounded-full bg-[var(--surface-hover)] text-[9px] font-medium">
+                        {initials(nomDe(id) ?? "?")}
+                      </span>
+                    ))}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
 
         {devis.length || recaps.length || sansSuite.length ? (
           <ul className="space-y-1 border-t border-[var(--border-subtle)] pt-3 text-[12.5px]">

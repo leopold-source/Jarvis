@@ -12,6 +12,7 @@ import {
   Banknote,
   Handshake,
   LayoutDashboard,
+  ListTodo,
   Menu,
   MoreHorizontal,
   Sparkles,
@@ -27,6 +28,7 @@ import { cn } from "@/lib/utils";
 
 const NAV = [
   { href: "/", label: "Tableau de bord", icon: LayoutDashboard, exact: true },
+  { href: "/taches", label: "Tâches", icon: ListTodo },
   { href: "/chantiers", label: "Chantiers", icon: Compass },
   { href: "/mails", label: "Boîte mail", icon: Inbox },
   { href: "/leads", label: "Leads", icon: Sparkles },
