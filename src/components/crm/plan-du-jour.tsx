@@ -18,7 +18,14 @@ import {
 import { Button, Card, Input, useToast } from "@/components/ui";
 import { DateField } from "@/components/ui/date-field";
 import { nomProchainOuvre } from "@/lib/echeances";
-import { planDe, verrouProspection, type ItemAffaire, type ItemLead, type Niveau } from "@/lib/plan-logique";
+import {
+  RELANCES_PAR_JOUR,
+  planDe,
+  verrouProspection,
+  type Groupe as GroupeAffaires,
+  type ItemAffaire,
+  type ItemLead,
+} from "@/lib/plan-logique";
 import type { PlanComplet } from "@/lib/plan-du-jour";
 import { cn, formatMoney, initials } from "@/lib/utils";
 import { faireAvancer } from "@/app/(crm)/actions-du-jour";
@@ -26,10 +33,10 @@ import { cocherItem, generateSuggestions } from "@/app/(crm)/suggestions-actions
 
 type Membre = { id: string; nom: string };
 
-const NIVEAUX: Array<{ niveau: Niveau; titre: string; ton: string }> = [
-  { niveau: "urgent", titre: "Urgent", ton: "text-rose-600 dark:text-rose-400" },
-  { niveau: "jour", titre: "Aujourd'hui", ton: "text-brand-600 dark:text-brand-300" },
-  { niveau: "avancer", titre: "À faire avancer", ton: "text-[var(--text-muted)]" },
+const GROUPES: Array<{ groupe: GroupeAffaires; titre: string; ton: string }> = [
+  { groupe: "no_show", titre: "No-show à replanifier", ton: "text-rose-600 dark:text-rose-400" },
+  { groupe: "traiter", titre: "À traiter", ton: "text-brand-600 dark:text-brand-300" },
+  { groupe: "reveiller", titre: "À réveiller", ton: "text-amber-600 dark:text-amber-400" },
 ];
 
 /**
@@ -44,7 +51,8 @@ const NIVEAUX: Array<{ niveau: Niveau; titre: string; ton: string }> = [
 export function PlanDuJour({ plan, moi, membres }: { plan: PlanComplet; moi: string; membres: Membre[] }) {
   const toast = useToast();
   const router = useRouter();
-  const [vue, setVue] = useState<"moi" | "equipe">("moi");
+  // L'équipe par défaut : à deux, chacun doit voir toutes les affaires ouvertes.
+  const [vue, setVue] = useState<"moi" | "equipe">("equipe");
   const [retires, setRetires] = useState<Set<string>>(new Set());
   const [conseils, demarrerConseils] = useTransition();
 
@@ -57,6 +65,10 @@ export function PlanDuJour({ plan, moi, membres }: { plan: PlanComplet; moi: str
     affaires: monPlan.affaires.filter((a) => !retires.has(a.cle)),
     relances: monPlan.relances.filter((l) => !retires.has(l.cle)),
   });
+  const enAttente =
+    vue === "moi"
+      ? (plan.relancesEnAttente[moi] ?? 0)
+      : Object.values(plan.relancesEnAttente).reduce((a, b) => a + b, 0);
   const nomDe = (id: string | null) => membres.find((m) => m.id === id)?.nom ?? null;
   const retirer = (cle: string) => setRetires((r) => new Set(r).add(cle));
 
@@ -117,11 +129,11 @@ export function PlanDuJour({ plan, moi, membres }: { plan: PlanComplet; moi: str
         {affaires.length === 0 ? (
           <p className="text-[12.5px] text-[var(--text-muted)]">Aucune affaire n&apos;attend de geste aujourd&apos;hui.</p>
         ) : (
-          NIVEAUX.map(({ niveau, titre, ton }) => {
-            const items = affaires.filter((a) => a.niveau === niveau);
+          GROUPES.map(({ groupe, titre, ton }) => {
+            const items = affaires.filter((a) => a.groupe === groupe);
             if (!items.length) return null;
             return (
-              <Groupe key={niveau} titre={titre} ton={ton} items={items} replierApres={niveau === "avancer" ? 4 : 50}>
+              <Groupe key={groupe} titre={titre} ton={ton} items={items} replierApres={100}>
                 {(a) => (
                   <LigneAffaire
                     key={a.cle}
@@ -148,24 +160,31 @@ export function PlanDuJour({ plan, moi, membres }: { plan: PlanComplet; moi: str
         numero={2}
         titre="Leads à relancer"
         compte={relances.length}
-        note={vue === "moi" && affaires.length ? "après les affaires" : undefined}
+        note={affaires.length ? `lot du jour, ${RELANCES_PAR_JOUR} max par personne · après les affaires` : `lot du jour, ${RELANCES_PAR_JOUR} max par personne`}
       >
         {relances.length === 0 ? (
           <p className="text-[12.5px] text-[var(--text-muted)]">Aucune relance due.</p>
         ) : (
           <>
             <ul className="space-y-0.5">
-              {relances.slice(0, 6).map((l) => (
+              {relances.map((l) => (
                 <LigneLead key={l.cle} l={l} responsable={vue === "equipe" ? nomDe(l.ownerId) : null} onFait={() => retirer(l.cle)} />
               ))}
             </ul>
-            <Link
-              href="/leads?vue=prospection"
-              className="mt-2 inline-flex items-center gap-1.5 text-[12.5px] font-medium text-brand-600 hover:underline dark:text-brand-300"
-            >
-              <PhoneCall className="size-3.5" />
-              {relances.length > 6 ? `Ouvrir la file (${relances.length} relances)` : "Ouvrir la file de relances"}
-            </Link>
+            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+              <Link
+                href="/leads?vue=prospection"
+                className="inline-flex items-center gap-1.5 text-[12.5px] font-medium text-brand-600 hover:underline dark:text-brand-300"
+              >
+                <PhoneCall className="size-3.5" />
+                Ouvrir la file de relances
+              </Link>
+              {enAttente ? (
+                <span className="text-[11.5px] text-[var(--text-muted)]">
+                  {enAttente} autre{enAttente > 1 ? "s" : ""} en attente pour les jours suivants
+                </span>
+              ) : null}
+            </div>
           </>
         )}
       </Palier>

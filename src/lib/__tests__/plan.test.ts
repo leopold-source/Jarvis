@@ -57,8 +57,9 @@ const cumul = plan.affaires.find((a) => a.dealId === "cumul")!;
 check("raison principale = étape en retard", cumul.type, "etape_retard");
 check("les autres raisons en bref", cumul.aussi, ["devis D-2026-3 expiré"]);
 check("action = prochaine étape écrite", cumul.action, "Appeler");
-check("no-show daté plus tard reste urgent", plan.affaires.find((a) => a.dealId === "noshow")!.niveau, "urgent");
-check("étape du jour = niveau jour", plan.affaires.find((a) => a.dealId === "jour")!.niveau, "jour");
+check("no-show daté plus tard : groupe no-show", plan.affaires.find((a) => a.dealId === "noshow")!.groupe, "no_show");
+check("étape du jour : à traiter", plan.affaires.find((a) => a.dealId === "jour")!.groupe, "traiter");
+check("dormante : à réveiller", plan.affaires.find((a) => a.dealId === "dort")!.groupe, "reveiller");
 check("dormante = faire avancer", plan.affaires.find((a) => a.dealId === "dort")!.type, "dormante");
 check("chaude sans étape", plan.affaires.find((a) => a.dealId === "chaude")!.action, "Fixer la prochaine étape");
 check("fermées et cochées absentes", ["gagnee", "coche", "tranquille", "lundi"].some((i) => ids.includes(i)), false);
@@ -76,6 +77,26 @@ check(
   verrouProspection({ ...leo, affaires: [], relances: [] }).ouvert,
   true,
 );
+
+// --- Le lot de relances : vingt par personne, toujours les mêmes tant qu'elles ne sont pas traitées
+const leads = Array.from({ length: 25 }, (_, i) => ({
+  id: `x${i}`,
+  nom: `Lead ${String(i).padStart(2, "0")}`,
+  entreprise: null,
+  statutLibelle: "NRP",
+  followUpOn: `2026-09-${String(1 + i).padStart(2, "0")}`,
+  ownerId: "L",
+  nrp: 1,
+}));
+const lot = construirePlan({ aujourdhui: auj, affaires: [], devis: [], recapsPrets: [], leads, coches: new Set() });
+check("lot de 20", lot.relances.length, 20);
+check("les plus anciennes d'abord", lot.relances[0]!.leadId, "x0");
+check("le reste attend", lot.relancesEnAttente, { L: 5 });
+const coche = construirePlan({ aujourdhui: auj, affaires: [], devis: [], recapsPrets: [], leads, coches: new Set(["lead:x0", "lead:x1"]) });
+check("cocher ne fait pas entrer d'autres leads", coche.relances.length, 18);
+check("les cochées comptent comme faites", coche.faits, 2);
+const lendemain = construirePlan({ aujourdhui: "2026-09-28", affaires: [], devis: [], recapsPrets: [], leads, coches: new Set() });
+check("le lendemain, les mêmes restent en tête", lendemain.relances.map((l) => l.leadId).slice(0, 3), ["x0", "x1", "x2"]);
 
 console.log(`\n${pass} succès, ${fail} échec(s).`);
 if (fail > 0) process.exit(1);

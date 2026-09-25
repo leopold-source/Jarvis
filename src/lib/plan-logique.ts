@@ -15,7 +15,15 @@
 import type { DealStage } from "@/lib/database.types";
 import { joursDeRetard, prochainOuvre } from "@/lib/echeances";
 
-export type Niveau = "urgent" | "jour" | "avancer";
+/**
+ * Les trois familles du palier « affaires », dans l'ordre où on les traite :
+ * les rendez-vous manqués d'abord, puis tout ce qui attend un geste, puis les
+ * affaires qui dorment.
+ */
+export type Groupe = "no_show" | "traiter" | "reveiller";
+
+/** Le nombre de relances de leads proposées par jour et par personne. */
+export const RELANCES_PAR_JOUR = 20;
 
 export type TypeRaison =
   | "recap"
@@ -59,7 +67,7 @@ export type ItemAffaire = {
   etapeLibelle: string;
   montant: number | null;
   ownerId: string | null;
-  niveau: Niveau;
+  groupe: Groupe;
   type: TypeRaison;
   /** Ce qu'il y a à faire, en une ligne. */
   action: string;
@@ -86,7 +94,10 @@ export type Plan = {
   aujourdhui: string;
   prochain: string;
   affaires: ItemAffaire[];
+  /** Le lot de relances du jour (au plus vingt par personne), hors cochées. */
   relances: ItemLead[];
+  /** Par personne (clé vide : sans responsable), les relances dues au-delà du lot. */
+  relancesEnAttente: Record<string, number>;
   /** Affaires dont l'étape tombe le prochain jour ouvré : annoncées, pas encore dues. */
   aVenir: number;
   /** Ce qui a déjà été coché aujourd'hui. */
@@ -105,16 +116,11 @@ const POIDS_ETAPE: Partial<Record<DealStage, number>> = {
   demande_rdv_envoyee: 1,
 };
 
-const NIVEAU: Record<TypeRaison, Niveau> = {
-  recap: "urgent",
-  no_show: "urgent",
-  etape_retard: "urgent",
-  devis_expire: "urgent",
-  etape_jour: "jour",
-  devis_echeance: "jour",
-  sans_suite: "avancer",
-  dormante: "avancer",
-};
+function groupeDe(type: TypeRaison): Groupe {
+  if (type === "no_show") return "no_show";
+  if (type === "dormante") return "reveiller";
+  return "traiter";
+}
 
 const BASE: Record<TypeRaison, number> = {
   recap: 90,
@@ -220,7 +226,7 @@ export function construirePlan(entree: {
       etapeLibelle: a.etapeLibelle,
       montant: a.montant,
       ownerId: a.ownerId,
-      niveau: NIVEAU[principale.r.type],
+      groupe: groupeDe(principale.r.type),
       type: principale.r.type,
       action: principale.r.action,
       motif: principale.r.bref,
@@ -231,9 +237,28 @@ export function construirePlan(entree: {
   }
   affaires.sort((x, y) => y.score - x.score || x.nom.localeCompare(y.nom));
 
+  /*
+    Les relances du jour : un lot de vingt par personne, les plus en retard
+    d'abord. Le lot se calcule avant de retirer ce qui est coché — cocher ne
+    fait pas entrer de nouveaux leads dans la journée — et, d'un jour sur
+    l'autre, ce qui n'a pas été traité garde sa place en tête : le retard des
+    oubliés grandit au même rythme que celui des autres.
+  */
+  const dues = entree.leads
+    .filter((l) => l.followUpOn <= aujourdhui)
+    .map((l) => ({ l, retard: joursDeRetard(l.followUpOn, aujourdhui) }))
+    .sort((x, y) => y.retard - x.retard || x.l.nom.localeCompare(y.l.nom));
+  const parPersonne = new Map<string, number>();
   const relances: ItemLead[] = [];
-  for (const l of entree.leads) {
-    if (l.followUpOn > aujourdhui) continue;
+  const relancesEnAttente: Record<string, number> = {};
+  for (const { l, retard } of dues) {
+    const qui = l.ownerId ?? "";
+    const rang = parPersonne.get(qui) ?? 0;
+    if (rang >= RELANCES_PAR_JOUR) {
+      relancesEnAttente[qui] = (relancesEnAttente[qui] ?? 0) + 1;
+      continue;
+    }
+    parPersonne.set(qui, rang + 1);
     const cle = `lead:${l.id}`;
     if (entree.coches.has(cle)) {
       faits += 1;
@@ -246,14 +271,12 @@ export function construirePlan(entree: {
       entreprise: l.entreprise,
       statutLibelle: l.statutLibelle,
       le: l.followUpOn,
-      retard: joursDeRetard(l.followUpOn, aujourdhui),
+      retard,
       ownerId: l.ownerId,
     });
   }
-  // Les plus en retard d'abord : ce sont elles qui refroidissent.
-  relances.sort((x, y) => y.retard - x.retard || x.nom.localeCompare(y.nom));
 
-  return { aujourdhui, prochain, affaires, relances, aVenir, faits };
+  return { aujourdhui, prochain, affaires, relances, relancesEnAttente, aVenir, faits };
 }
 
 /** Le plan d'une personne : ses affaires (et celles sans responsable), ses leads. */

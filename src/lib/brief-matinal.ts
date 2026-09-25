@@ -4,7 +4,7 @@ import { agendaDe } from "@/lib/agenda";
 import { estOuvre, precedentOuvre } from "@/lib/echeances";
 import { composeHtmlRaw, refreshAccessToken, sendMessage } from "@/lib/google";
 import { chargerPlan } from "@/lib/plan-du-jour";
-import { planDe, type ItemAffaire, type Niveau } from "@/lib/plan-logique";
+import { planDe, type Groupe, type ItemAffaire } from "@/lib/plan-logique";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { depuisSaisieParis, formatHeure, todayIso } from "@/lib/utils";
 
@@ -126,7 +126,7 @@ async function composer(admin: Admin, membres: Membre[]): Promise<{ sujet: strin
   if (plan.cap) {
     blocs.push(`<p style="margin:22px 0 0;padding:10px 12px;background:#f4f1ec;border-radius:8px;font-size:14px;color:#26262c">${esc(plan.cap)}</p>`);
   }
-  const TITRES: Record<Niveau, string> = { urgent: "Urgent", jour: "Aujourd'hui", avancer: "À faire avancer" };
+  const TITRES: Record<Groupe, string> = { no_show: "No-show à replanifier", traiter: "À traiter", reveiller: "À réveiller" };
   const ligneAffaire = (a: ItemAffaire) => {
     const geste = plan.gestes[a.cle];
     return (
@@ -140,21 +140,23 @@ async function composer(admin: Admin, membres: Membre[]): Promise<{ sujet: strin
     if (!sien.affaires.length && !sien.relances.length) continue;
     let html = `<h2 style="margin:30px 0 4px;font-size:16px;color:#16161a">Plan de ${esc(m.prenom)}</h2>
       <p style="margin:0;font-size:13px;color:${GRIS}">${sien.affaires.length} affaire${sien.affaires.length > 1 ? "s" : ""} puis ${sien.relances.length} relance${sien.relances.length > 1 ? "s" : ""}, avant toute prospection libre.</p>`;
-    for (const niveau of ["urgent", "jour", "avancer"] as Niveau[]) {
-      const items = sien.affaires.filter((a) => a.niveau === niveau);
+    for (const groupe of ["no_show", "traiter", "reveiller"] as Groupe[]) {
+      const items = sien.affaires.filter((a) => a.groupe === groupe);
       if (!items.length) continue;
-      html += titre(`1 · Affaires — ${TITRES[niveau]}`, items.length) + liste(items.slice(0, niveau === "avancer" ? 5 : 12).map(ligneAffaire));
+      html += titre(`1 · Affaires — ${TITRES[groupe]}`, items.length) + liste(items.map(ligneAffaire));
     }
     if (sien.relances.length) {
       html +=
-        titre("2 · Leads à relancer", sien.relances.length) +
+        titre("2 · Leads à relancer — lot du jour", sien.relances.length) +
         liste(
-          sien.relances.slice(0, 8).map(
+          sien.relances.map(
             (l) =>
               `${lien(`/leads?lead=${l.leadId}`, esc(l.nom))}${l.entreprise ? ` — ${esc(l.entreprise)}` : ""} <span style="color:${GRIS}">(${esc(l.statutLibelle)}${l.retard ? `, ${l.retard} j de retard` : ""})</span>`,
           ),
         ) +
-        (sien.relances.length > 8 ? `<p style="margin:4px 0 0;font-size:13px;color:${GRIS}">… et ${sien.relances.length - 8} autres dans la file de relances.</p>` : "");
+        ((plan.relancesEnAttente[m.id] ?? 0) > 0
+          ? `<p style="margin:4px 0 0;font-size:13px;color:${GRIS}">${plan.relancesEnAttente[m.id]} autre(s) en attente pour les jours suivants.</p>`
+          : "");
     }
     blocs.push(html);
   }
