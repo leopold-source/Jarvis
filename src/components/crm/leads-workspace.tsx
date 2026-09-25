@@ -131,19 +131,17 @@ type PhoneFilter = keyof typeof PHONE_FILTERS;
 /**
  * Rang d'un lead dans la file d'appel.
  *
- * Une relance promise passe avant un premier appel : le retard, puis le jour
- * même, puis les relances qu'aucune date ne porte plus, puis seulement les
- * fiches jamais travaillées. Sans ce dernier rang, les 239 leads d'un import
- * noieraient les quelques rappels réellement dus.
+ * D'abord les relances dues des leads assignés — une promesse faite par l'un
+ * de nous —, puis les relances dues des leads sans responsable, puis les
+ * relances sans date (NRP, à recontacter), et seulement ensuite les fiches
+ * jamais appelées. À rang égal, la relance la plus ancienne passe devant.
  */
 function prospectionRank(lead: LeadListe, today: string): number {
-  // En tête : les leads sans responsable dont la relance est en retard. Ils
-  // ne figurent pas dans le plan du jour ; c'est ici qu'on les rattrape.
-  if (!lead.owner_id && lead.follow_up_on && lead.follow_up_on < today) return 0;
-  if (lead.follow_up_on && lead.follow_up_on < today) return 1;
-  if (lead.follow_up_on === today) return 2;
-  if (JAMAIS_APPELE.includes(lead.status)) return 4;
-  return 3;
+  const due = lead.follow_up_on !== null && lead.follow_up_on <= today;
+  if (due && lead.owner_id) return 0;
+  if (due) return 1;
+  if (JAMAIS_APPELE.includes(lead.status)) return 3;
+  return 2;
 }
 
 
