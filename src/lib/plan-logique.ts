@@ -96,7 +96,7 @@ export type Plan = {
   affaires: ItemAffaire[];
   /** Le lot de relances du jour (au plus vingt par personne), hors cochées. */
   relances: ItemLead[];
-  /** Par personne (clé vide : sans responsable), les relances dues au-delà du lot. */
+  /** Par personne, les relances dues au-delà du lot. */
   relancesEnAttente: Record<string, number>;
   /** Affaires dont l'étape tombe le prochain jour ouvré : annoncées, pas encore dues. */
   aVenir: number;
@@ -244,15 +244,18 @@ export function construirePlan(entree: {
     l'autre, ce qui n'a pas été traité garde sa place en tête : le retard des
     oubliés grandit au même rythme que celui des autres.
   */
+  // Un lead sans responsable n'entre pas dans le plan : c'est de la
+  // prospection, pas une relance promise. Il passe en tête de la prospection
+  // libre, sans charger la journée de vieux rappels sans urgence.
   const dues = entree.leads
-    .filter((l) => l.followUpOn <= aujourdhui)
+    .filter((l) => l.followUpOn <= aujourdhui && l.ownerId !== null)
     .map((l) => ({ l, retard: joursDeRetard(l.followUpOn, aujourdhui) }))
     .sort((x, y) => y.retard - x.retard || x.l.nom.localeCompare(y.l.nom));
   const parPersonne = new Map<string, number>();
   const relances: ItemLead[] = [];
   const relancesEnAttente: Record<string, number> = {};
   for (const { l, retard } of dues) {
-    const qui = l.ownerId ?? "";
+    const qui = l.ownerId!;
     const rang = parPersonne.get(qui) ?? 0;
     if (rang >= RELANCES_PAR_JOUR) {
       relancesEnAttente[qui] = (relancesEnAttente[qui] ?? 0) + 1;

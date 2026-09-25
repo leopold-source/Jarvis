@@ -88,7 +88,15 @@ const leads = Array.from({ length: 25 }, (_, i) => ({
   ownerId: "L",
   nrp: 1,
 }));
-const lot = construirePlan({ aujourdhui: auj, affaires: [], devis: [], recapsPrets: [], leads, coches: new Set() });
+const lot = construirePlan({
+  aujourdhui: auj,
+  affaires: [],
+  devis: [],
+  recapsPrets: [],
+  leads: [...leads, { id: "orphelin", nom: "Sans responsable", entreprise: null, statutLibelle: "NRP", followUpOn: "2026-01-01", ownerId: null, nrp: 1 }],
+  coches: new Set(),
+});
+check("un lead sans responsable n'entre pas dans le plan", lot.relances.some((l) => l.leadId === "orphelin"), false);
 check("lot de 20", lot.relances.length, 20);
 check("les plus anciennes d'abord", lot.relances[0]!.leadId, "x0");
 check("le reste attend", lot.relancesEnAttente, { L: 5 });

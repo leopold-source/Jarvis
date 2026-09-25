@@ -137,10 +137,13 @@ type PhoneFilter = keyof typeof PHONE_FILTERS;
  * noieraient les quelques rappels réellement dus.
  */
 function prospectionRank(lead: LeadListe, today: string): number {
-  if (lead.follow_up_on && lead.follow_up_on < today) return 0;
-  if (lead.follow_up_on === today) return 1;
-  if (JAMAIS_APPELE.includes(lead.status)) return 3;
-  return 2;
+  // Les leads sans responsable passent en tête : ils ne figurent pas dans le
+  // plan du jour, c'est ici qu'on les traite, relances comprises.
+  const base = lead.owner_id ? 10 : 0;
+  if (lead.follow_up_on && lead.follow_up_on < today) return base;
+  if (lead.follow_up_on === today) return base + 1;
+  if (JAMAIS_APPELE.includes(lead.status)) return base + 3;
+  return base + 2;
 }
 
 
@@ -441,6 +444,8 @@ export function LeadsWorkspace({
     const queue = base
       .filter((lead) => {
         if (SORTIS_DE_PROSPECTION.includes(lead.status)) return false;
+        // Sans responsable, c'est de la prospection libre : elle attend le plan.
+        if (!lead.owner_id && !libre) return false;
         if (lead.follow_up_on) {
           if (lead.follow_up_on > today) return false;
           if (!showOverdue && lead.follow_up_on < today) return false;
@@ -736,7 +741,7 @@ export function LeadsWorkspace({
               <span className="flex-1">
                 <strong className="font-medium">Prospection libre fermée.</strong> D&apos;abord le plan du jour :{" "}
                 {verrou.affaires} affaire{verrou.affaires > 1 ? "s" : ""} et {verrou.relances} relance
-                {verrou.relances > 1 ? "s" : ""}. La file ne montre que les relances.
+                {verrou.relances > 1 ? "s" : ""}. La file ne montre que les relances des leads assignés.
               </span>
               <Link href="/" className="font-medium text-brand-600 hover:underline dark:text-brand-300">
                 Voir le plan
