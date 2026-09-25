@@ -166,7 +166,7 @@ export function RecapBadge({ dealId }: { dealId: string }) {
  * adresses se découpe tout seul. Une adresse mal formée reste visible, en
  * rouge, plutôt que d'être refusée en silence.
  */
-function ChampAdresses({
+export function ChampAdresses({
   valeur,
   onChange,
   placeholder,

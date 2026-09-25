@@ -139,7 +139,7 @@ export const READ_TOOLS = [
           type: "string",
           description:
             "Selon le type : une date AAAA-MM-JJ pour une relance, un statut " +
-            "(nrp, a_recontacter, raccroche_avant_pitch, pas_interesse, non_qualifie), " +
+            "(nrp, a_recontacter, raccroche_avant_pitch, pas_interesse, non_qualifie = « hors cible »), " +
             "une étape (demande_rdv_envoyee, r1, r2, propale_envoyee, no_show, nurturing), " +
             "un prénom pour une assignation, ou un intitulé pour une tâche ou un chantier.",
         },

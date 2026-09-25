@@ -51,6 +51,8 @@ import { libelleAction } from "@/lib/lead-action";
 import {
   assignLead,
   convertLead,
+  rechercherEntreprises,
+  type EntrepriseConnue,
   createLead,
   incrementerNrp,
   updateLead,
@@ -60,6 +62,7 @@ import {
 import { useCellSelection, type CellSelection } from "@/lib/use-cell-selection";
 import { ImportLeadsDialog } from "@/components/crm/import-leads-dialog";
 import { buildOrgIndex, collapseByOrg, type FileEntry, type OrgLink } from "@/lib/lead-orgs";
+import { ConfirmationModal } from "@/components/crm/confirmation-modal";
 import { LeadDrawer } from "@/components/crm/lead-drawer";
 
 const PAGE_SIZE = 60;
@@ -75,6 +78,14 @@ const RELANCE_SANS_DATE: LeadStatus[] = ["nrp", "a_recontacter"];
 
 /** Jamais appelé : la réserve dans laquelle on puise quand les relances sont faites. */
 const JAMAIS_APPELE: LeadStatus[] = ["a_contacter"];
+
+/**
+ * Les fiches qui ont fini leur course de prospection : rendez-vous décroché,
+ * ou hors cible. Elles restent en base — c'est d'elles que se calcule le taux
+ * de call pris — mais n'ont plus rien à faire dans la file d'appel, même si
+ * une date de relance traîne encore dessus.
+ */
+const SORTIS_DE_PROSPECTION: LeadStatus[] = ["call_pris", "non_qualifie"];
 
 /**
  * Hauteurs de ligne, à la manière d'Airtable.
@@ -313,6 +324,8 @@ export function LeadsWorkspace({
   // Les filtres, repliés par défaut sur téléphone seulement : à partir de
   // `sm` le bloc est toujours affiché, quel que soit cet état.
   const [filtresOuverts, setFiltresOuverts] = useState(false);
+  // L'affaire née d'un « call pris », dont on propose de confirmer le rendez-vous.
+  const [aConfirmer, setAConfirmer] = useState<string | null>(null);
   const [seulementEndormis, setSeulementEndormis] = useState(false);
 
   /*
@@ -407,6 +420,7 @@ export function LeadsWorkspace({
     // même, puis les relances orphelines, puis les fiches jamais appelées.
     const queue = base
       .filter((lead) => {
+        if (SORTIS_DE_PROSPECTION.includes(lead.status)) return false;
         if (lead.follow_up_on) {
           if (lead.follow_up_on > today) return false;
           if (!showOverdue && lead.follow_up_on < today) return false;
@@ -1198,7 +1212,18 @@ export function LeadsWorkspace({
           }
           toast("Affaire créée avec son contact et son entreprise.");
           setSelected(null);
-          router.push(`/affaires?affaire=${result.data!.dealId}`);
+          // Le rendez-vous vient d'être pris : on le confirme avant d'ouvrir l'affaire.
+          setAConfirmer(result.data!.dealId);
+        }}
+      />
+
+      <ConfirmationModal
+        dealId={aConfirmer}
+        ouvert={aConfirmer !== null}
+        onClose={() => {
+          const dealId = aConfirmer;
+          setAConfirmer(null);
+          if (dealId) router.push(`/affaires?affaire=${dealId}`);
         }}
       />
 
@@ -2178,15 +2203,19 @@ function NewLeadDialog({
 }) {
   const toast = useToast();
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({
+  const vide = {
     first_name: "",
     last_name: "",
     email: "",
     phone: "",
+    job_title: "",
     company_name: "",
     region: "",
     comment: "",
-  });
+  };
+  const [form, setForm] = useState(vide);
+  // L'entreprise reprise d'une fiche existante : ses champs partent avec le lead.
+  const [reprise, setReprise] = useState<EntrepriseConnue | null>(null);
 
   function set(key: keyof typeof form, value: string) {
     setForm((current) => ({ ...current, [key]: value }));
@@ -2199,16 +2228,19 @@ function NewLeadDialog({
       last_name: form.last_name || null,
       email: form.email || null,
       phone: form.phone || null,
+      job_title: form.job_title || null,
       company_name: form.company_name || null,
       region: form.region || null,
       comment: form.comment || null,
+      entreprise: reprise && reprise.company_name === form.company_name ? reprise : null,
     });
     setSaving(false);
     if (!result.ok) {
       toast(result.error, "error");
       return;
     }
-    setForm({ first_name: "", last_name: "", email: "", phone: "", company_name: "", region: "", comment: "" });
+    setForm(vide);
+    setReprise(null);
     onCreated();
   }
 
@@ -2230,6 +2262,20 @@ function NewLeadDialog({
       }
     >
       <div className="grid gap-3.5 sm:grid-cols-2">
+        <Field label="Entreprise" className="sm:col-span-2">
+          <ChoixEntreprise
+            valeur={form.company_name}
+            reprise={reprise}
+            onSaisie={(nom) => {
+              set("company_name", nom);
+              if (reprise && nom !== reprise.company_name) setReprise(null);
+            }}
+            onChoix={(entreprise) => {
+              setReprise(entreprise);
+              setForm((f) => ({ ...f, company_name: entreprise.company_name, region: f.region || entreprise.region || "" }));
+            }}
+          />
+        </Field>
         <Field label="Prénom">
           <Input value={form.first_name} onChange={(event) => set("first_name", event.target.value)} />
         </Field>
@@ -2242,12 +2288,8 @@ function NewLeadDialog({
         <Field label="Téléphone">
           <Input value={form.phone} onChange={(event) => set("phone", event.target.value)} />
         </Field>
-        <Field label="Entreprise" className="sm:col-span-2">
-          <Input
-            value={form.company_name}
-            onChange={(event) => set("company_name", event.target.value)}
-            placeholder="Raison sociale"
-          />
+        <Field label="Poste">
+          <Input value={form.job_title} onChange={(event) => set("job_title", event.target.value)} />
         </Field>
         <Field label="Région">
           <Input value={form.region} onChange={(event) => set("region", event.target.value)} />
@@ -2261,5 +2303,129 @@ function NewLeadDialog({
         L&apos;entreprise ne sera créée dans le CRM qu&apos;à la conversion du lead.
       </p>
     </Modal>
+  );
+}
+
+/**
+ * Le nom d'entreprise, avec les entreprises déjà connues en suggestion.
+ *
+ * On peut toujours taper un nom nouveau : la suggestion n'est qu'un raccourci.
+ * Choisie, elle apporte ce qu'on sait déjà — site, SIRET, secteur, standard —
+ * et le dit sous le champ, pour qu'on sache ce qui partira avec le lead.
+ */
+function ChoixEntreprise({
+  valeur,
+  reprise,
+  onSaisie,
+  onChoix,
+}: {
+  valeur: string;
+  reprise: EntrepriseConnue | null;
+  onSaisie: (nom: string) => void;
+  onChoix: (entreprise: EntrepriseConnue) => void;
+}) {
+  const [suggestions, setSuggestions] = useState<EntrepriseConnue[]>([]);
+  const [ouvert, setOuvert] = useState(false);
+  const [actif, setActif] = useState(0);
+
+  useEffect(() => {
+    if (reprise?.company_name === valeur || valeur.trim().length < 2) {
+      setSuggestions([]);
+      return;
+    }
+    let annule = false;
+    const minuteur = setTimeout(() => {
+      void rechercherEntreprises(valeur).then((liste) => {
+        if (annule) return;
+        setSuggestions(liste);
+        setActif(0);
+      });
+    }, 180);
+    return () => {
+      annule = true;
+      clearTimeout(minuteur);
+    };
+  }, [valeur, reprise]);
+
+  function choisir(entreprise: EntrepriseConnue) {
+    onChoix(entreprise);
+    setOuvert(false);
+    setSuggestions([]);
+  }
+
+  const visibles = ouvert ? suggestions : [];
+  const details = reprise
+    ? [reprise.company_activity || reprise.sector, reprise.siret ? `SIRET ${reprise.siret}` : reprise.siren ? `SIREN ${reprise.siren}` : null, reprise.company_website, reprise.phone_standard]
+        .filter(Boolean)
+        .join(" · ")
+    : "";
+
+  return (
+    <div className="relative">
+      <Input
+        value={valeur}
+        placeholder="Tapez pour retrouver une entreprise, ou saisissez-en une nouvelle"
+        autoComplete="off"
+        role="combobox"
+        aria-expanded={visibles.length > 0}
+        onChange={(event) => {
+          onSaisie(event.target.value);
+          setOuvert(true);
+        }}
+        onFocus={() => setOuvert(true)}
+        onBlur={() => setTimeout(() => setOuvert(false), 120)}
+        onKeyDown={(event) => {
+          if (!visibles.length) return;
+          if (event.key === "ArrowDown") {
+            event.preventDefault();
+            setActif((i) => (i + 1) % visibles.length);
+          } else if (event.key === "ArrowUp") {
+            event.preventDefault();
+            setActif((i) => (i - 1 + visibles.length) % visibles.length);
+          } else if (event.key === "Enter") {
+            event.preventDefault();
+            choisir(visibles[actif]!);
+          } else if (event.key === "Escape") {
+            setOuvert(false);
+          }
+        }}
+      />
+      {visibles.length > 0 ? (
+        <ul
+          role="listbox"
+          className="absolute inset-x-0 top-full z-20 mt-1 max-h-64 overflow-y-auto rounded-[10px] border border-[var(--border-strong)] bg-[var(--surface-overlay)] p-1 shadow-[var(--shadow-pop)]"
+        >
+          {visibles.map((entreprise, index) => (
+            <li key={`${entreprise.source}-${entreprise.company_name}`}>
+              <button
+                type="button"
+                role="option"
+                aria-selected={index === actif}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => choisir(entreprise)}
+                onMouseEnter={() => setActif(index)}
+                className={cn(
+                  "flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-[13px]",
+                  index === actif && "bg-[var(--surface-hover)]",
+                )}
+              >
+                <Building2 className="size-3.5 shrink-0 text-[var(--text-muted)]" />
+                <span className="min-w-0 flex-1 truncate font-medium">{entreprise.company_name}</span>
+                <span className="shrink-0 text-[11px] text-[var(--text-muted)]">
+                  {entreprise.source === "crm"
+                    ? "Entreprise CRM"
+                    : `${entreprise.leads} lead${entreprise.leads > 1 ? "s" : ""}`}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {reprise ? (
+        <p className="mt-1 truncate text-[11.5px] text-emerald-600 dark:text-emerald-400">
+          ✓ Reprise de la fiche existante{details ? ` — ${details}` : ""}
+        </p>
+      ) : null}
+    </div>
   );
 }

@@ -108,7 +108,8 @@ export const LEAD_STATUS: Record<LeadStatus, { label: string; tone: Tone }> = {
   a_recontacter: { label: "À recontacter", tone: "violet" },
   raccroche_avant_pitch: { label: "Raccroché avant pitch", tone: "rose" },
   pas_interesse: { label: "Pas intéressé", tone: "pink" },
-  non_qualifie: { label: "Non qualifié", tone: "stone" },
+  // « Hors cible » : la valeur en base reste `non_qualifie`, seul le mot a changé.
+  non_qualifie: { label: "Hors cible", tone: "stone" },
   call_pris: { label: "Call pris", tone: "emerald" },
 };
 

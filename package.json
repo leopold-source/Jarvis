@@ -18,7 +18,8 @@
     "test:affaires": "npx --yes tsx src/lib/__tests__/affaires-index.test.ts",
     "test:recap": "npx --yes tsx src/lib/__tests__/claap-recap.test.ts",
     "test:bruit": "npx --yes tsx src/lib/__tests__/mail-bruit.test.ts",
-    "test:devis": "npx --yes tsx src/lib/__tests__/devis.test.ts"
+    "test:devis": "npx --yes tsx src/lib/__tests__/devis.test.ts",
+    "test:rdv": "npx --yes tsx src/lib/__tests__/rdv.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.122.0",

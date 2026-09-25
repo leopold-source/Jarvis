@@ -5,9 +5,9 @@ import { revalidatePath } from "next/cache";
 import { requireStaff } from "@/lib/auth";
 import type { DealRecap, RecapStatut } from "@/lib/database.types";
 import { avancerRecap, demanderRecap } from "@/lib/deal-recap";
-import { composeHtmlRaw, getMessage, getSignature, header, refreshAccessToken, sendMessage } from "@/lib/google";
-import { choisirCall, corpsEnHtml, type CallPourRecap } from "@/lib/recap-logique";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { adresses, envoyerDepuisGmail } from "@/lib/envoi-mail";
+import { getSignature, refreshAccessToken } from "@/lib/google";
+import { choisirCall, type CallPourRecap } from "@/lib/recap-logique";
 import { createClient } from "@/lib/supabase/server";
 
 export type ActionResult<T = undefined> = { ok: true; data?: T } | { ok: false; error: string };
@@ -99,13 +99,6 @@ export async function fetchRecapDeLAffaire(dealId: string): Promise<ActionResult
 
 type Brouillon = { to: string[]; cc: string[]; subject: string; body: string };
 
-const ADRESSE = /^[^\s@<>,;]+@[^\s@<>,;]+\.[^\s@<>,;]+$/;
-
-/** Nettoie une liste d'adresses et dit laquelle ne tient pas debout. */
-function adresses(liste: string[]): { ok: string[]; invalide: string | null } {
-  const propres = [...new Set(liste.map((a) => a.trim().toLowerCase()).filter(Boolean))];
-  return { ok: propres, invalide: propres.find((a) => !ADRESSE.test(a)) ?? null };
-}
 
 /** Garde les modifications sans envoyer. */
 export async function enregistrerRecap(id: string, brouillon: Brouillon): Promise<ActionResult> {
@@ -135,99 +128,25 @@ export async function envoyerRecap(id: string, brouillon: Brouillon): Promise<Ac
   const profile = await requireStaff();
   const supabase = await createClient();
 
-  const to = adresses(brouillon.to);
-  const cc = adresses(brouillon.cc);
-  if (to.invalide ?? cc.invalide) return { ok: false, error: `Adresse invalide : ${to.invalide ?? cc.invalide}` };
-  if (to.ok.length === 0) return { ok: false, error: "Ajoutez au moins un destinataire." };
-  if (!brouillon.subject.trim()) return { ok: false, error: "L'objet est vide." };
-  if (!brouillon.body.trim()) return { ok: false, error: "Le message est vide." };
-
   const { data: recap } = await supabase.from("deal_recaps").select("*").eq("id", id).maybeSingle();
   if (!recap) return { ok: false, error: "Récap introuvable." };
   if (recap.status === "envoye") return { ok: false, error: "Ce récap est déjà parti." };
 
-  const { data: compte } = await supabase
-    .from("google_accounts")
-    .select("email, refresh_token")
-    .eq("user_id", profile.id)
-    .maybeSingle();
-  if (!compte?.refresh_token) {
-    return { ok: false, error: "Connectez votre boîte Gmail dans les Réglages pour envoyer depuis l'application." };
-  }
+  const envoi = await envoyerDepuisGmail(profile.id, brouillon, { dealId: recap.deal_id });
+  if (!envoi.ok) return envoi;
 
-  let envoye: { id: string; threadId: string };
-  try {
-    const { access_token } = await refreshAccessToken(compte.refresh_token);
-    const signature = await getSignature(access_token, compte.email);
-    const corpsHtml = corpsEnHtml(brouillon.body);
-
-    envoye = await sendMessage(
-      access_token,
-      composeHtmlRaw({
-        to: to.ok,
-        cc: cc.ok,
-        subject: brouillon.subject.trim(),
-        text: brouillon.body.trim(),
-        // La signature Gmail est déjà du HTML, écrit par son propriétaire : on
-        // la reprend telle quelle, séparée du corps comme Gmail le fait.
-        html: `<div>${corpsHtml}${signature ? `<br><div class="gmail_signature">${signature}</div>` : ""}</div>`,
-      }),
-    );
-  } catch (caught) {
-    const message = caught instanceof Error ? caught.message : "Envoi impossible.";
-    // Un 403 veut presque toujours dire que la connexion Gmail date d'avant
-    // l'autorisation d'envoi : la reconnecter suffit.
-    return {
-      ok: false,
-      error: /\b403\b/.test(message)
-        ? "Gmail refuse l'envoi (403) : reconnectez votre boîte dans les Réglages pour accorder l'autorisation d'envoyer."
-        : message,
-    };
-  }
-
-  // Le Message-ID du mail parti : sans lui, la copie reçue par l'associé
-  // reviendrait dans le fil de l'affaire comme un second message.
-  let rfc: string | null = null;
-  try {
-    const { access_token } = await refreshAccessToken(compte.refresh_token);
-    rfc = header(await getMessage(access_token, envoye.id), "Message-ID").trim() || null;
-  } catch {
-    rfc = null;
-  }
-
-  const maintenant = new Date().toISOString();
   await supabase
     .from("deal_recaps")
     .update({
       status: "envoye",
-      sent_at: maintenant,
-      gmail_message_id: envoye.id,
-      to_emails: to.ok,
-      cc_emails: cc.ok,
+      sent_at: envoi.data.at,
+      gmail_message_id: envoi.data.id,
+      to_emails: envoi.data.to,
+      cc_emails: envoi.data.cc,
       subject: brouillon.subject.trim(),
       body: brouillon.body,
     })
     .eq("id", id);
-
-  // Dans le fil de l'affaire tout de suite, sans attendre la synchro de la nuit.
-  const admin = createAdminClient();
-  await (admin ?? supabase).from("email_messages").upsert(
-    {
-      deal_id: recap.deal_id,
-      provider: "gmail",
-      provider_message_id: envoye.id,
-      thread_id: envoye.threadId,
-      direction: "outbound",
-      from_email: compte.email,
-      to_emails: [...to.ok, ...cc.ok],
-      subject: brouillon.subject.trim(),
-      snippet: brouillon.body.replace(/\s+/g, " ").slice(0, 200),
-      sent_at: maintenant,
-      synced_by: profile.id,
-      rfc_message_id: rfc,
-    } as never,
-    { onConflict: "provider,provider_message_id", ignoreDuplicates: true },
-  );
 
   revalidatePath("/affaires");
   return { ok: true };

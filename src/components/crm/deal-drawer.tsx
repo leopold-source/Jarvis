@@ -3,7 +3,17 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Building2, ChevronRight, ExternalLink, FolderKanban, Loader2, Mail, Trash2, User } from "lucide-react";
+import {
+  Building2,
+  CalendarCheck,
+  ChevronRight,
+  ExternalLink,
+  FolderKanban,
+  Loader2,
+  Mail,
+  Trash2,
+  User,
+} from "lucide-react";
 
 import { Badge, Button, Drawer, Field, Input, Select, Textarea, useToast } from "@/components/ui";
 import { DateField } from "@/components/ui/date-field";
@@ -17,6 +27,7 @@ import { useRecaps } from "@/components/crm/recap-modal";
 import { DealEmails } from "@/components/crm/deal-emails";
 import { DealCalls } from "@/components/crm/deal-calls";
 import { DealDossier } from "@/components/crm/deal-dossier";
+import { ConfirmationModal } from "@/components/crm/confirmation-modal";
 
 type CompanyLite = { id: string; name: string; sector: string | null; region: string | null };
 type ContactLite = { id: string; full_name: string | null; email: string | null; company_id: string | null };
@@ -48,6 +59,7 @@ export function DealDrawer({
   const toast = useToast();
   const recaps = useRecaps();
 
+  const [confirmation, setConfirmation] = useState(false);
   const [form, setForm] = useState({
     name: "",
     amount: "",
@@ -167,7 +179,21 @@ export function DealDrawer({
           <span className="text-[11.5px] text-[var(--text-muted)]">
             Dans cette étape depuis le {formatDate(deal.stage_changed_at)}
           </span>
+          <button
+            type="button"
+            onClick={() => setConfirmation(true)}
+            className="ml-auto inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[12px] text-[var(--text-muted)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)]"
+          >
+            <CalendarCheck className="size-3.5" />
+            Confirmer le RDV
+          </button>
         </div>
+        <ConfirmationModal
+          dealId={deal.id}
+          ouvert={confirmation}
+          onClose={() => setConfirmation(false)}
+          onEnvoye={onSaved}
+        />
 
         {projectId ? (
           <Link

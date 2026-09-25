@@ -14,6 +14,8 @@ import {
   lireParticipants,
   type CallPourRecap,
 } from "@/lib/recap-logique";
+import { chercherRdv } from "@/lib/rdv-agenda";
+import { dateEnClair, phraseProchainRdv, type RdvTrouve } from "@/lib/rdv-logique";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { formatDate } from "@/lib/utils";
 
@@ -62,6 +64,7 @@ type Contexte = {
   affaire: { nom: string; entreprise: string | null };
   call: CallPourRecap & { title: string | null };
   destinataires: Array<{ email: string; prenom: string | null }>;
+  prochainRdv: RdvTrouve | null;
 };
 
 /** Le prénom d'un destinataire : la fiche contact d'abord, le nom donné par Claap ensuite. */
@@ -89,6 +92,11 @@ async function rediger(contexte: Contexte) {
     `Entreprise : ${contexte.affaire.entreprise ?? "—"}`,
     `Affaire : ${contexte.affaire.nom}`,
     `Call : « ${call.title ?? "sans titre"} », le ${formatDate(call.started_at ?? call.occurred_on)}`,
+    // La date est confirmée par une phrase ajoutée hors du modèle : il n'a pas
+    // à la répéter, seulement à ne pas en inventer une autre.
+    contexte.prochainRdv
+      ? `Prochain rendez-vous, trouvé dans l'agenda : ${dateEnClair(contexte.prochainRdv.debut)}. Une phrase qui le confirme est ajoutée après les prochaines étapes : ne le mentionne pas toi-même.`
+      : "Aucun prochain rendez-vous trouvé dans l'agenda : n'écris aucune date de rendez-vous qui n'ait été dite dans l'échange.",
   ].join("\n");
 
   const client = anthropicClient();
@@ -223,8 +231,12 @@ export async function avancerRecap(recapId: string, options: { callId?: string }
 
   const { to, cc } = choisirDestinataires(participants, expediteurEmail, replis);
 
+  // Le R2 déjà posé dans l'agenda de l'équipe avec l'un des interlocuteurs.
+  const prochainRdv = await chercherRdv([...new Set([...to, ...cc, ...replis.map((e) => e.toLowerCase())])]);
+
   try {
     const { sortie, modele } = await rediger({
+      prochainRdv,
       recap: recap as DealRecap,
       expediteur: { nom: auteur?.full_name ?? auteur?.email ?? "l'associé", email: expediteurEmail },
       affaire: { nom: deal?.name ?? "Affaire", entreprise: entreprise?.name ?? null },
@@ -241,6 +253,7 @@ export async function avancerRecap(recapId: string, options: { callId?: string }
           salutation: sortie.salutation,
           recap: sortie.recap,
           prochaines_etapes: sortie.prochaines_etapes,
+          confirmation_rdv: phraseProchainRdv(prochainRdv, sortie.tutoiement),
         }),
         to_emails: to,
         cc_emails: cc,

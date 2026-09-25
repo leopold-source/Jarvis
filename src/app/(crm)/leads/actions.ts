@@ -237,11 +237,15 @@ export async function convertLead(
   const profile = await requireStaff();
   const supabase = await createClient();
 
+  // L'affaire revient à qui portait le lead, pas à qui clique : c'est lui qui
+  // a décroché le rendez-vous. Un lead sans propriétaire échoit à qui convertit.
+  const { data: lead } = await supabase.from("leads").select("owner_id").eq("id", leadId).maybeSingle();
+
   const { data, error } = await supabase.rpc("convert_lead_to_deal", {
     p_lead_id: leadId,
     p_deal_name: dealName,
     p_amount: amount ?? undefined,
-    p_owner_id: profile.id,
+    p_owner_id: lead?.owner_id ?? profile.id,
   });
 
   if (error) return { ok: false, error: error.message };
@@ -277,24 +281,154 @@ export async function assignLead(id: string, ownerId: string | null): Promise<Ac
   return { ok: true };
 }
 
+/** Les informations d'entreprise qu'un nouveau lead peut reprendre d'une fiche existante. */
+export type EntrepriseConnue = {
+  source: "crm" | "lead";
+  company_name: string;
+  company_website: string | null;
+  company_activity: string | null;
+  company_legal_name: string | null;
+  company_linkedin_url: string | null;
+  sector: string | null;
+  region: string | null;
+  address: string | null;
+  siren: string | null;
+  siret: string | null;
+  headcount_range: string | null;
+  phone_standard: string | null;
+  /** Nombre de leads déjà rattachés à ce nom : « 3 leads » aide à reconnaître. */
+  leads: number;
+};
+
+const CHAMPS_ENTREPRISE = [
+  "company_website",
+  "company_activity",
+  "company_legal_name",
+  "company_linkedin_url",
+  "sector",
+  "region",
+  "address",
+  "siren",
+  "siret",
+  "headcount_range",
+  "phone_standard",
+] as const;
+
+/**
+ * Les entreprises déjà connues dont le nom ressemble à la saisie.
+ *
+ * Deux sources : les fiches entreprise du CRM — nées d'une conversion — et les
+ * noms portés par les leads eux-mêmes. Un nom présent des deux côtés n'apparaît
+ * qu'une fois, complété de ce que chaque côté sait.
+ */
+export async function rechercherEntreprises(q: string): Promise<EntrepriseConnue[]> {
+  await requireStaff();
+  const terme = q.trim().replace(/[%_,()]/g, " ").trim();
+  if (terme.length < 2) return [];
+  const supabase = await createClient();
+
+  const [{ data: entreprises }, { data: leads }] = await Promise.all([
+    supabase
+      .from("companies")
+      .select("name, website, activity, sector, region, address, siret, headcount, linkedin_url")
+      .ilike("name", `%${terme}%`)
+      .limit(8),
+    supabase
+      .from("leads")
+      .select(`company_name, ${CHAMPS_ENTREPRISE.join(", ")}`)
+      .ilike("company_name", `%${terme}%`)
+      .order("updated_at", { ascending: false })
+      .limit(60),
+  ]);
+
+  const parNom = new Map<string, EntrepriseConnue>();
+  const cle = (nom: string) => nom.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
+
+  for (const e of entreprises ?? []) {
+    parNom.set(cle(e.name), {
+      source: "crm",
+      company_name: e.name,
+      company_website: e.website,
+      company_activity: e.activity,
+      company_legal_name: null,
+      company_linkedin_url: e.linkedin_url,
+      sector: e.sector,
+      region: e.region,
+      address: e.address,
+      siren: e.siret ? e.siret.slice(0, 9) : null,
+      siret: e.siret,
+      headcount_range: e.headcount,
+      phone_standard: null,
+      leads: 0,
+    });
+  }
+
+  for (const brut of (leads ?? []) as unknown as Array<Record<string, string | null>>) {
+    const nom = brut.company_name?.trim();
+    if (!nom) continue;
+    const k = cle(nom);
+    const deja = parNom.get(k);
+    if (!deja) {
+      parNom.set(k, {
+        source: "lead",
+        company_name: nom,
+        ...(Object.fromEntries(CHAMPS_ENTREPRISE.map((c) => [c, brut[c] ?? null])) as Pick<
+          EntrepriseConnue,
+          (typeof CHAMPS_ENTREPRISE)[number]
+        >),
+        leads: 1,
+      });
+      continue;
+    }
+    deja.leads += 1;
+    // Ce que la fiche ne savait pas, un lead le sait peut-être.
+    for (const c of CHAMPS_ENTREPRISE) if (!deja[c] && brut[c]) deja[c] = brut[c];
+  }
+
+  const t = cle(terme);
+  return [...parNom.values()]
+    .sort((a, b) => {
+      // Ce qui commence par la saisie d'abord, puis le CRM, puis les plus fréquents.
+      const da = cle(a.company_name).startsWith(t) ? 0 : 1;
+      const db = cle(b.company_name).startsWith(t) ? 0 : 1;
+      if (da !== db) return da - db;
+      if (a.source !== b.source) return a.source === "crm" ? -1 : 1;
+      return b.leads - a.leads;
+    })
+    .slice(0, 8);
+}
+
 export async function createLead(input: {
   first_name?: string | null;
   last_name?: string | null;
   email?: string | null;
   phone?: string | null;
+  job_title?: string | null;
   company_name?: string | null;
   region?: string | null;
   comment?: string | null;
+  entreprise?: Partial<Pick<EntrepriseConnue, (typeof CHAMPS_ENTREPRISE)[number]>> | null;
 }): Promise<ActionResult<{ id: string }>> {
   const profile = await requireStaff();
   const supabase = await createClient();
 
+  const { entreprise, ...champs } = input;
   const fullName = [input.first_name, input.last_name].filter(Boolean).join(" ").trim();
+
+  // Seules les colonnes d'entreprise connues passent : l'argument vient du réseau.
+  const reprises = Object.fromEntries(
+    CHAMPS_ENTREPRISE.flatMap((c) => {
+      const v = entreprise?.[c];
+      return typeof v === "string" && v.trim() ? [[c, v.trim()]] : [];
+    }),
+  );
 
   const { data, error } = await supabase
     .from("leads")
     .insert({
-      ...input,
+      ...reprises,
+      ...champs,
+      region: champs.region || (reprises.region as string | undefined) || null,
       full_name: fullName || input.email || "Sans nom",
       owner_id: profile.id,
       owner_name: profile.full_name,

@@ -78,6 +78,8 @@ async function buildDailySnapshot() {
       .from("leads")
       .select("id, full_name, company_name, status, follow_up_on, comment")
       .is("converted_deal_id", null)
+      // Rendez-vous décroché ou hors cible : plus rien à relancer.
+      .not("status", "in", "(call_pris,non_qualifie)")
       .order("follow_up_on", { ascending: true, nullsFirst: false })
       .limit(400),
     supabase

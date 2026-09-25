@@ -198,8 +198,37 @@ export function finDeJourneeParis(instant: Date): Date {
   return new Date(naif - decalageParis(instant));
 }
 
+const LOCAL_PARIS = new Intl.DateTimeFormat("en-CA", {
+  timeZone: FUSEAU,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23",
+});
+
+/** Un instant en « AAAA-MM-JJTHH:mm » à l'heure de Paris, pour un `<input type="datetime-local">`. */
+export function versSaisieParis(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const instant = new Date(iso);
+  if (Number.isNaN(instant.getTime())) return "";
+  const p = Object.fromEntries(LOCAL_PARIS.formatToParts(instant).map((x) => [x.type, x.value]));
+  return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}`;
+}
+
+/** L'inverse : une heure saisie « à Paris » devient un instant ISO. */
+export function depuisSaisieParis(local: string): string | null {
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(local)) return null;
+  const naif = Date.parse(`${local}:00Z`);
+  // Deux passes : le décalage se lit à l'instant visé, pas à l'instant naïf.
+  let instant = naif - decalageParis(new Date(naif));
+  instant = naif - decalageParis(new Date(instant));
+  return new Date(instant).toISOString();
+}
+
 /** La date parisienne d'un instant, au format `AAAA-MM-JJ`. */
-function jourDe(value: string): string | null {
+export function jourDe(value: string): string | null {
   // Une date nue est déjà un jour : la repasser par le fuseau la décalerait.
   if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
   const instant = new Date(value);

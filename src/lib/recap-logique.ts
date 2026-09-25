@@ -141,6 +141,8 @@ export type Redaction = {
   salutation: string;
   recap: string;
   prochaines_etapes: string[];
+  /** La confirmation du prochain rendez-vous, tirée de l'agenda — jamais du modèle. */
+  confirmation_rdv?: string | null;
 };
 
 /**
@@ -166,7 +168,10 @@ export function assemblerCorps(redaction: Redaction): string {
     "Merci pour cet échange.",
     `Récap du call\n${redaction.recap.trim()}`,
     `Prochaines étapes\n${etapes}`,
-  ].join("\n\n");
+    redaction.confirmation_rdv?.trim() || null,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 }
 
 const INTERTITRES = ["Récap du call", "Prochaines étapes"];
