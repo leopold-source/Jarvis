@@ -6,6 +6,7 @@ import {
   CircleDollarSign,
   FolderKanban,
   Handshake,
+  ListTodo,
   MoonStar,
   Receipt,
   Target,
@@ -14,10 +15,8 @@ import {
 import { PageHeader } from "@/components/layout/page-header";
 import { AgendaDuJour } from "@/components/crm/agenda-du-jour";
 import { PipelineInsight } from "@/components/crm/pipeline-insight";
-import { DailySuggestions } from "@/components/crm/daily-suggestions";
-import { ProchainesActions } from "@/components/crm/prochaines-actions";
-import { chargerRadar } from "@/lib/prochaines-actions";
-import type { SuggestionItemType } from "@/app/(crm)/suggestions-actions";
+import { PlanDuJour } from "@/components/crm/plan-du-jour";
+import { chargerPlan } from "@/lib/plan-du-jour";
 import { Badge, Card, EmptyState, ProgressBar, SectionTitle } from "@/components/ui";
 import {
   CHANTIER_STATUS,
@@ -26,43 +25,32 @@ import {
   METRIC_SOURCE,
   OPEN_STAGES,
   PROJECT_STATUS,
+  TODO_STATUT,
   TONE_DOT,
   TONE_GRADIENT,
 } from "@/lib/constants";
 import { requireStaff } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
-import { cn, daysUntil, formatDate, formatMoney, formatRelative, pluralize } from "@/lib/utils";
+import { cn, daysUntil, formatDate, formatMoney, formatRelative, pluralize, todayIso } from "@/lib/utils";
 
 export const metadata = { title: "Tableau de bord" };
 
 export default async function DashboardPage() {
   const profile = await requireStaff();
   const supabase = await createClient();
-  const [radar, { data: membres }] = await Promise.all([
-    chargerRadar(supabase),
+  const [plan, { data: membres }, { data: todos }] = await Promise.all([
+    chargerPlan(supabase, { userId: profile.id }),
     supabase.from("profiles").select("id, full_name, email").neq("role", "client"),
+    supabase.from("todos").select("id, titre, statut, priorite, due_on, assignee_ids").neq("statut", "fait"),
   ]);
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayIso();
   const inTwoWeeks = new Date(Date.now() + 14 * 86_400_000).toISOString().slice(0, 10);
 
-  const [
-    { data: deals },
-    { data: health },
-    { data: leadsToCall },
-    { data: projects },
-    { data: dueTasks },
-  ] = await Promise.all([
+  const [{ data: deals }, { data: health }, { data: projects }, { data: dueTasks }] = await Promise.all([
     supabase
       .from("deals")
       .select("id, name, stage, amount, company_id, expected_close_on, stage_changed_at"),
     supabase.from("deal_health").select("deal_id, sante, jours_dans_etape"),
-    supabase
-      .from("leads")
-      .select("id, full_name, company_name, status, follow_up_on")
-      .not("follow_up_on", "is", null)
-      .lte("follow_up_on", inTwoWeeks)
-      .order("follow_up_on", { ascending: true })
-      .limit(6),
     supabase
       .from("projects")
       .select("id, name, code, status, due_on, health, company_id")
@@ -88,7 +76,7 @@ export default async function DashboardPage() {
     .order("due_on")
     .limit(5);
 
-  const [{ data: insight }, { data: suggestions }, { data: doneRows }, { data: chantiers }, { data: objectifs }] =
+  const [{ data: insight }, { data: chantiers }, { data: objectifs }] =
     await Promise.all([
       supabase
         .from("pipeline_insights")
@@ -96,12 +84,6 @@ export default async function DashboardPage() {
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle(),
-      supabase.from("daily_suggestions").select("*").eq("for_date", today).maybeSingle(),
-      supabase
-        .from("suggestion_done")
-        .select("item_key")
-        .eq("suggestion_date", today)
-        .eq("user_id", profile.id),
       supabase
         .from("chantiers")
         .select("id, title, intention, status, started_on")
@@ -145,12 +127,6 @@ export default async function DashboardPage() {
   const closed = allDeals.filter((deal) => ["gagne", "perdu"].includes(deal.stage)).length;
   const winRate = closed > 0 ? Math.round((wonDeals.length / closed) * 100) : null;
 
-  const aReveiller = [...dormant]
-    .sort(
-      (a, b) => (sante.get(b.id)?.jours_dans_etape ?? 0) - (sante.get(a.id)?.jours_dans_etape ?? 0),
-    )
-    .slice(0, 6);
-
   const byStage = DEAL_STAGE_ORDER.map((stage) => {
     const stageDeals = allDeals.filter((deal) => deal.stage === stage);
     return {
@@ -179,14 +155,6 @@ export default async function DashboardPage() {
     la fusion de tête.
   */
   const echeances = [
-    ...(leadsToCall ?? []).map((lead) => ({
-      id: `lead-${lead.id}`,
-      date: lead.follow_up_on,
-      titre: lead.full_name ?? "Sans nom",
-      detail: lead.company_name ?? "Relance",
-      href: `/leads?lead=${lead.id}`,
-      genre: "relance" as const,
-    })),
     ...(dueTasks ?? []).map((task) => ({
       id: `task-${task.id}`,
       date: task.due_on,
@@ -208,8 +176,16 @@ export default async function DashboardPage() {
     .sort((a, b) => (a.date! < b.date! ? -1 : 1))
     .slice(0, 8);
 
+  // Les tâches d'équipe qui demandent un geste : bloquées, dues, ou priorité 1.
+  const mesTaches = (todos ?? [])
+    .filter((t) => t.assignee_ids.includes(profile.id) || t.assignee_ids.length === 0)
+    .filter((t) => t.statut === "probleme" || t.priorite === 1 || (t.due_on !== null && t.due_on <= today))
+    .sort((a, b) => {
+      const rang = (t: typeof a) => (t.statut === "probleme" ? 0 : t.due_on && t.due_on < today ? 1 : t.due_on === today ? 2 : 3);
+      return rang(a) - rang(b) || (a.priorite ?? 9) - (b.priorite ?? 9);
+    });
+
   const GENRE_ICONE = {
-    relance: CalendarClock,
     tache: FolderKanban,
     facture: Receipt,
   } as const;
@@ -252,52 +228,40 @@ export default async function DashboardPage() {
     <div className="mx-auto flex max-w-7xl flex-col gap-7">
       <PageHeader
         title={`Bonjour ${profile.full_name?.split(" ")[0] ?? ""}`.trim()}
-        description="Ce qui t'attend, ce qui avance, et ce qui dort."
+        description="Le plan du jour d'abord, la production ensuite."
       />
 
       <PipelineInsight insight={insight} />
 
-      {/* ---------------------------------------------------- Aujourd'hui */}
+      {/* ---------------------------------------------------- Commercial */}
+      {/*
+        Une seule liste à suivre — le plan du jour —, et l'information à côté.
+        Le plan est la source de vérité : les affaires d'abord, puis les
+        relances, puis la prospection libre. L'agenda, les chiffres et la boîte
+        mail éclairent la journée sans rien demander.
+      */}
       <section className="flex flex-col gap-3">
-        <Titre>Aujourd&apos;hui</Titre>
-        {/* En tête de journée : ce qu'une affaire chaude attend de nous. */}
-        <ProchainesActions
-          radar={radar}
-          membres={(membres ?? []).map((m) => ({ id: m.id, nom: m.full_name ?? m.email }))}
-          moi={profile.id}
-        />
-        {/*
-          Deux panneaux de même hauteur, chacun défilant dans son cadre.
-          L'agenda et la liste du jour se lisent ensemble — ce qui est déjà pris
-          décide de ce qu'il reste à faire — et aucun des deux ne doit repousser
-          l'autre hors de l'écran en se remplissant.
-        */}
-        <div className="grid items-stretch gap-4 lg:grid-cols-2">
-          <Suspense
-            fallback={
-              <Card className="p-5">
-                <div className="skeleton h-4 w-40" />
-                <div className="skeleton mt-3 h-3 w-52" />
-              </Card>
-            }
-          >
-            <AgendaDuJour userId={profile.id} className="h-full" />
-          </Suspense>
-
-          <DailySuggestions
-            focus={suggestions?.focus ?? null}
-            items={(suggestions?.items ?? []) as unknown as SuggestionItemType[]}
-            done={(doneRows ?? []).map((row) => row.item_key)}
-            generatedAt={suggestions?.created_at ?? null}
-            className="h-full"
-          />
-        </div>
-      </section>
-
-      {/* ------------------------------------------------------- Les chiffres */}
-      {/* Deux tuiles de front dès le plus petit écran : en colonne unique, les
-          quatre chiffres occupaient un écran et demi pour dire quatre nombres. */}
-      <section className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+        <Titre>Commercial</Titre>
+        <div className="grid items-start gap-4 lg:grid-cols-3">
+          <div className="lg:col-span-2">
+            <PlanDuJour
+              plan={plan}
+              moi={profile.id}
+              membres={(membres ?? []).map((m) => ({ id: m.id, nom: m.full_name ?? m.email }))}
+            />
+          </div>
+          <div className="flex flex-col gap-4">
+            <Suspense
+              fallback={
+                <Card className="p-5">
+                  <div className="skeleton h-4 w-40" />
+                  <div className="skeleton mt-3 h-3 w-52" />
+                </Card>
+              }
+            >
+              <AgendaDuJour userId={profile.id} />
+            </Suspense>
+            <div className="grid grid-cols-2 gap-3">
         {stats.map(({ label, value, hint, icon: Icon, href }, index) => (
           <Link key={label} href={href} style={{ ["--i" as string]: index }} className="stagger">
             <Card interactive glow className="h-full p-4">
@@ -316,43 +280,65 @@ export default async function DashboardPage() {
             </Card>
           </Link>
         ))}
+            </div>
+          {/* Boîte mail */}
+          <Link href="/mails" className="block">
+            <Card interactive className="flex h-full flex-col p-5">
+              <SectionTitle title="Boîte mail" />
+              <p className="mt-3 text-[22px] font-semibold tabular-nums">
+                {mailsEnAttente.count ?? 0}
+              </p>
+              <p className="text-[12px] text-[var(--text-muted)]">
+                {(mailsEnAttente.count ?? 0) > 0
+                  ? "en attente de ta décision"
+                  : "rien ne t'attend"}
+              </p>
+              <p className="mt-auto pt-3 text-[11px] text-[var(--text-muted)]">
+                {dernierTri
+                  ? `Trié ${formatRelative(dernierTri.started_at)} · ${dernierTri.lus} lu(s)` +
+                    (dernierTri.spams > 0 ? ` · ${dernierTri.spams} écarté(s)` : "")
+                  : "Le tri ne s'est encore jamais exécuté"}
+              </p>
+            </Card>
+          </Link>
+          </div>
+        </div>
       </section>
 
-      {/* ------------------------------------------- Ce qui demande une décision */}
+      {/* ---------------------------------------------------- Production */}
       <section className="flex flex-col gap-3">
-        <Titre>Ce qui demande une décision</Titre>
-        <div className="grid items-stretch gap-4 lg:grid-cols-2">
+        <Titre>Production &amp; équipe</Titre>
+        <div className="grid gap-4 lg:grid-cols-2">
+          {/* Tâches d'équipe */}
           <Card className="flex flex-col p-5">
             <SectionTitle
-              title="À réveiller"
-              description="Ni gagnées ni perdues : simplement sans nouvelle"
+              title="Mes tâches"
+              description="Bloquées, dues ou en priorité 1"
+              action={
+                <Link href="/taches" className="text-[12px] text-brand-400 hover:text-brand-300">
+                  Toutes les tâches
+                </Link>
+              }
             />
-            {aReveiller.length === 0 ? (
-              <EmptyState
-                icon={<MoonStar className="size-5" />}
-                title="Rien ne dort"
-                description="Toutes les affaires ouvertes ont bougé récemment."
-              />
+            {mesTaches.length === 0 ? (
+              <p className="mt-3 text-[12.5px] text-[var(--text-muted)]">Rien d&apos;urgent dans les tâches d&apos;équipe.</p>
             ) : (
-              <ul className="mt-4 flex-1 divide-y divide-[var(--border-subtle)] pr-1 lg:max-h-72 lg:overflow-y-auto">
-                {aReveiller.map((deal, index) => {
-                  const days = sante.get(deal.id)?.jours_dans_etape ?? 0;
+              <ul className="mt-3.5 flex-1 divide-y divide-[var(--border-subtle)]">
+                {mesTaches.slice(0, 7).map((t) => {
+                  const retard = t.due_on !== null && t.due_on < today;
                   return (
-                    <li key={deal.id} className="stagger py-2.5" style={{ ["--i" as string]: index }}>
-                      <Link
-                        href={`/affaires?affaire=${deal.id}`}
-                        className="group flex items-center justify-between gap-3"
-                      >
-                        <span className="min-w-0">
-                          <span className="block truncate text-[13px] font-medium group-hover:text-brand-300">
-                            {deal.name}
-                          </span>
-                          <span className="block truncate text-[11.5px] text-[var(--text-muted)]">
-                            {DEAL_STAGE[deal.stage].label}
-                            {deal.amount ? ` · ${formatMoney(deal.amount, true)}` : ""}
-                          </span>
+                    <li key={t.id} className="py-2">
+                      <Link href="/taches" className="group flex items-center gap-2.5">
+                        <ListTodo className={cn("size-3.5 shrink-0", t.statut === "probleme" || retard ? "text-rose-500" : "text-[var(--text-muted)]")} />
+                        <span className="min-w-0 flex-1 truncate text-[13px] group-hover:text-brand-300">
+                          {t.priorite === 1 ? <strong className="mr-1 text-rose-500">P1</strong> : null}
+                          {t.titre}
                         </span>
-                        <Badge tone="amber">{days} j</Badge>
+                        {t.statut === "probleme" ? (
+                          <Badge tone="red">{TODO_STATUT.probleme.label}</Badge>
+                        ) : t.due_on ? (
+                          <Badge tone={retard ? "rose" : "stone"}>{t.due_on === today ? "Aujourd'hui" : formatDate(t.due_on)}</Badge>
+                        ) : null}
                       </Link>
                     </li>
                   );
@@ -363,8 +349,8 @@ export default async function DashboardPage() {
 
           <Card className="flex flex-col p-5">
             <SectionTitle
-              title="Ce qui tombe"
-              description="Relances, jalons et factures, dans l'ordre où ça arrive"
+              title="Échéances production"
+              description="Tâches de projet, jalons et factures, dans l'ordre où ça arrive"
             />
             {echeances.length === 0 ? (
               <EmptyState
@@ -405,13 +391,7 @@ export default async function DashboardPage() {
               </ul>
             )}
           </Card>
-        </div>
-      </section>
 
-      {/* ------------------------------------------------------- L'entreprise */}
-      <section className="flex flex-col gap-3">
-        <Titre>L&apos;entreprise</Titre>
-        <div className="grid gap-4 lg:grid-cols-3">
           {/* Chantiers */}
           <Card className="flex flex-col p-5">
             <SectionTitle
@@ -508,26 +488,6 @@ export default async function DashboardPage() {
             )}
           </Card>
 
-          {/* Boîte mail */}
-          <Link href="/mails" className="block">
-            <Card interactive className="flex h-full flex-col p-5">
-              <SectionTitle title="Boîte mail" />
-              <p className="mt-3 text-[22px] font-semibold tabular-nums">
-                {mailsEnAttente.count ?? 0}
-              </p>
-              <p className="text-[12px] text-[var(--text-muted)]">
-                {(mailsEnAttente.count ?? 0) > 0
-                  ? "en attente de ta décision"
-                  : "rien ne t'attend"}
-              </p>
-              <p className="mt-auto pt-3 text-[11px] text-[var(--text-muted)]">
-                {dernierTri
-                  ? `Trié ${formatRelative(dernierTri.started_at)} · ${dernierTri.lus} lu(s)` +
-                    (dernierTri.spams > 0 ? ` · ${dernierTri.spams} écarté(s)` : "")
-                  : "Le tri ne s'est encore jamais exécuté"}
-              </p>
-            </Card>
-          </Link>
         </div>
       </section>
 

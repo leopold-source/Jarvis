@@ -1,6 +1,8 @@
 import { PageHeader } from "@/components/layout/page-header";
 import { LeadsWorkspace } from "@/components/crm/leads-workspace";
 import { requireStaff } from "@/lib/auth";
+import { chargerPlan } from "@/lib/plan-du-jour";
+import { planDe, verrouProspection } from "@/lib/plan-logique";
 import { createClient } from "@/lib/supabase/server";
 
 export const metadata = { title: "Leads" };
@@ -9,7 +11,7 @@ export default async function LeadsPage() {
   const profile = await requireStaff();
   const supabase = await createClient();
 
-  const [{ data: leads }, { data: members }, { data: reglages }] = await Promise.all([
+  const [{ data: leads }, { data: members }, { data: reglages }, plan] = await Promise.all([
     /*
       Les colonnes affichées, et elles seules.
 
@@ -36,7 +38,10 @@ export default async function LeadsPage() {
       .eq("is_active", true)
       .order("full_name"),
     supabase.from("app_settings").select("value").eq("key", "prospection").maybeSingle(),
+    // Le plan du jour décide si la prospection libre est ouverte.
+    chargerPlan(supabase, { userId: profile.id }),
   ]);
+  const verrou = verrouProspection(planDe(plan, profile.id));
 
   /*
     Les deux arbitrages commerciaux de la prospection, réglés dans Réglages.
@@ -68,6 +73,7 @@ export default async function LeadsPage() {
         orgCooldownDays={cooldown}
         dormanceJours={dormance}
         isAdmin={profile.role === "admin"}
+        verrou={verrou}
       />
     </div>
   );

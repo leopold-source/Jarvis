@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowRight,
@@ -8,6 +9,7 @@ import {
   Check,
   ChevronDown,
   Copy,
+  Lock,
   ExternalLink,
   Eye,
   Linkedin,
@@ -63,6 +65,7 @@ import { useCellSelection, type CellSelection } from "@/lib/use-cell-selection";
 import { ImportLeadsDialog } from "@/components/crm/import-leads-dialog";
 import { buildOrgIndex, collapseByOrg, type FileEntry, type OrgLink } from "@/lib/lead-orgs";
 import { ConfirmationModal } from "@/components/crm/confirmation-modal";
+import { forcerProspection } from "@/app/(crm)/actions-du-jour";
 import { LeadDrawer } from "@/components/crm/lead-drawer";
 
 const PAGE_SIZE = 60;
@@ -149,6 +152,7 @@ export function LeadsWorkspace({
   orgCooldownDays,
   dormanceJours,
   isAdmin,
+  verrou,
 }: {
   leads: LeadListe[];
   members: MemberLite[];
@@ -163,6 +167,11 @@ export function LeadsWorkspace({
    */
   dormanceJours: number | null;
   isAdmin: boolean;
+  /**
+   * La prospection libre suit le plan du jour : tant que mes affaires et mes
+   * relances ne sont pas traitées, la file n'offre que des relances.
+   */
+  verrou: { ouvert: boolean; affaires: number; relances: number };
 }) {
   const router = useRouter();
   const params = useSearchParams();
@@ -324,6 +333,17 @@ export function LeadsWorkspace({
   // Les filtres, repliés par défaut sur téléphone seulement : à partir de
   // `sm` le bloc est toujours affiché, quel que soit cet état.
   const [filtresOuverts, setFiltresOuverts] = useState(false);
+  // « Prospecter quand même » : valable pour la journée, dans cet onglet.
+  const cleForcage = `prospection-forcee-${todayIso()}`;
+  const [force, setForce] = useState(false);
+  useEffect(() => {
+    try {
+      setForce(sessionStorage.getItem(cleForcage) === "1");
+    } catch {
+      setForce(false);
+    }
+  }, [cleForcage]);
+  const libre = verrou.ouvert || force;
   // L'affaire née d'un « call pris », dont on propose de confirmer le rendez-vous.
   const [aConfirmer, setAConfirmer] = useState<string | null>(null);
   const [seulementEndormis, setSeulementEndormis] = useState(false);
@@ -426,7 +446,8 @@ export function LeadsWorkspace({
           if (!showOverdue && lead.follow_up_on < today) return false;
           return true;
         }
-        return RELANCE_SANS_DATE.includes(lead.status) || JAMAIS_APPELE.includes(lead.status);
+        // Les jamais-appelés, c'est la prospection libre : elle attend le plan.
+        return RELANCE_SANS_DATE.includes(lead.status) || (libre && JAMAIS_APPELE.includes(lead.status));
       })
       .sort((a, b) => {
         // Dans la pile NRP, le compteur passe avant la file d'appel : c'est
@@ -448,7 +469,7 @@ export function LeadsWorkspace({
     // même ligne — c'est là, en descendant la file sans réfléchir, qu'on
     // rappelait la même boîte deux fois.
     return collapseByOrg(queue, orgIndex, rotation);
-  }, [rows, search, statuses, nrpNiveaux, region, segment, owner, currentUserId, view, showOverdue, today, onlyGrouped, phoneFilter, orgIndex, rotation, seulementEndormis, endormis]);
+  }, [rows, search, statuses, nrpNiveaux, region, segment, owner, currentUserId, view, showOverdue, today, onlyGrouped, phoneFilter, orgIndex, rotation, seulementEndormis, endormis, libre]);
 
   // Les lignes, et ce qu'il faut pour en changer l'occupant. Deux vues d'une
   // même liste : le rendu ne connaît que des leads, le bouton que des groupes.
@@ -683,8 +704,55 @@ export function LeadsWorkspace({
     refresh();
   }
 
+  async function prospecterQuandMeme() {
+    await forcerProspection(verrou.affaires, verrou.relances);
+    try {
+      sessionStorage.setItem(cleForcage, "1");
+    } catch {
+      // Sans stockage, la dérogation vaut jusqu'au rechargement.
+    }
+    setForce(true);
+  }
+
   return (
     <>
+      {view === "prospection" && !verrou.ouvert ? (
+        <div
+          className={cn(
+            "flex flex-wrap items-center gap-2 rounded-xl px-4 py-2.5 text-[12.5px] ring-1",
+            libre
+              ? "bg-amber-500/10 text-amber-800 ring-amber-500/25 dark:text-amber-200"
+              : "bg-[var(--surface-hover)] text-[var(--text-secondary)] ring-[var(--border-subtle)]",
+          )}
+        >
+          <Lock className="size-3.5 shrink-0" />
+          {libre ? (
+            <span className="flex-1">
+              Prospection libre ouverte par dérogation — {verrou.affaires} affaire{verrou.affaires > 1 ? "s" : ""} et{" "}
+              {verrou.relances} relance{verrou.relances > 1 ? "s" : ""} attendent encore dans le plan du jour.
+            </span>
+          ) : (
+            <>
+              <span className="flex-1">
+                <strong className="font-medium">Prospection libre fermée.</strong> D&apos;abord le plan du jour :{" "}
+                {verrou.affaires} affaire{verrou.affaires > 1 ? "s" : ""} et {verrou.relances} relance
+                {verrou.relances > 1 ? "s" : ""}. La file ne montre que les relances.
+              </span>
+              <Link href="/" className="font-medium text-brand-600 hover:underline dark:text-brand-300">
+                Voir le plan
+              </Link>
+              <button
+                type="button"
+                onClick={() => void prospecterQuandMeme()}
+                className="text-[var(--text-muted)] underline-offset-2 hover:text-[var(--text-primary)] hover:underline"
+              >
+                Prospecter quand même
+              </button>
+            </>
+          )}
+        </div>
+      ) : null}
+
       <Card className="p-3.5">
         <div className="flex flex-wrap items-center gap-2.5">
           <SearchInput

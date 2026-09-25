@@ -4,207 +4,109 @@ import { revalidatePath } from "next/cache";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { z } from "zod";
 
-import { DEAL_STAGE, LEAD_STATUS } from "@/lib/constants";
-import type { DailySuggestion, DealStage, LeadStatus } from "@/lib/database.types";
 import { requireStaff } from "@/lib/auth";
 import { MISSING_KEY_ERROR, anthropicClient, anthropicKey, describeAnthropicError } from "@/lib/anthropic";
+import { chargerPlan } from "@/lib/plan-du-jour";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
+import { todayIso } from "@/lib/utils";
 
 /**
- * Suggestions du jour.
+ * Ce que l'IA ajoute au plan du jour — et seulement cela.
  *
- * Volontairement séparée de l'analyse du pipeline : celle-ci raisonne sur des
- * tendances et coûte cher, celle-là ne fait que traduire l'état du CRM en
- * gestes concrets — « rappeler untel », « trancher telle propale ». Un modèle
- * rapide suffit, à condition de lui mâcher le travail : l'instantané est
- * plafonné et déjà trié, le modèle ne fait que choisir, formuler et ordonner.
- *
- * Le cadrage vient de la dernière analyse du pipeline, transmise en consigne :
- * les gestes du jour restent alignés sur le chantier de fond plutôt que de
- * partir dans une autre direction chaque matin.
+ * La liste des choses à faire ne vient pas du modèle : elle se calcule à
+ * partir du CRM (voir `plan-logique`), pour qu'il n'y ait qu'une source de
+ * vérité et aucun doublon. Le modèle écrit deux choses par-dessus : le cap du
+ * jour, aligné sur l'objectif du pipeline, et pour chaque affaire le geste
+ * concret à faire. Haiku suffit : tout est déjà trié, il ne fait que formuler.
  */
 
-/** Assez pour couvrir une journée d'appels, assez peu pour rester bon marché. */
-const MAX_PER_CATEGORY = 12;
-const MAX_ITEMS = 8;
-
-const SuggestionItem = z.object({
-  key: z.string().describe("Identifiant stable : type + identifiant de la fiche, ex. lead:uuid"),
-  title: z.string().describe("L'action, à l'impératif, moins de 70 caractères"),
-  detail: z.string().describe("Le pourquoi, en une phrase, avec le chiffre qui le justifie"),
-  kind: z.enum(["appel", "relance", "decision", "administratif"]),
-  urgency: z.enum(["haute", "normale"]),
-  href: z.string().describe("Lien interne vers la fiche, ex. /leads?lead=uuid ou /affaires?affaire=uuid"),
+const Annotations = z.object({
+  cap: z.string().describe("La ligne directrice du jour, moins de 90 caractères, alignée sur l'objectif"),
+  gestes: z
+    .array(
+      z.object({
+        cle: z.string().describe("La clé exacte de l'affaire, reprise telle quelle (deal:…)"),
+        geste: z.string().describe("Le geste concret, à l'impératif, moins de 110 caractères"),
+      }),
+    )
+    .describe("Un geste par affaire fournie, au plus"),
 });
 
-const DailyPlan = z.object({
-  focus: z.string().describe("La ligne directrice du jour, moins de 80 caractères"),
-  items: z.array(SuggestionItem).min(3).max(MAX_ITEMS),
-});
+const CONSIGNES = `Tu aides les deux associés d'Antichaos — agence qui forme les PME et bureaux d'études à l'IA et l'intègre dans leurs outils — à attaquer leur journée commerciale.
 
-export type SuggestionItemType = z.infer<typeof SuggestionItem>;
+On te donne le plan du jour déjà trié par importance : chaque affaire avec sa raison d'être là (étape en retard, no-show, devis expiré, récap à envoyer, affaire en sommeil…), son étape et son montant, et l'objectif du moment.
+
+Tu rends :
+- le cap : une phrase qui dit sur quoi mettre l'énergie aujourd'hui, reliée à l'objectif s'il y en a un ;
+- pour chaque affaire, le geste concret : qui appeler ou à qui écrire, pour obtenir quoi. Précis et actionnable (« Appeler le DG pour caler le R2 cette semaine », « Relancer par mail sur le devis en proposant un créneau »), jamais « faire le point ».
+
+Reprends les clés exactement. N'invente ni nom de personne ni fait absent des données.`;
 
 export type SuggestionsResult = { ok: true } | { ok: false; error: string };
 
-const SYSTEM_PROMPT = `Tu prépares la journée d'un commercial en B2B, dans une agence
-qui vend de la formation et de l'intégration IA à des PME industrielles.
-
-On te donne l'état du CRM ce matin : relances dues, affaires figées, leads à
-rappeler. Chaque entrée porte déjà son identifiant et son lien.
-
-Tu renvoies une liste courte d'actions, de la plus urgente à la moins urgente.
-
-Règles :
-- Une action = une fiche précise, nommée. Jamais « relancer les leads en retard »,
-  toujours « Rappeler Paul Cairola (Cet Bâtiment) ».
-- Reprends l'identifiant et le lien exacts fournis dans l'instantané. N'invente
-  ni nom, ni identifiant, ni lien.
-- Le détail donne le chiffre qui justifie l'action : jours de retard, âge dans
-  l'étape, nombre de tentatives.
-- Priorise ce qui se périme : une relance datée d'hier passe avant un lead
-  jamais rappelé.
-- Si un axe de travail prioritaire t'est donné, ordonne la liste pour le servir.
-- Pas de remplissage : mieux vaut trois actions justes que huit approximatives.`;
-
-/** Instantané du jour : trié et plafonné avant d'atteindre le modèle. */
-async function buildDailySnapshot() {
-  const admin = createAdminClient();
-  const supabase = admin ?? (await createClient());
-  const today = new Date().toISOString().slice(0, 10);
-
-  const [{ data: leads }, { data: deals }, { data: insight }] = await Promise.all([
-    supabase
-      .from("leads")
-      .select("id, full_name, company_name, status, follow_up_on, comment")
-      .is("converted_deal_id", null)
-      // Rendez-vous décroché ou hors cible : plus rien à relancer.
-      .not("status", "in", "(call_pris,non_qualifie)")
-      .order("follow_up_on", { ascending: true, nullsFirst: false })
-      .limit(400),
-    supabase
-      .from("deals")
-      .select("id, name, stage, amount, stage_changed_at, next_step, next_step_on")
-      .not("stage", "in", "(gagne,perdu,non_qualifie)")
-      .order("stage_changed_at", { ascending: true })
-      .limit(60),
-    supabase
-      .from("pipeline_insights")
-      .select("headline, horizon_days")
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle(),
-  ]);
-
-  const allLeads = leads ?? [];
-  const days = (iso: string) =>
-    Math.round((Date.now() - new Date(iso).getTime()) / 86_400_000);
-
-  const relances = allLeads
-    .filter((lead) => lead.follow_up_on && lead.follow_up_on <= today)
-    .slice(0, MAX_PER_CATEGORY)
-    .map((lead) => ({
-      id: `lead:${lead.id}`,
-      lien: `/leads?lead=${lead.id}`,
-      nom: lead.full_name,
-      entreprise: lead.company_name,
-      statut: LEAD_STATUS[lead.status as LeadStatus]?.label,
-      relance_prevue: lead.follow_up_on,
-      retard_jours: lead.follow_up_on === today ? 0 : days(lead.follow_up_on!),
-      note: lead.comment?.slice(0, 120) ?? null,
-    }));
-
-  // Les NRP et « à recontacter » sans date : le vivier qu'on oublie.
-  const aRappeler = allLeads
-    .filter(
-      (lead) =>
-        !lead.follow_up_on &&
-        ["nrp", "a_recontacter"].includes(lead.status),
-    )
-    .slice(0, MAX_PER_CATEGORY)
-    .map((lead) => ({
-      id: `lead:${lead.id}`,
-      lien: `/leads?lead=${lead.id}`,
-      nom: lead.full_name,
-      entreprise: lead.company_name,
-      statut: LEAD_STATUS[lead.status as LeadStatus]?.label,
-      note: lead.comment?.slice(0, 120) ?? null,
-    }));
-
-  const affairesFigees = (deals ?? [])
-    .map((deal) => ({
-      id: `deal:${deal.id}`,
-      lien: `/affaires?affaire=${deal.id}`,
-      nom: deal.name,
-      etape: DEAL_STAGE[deal.stage as DealStage]?.label,
-      jours_dans_etape: days(deal.stage_changed_at),
-      montant: deal.amount,
-      prochaine_etape: deal.next_step,
-      prochaine_etape_le: deal.next_step_on,
-    }))
-    .filter((deal) => deal.jours_dans_etape >= 7)
-    .slice(0, MAX_PER_CATEGORY);
-
-  return {
-    date: today,
-    axe_prioritaire: insight?.headline ?? null,
-    relances_dues: relances,
-    leads_a_rappeler: aRappeler,
-    affaires_figees: affairesFigees,
-  };
-}
-
-export async function generateSuggestions(force = false): Promise<SuggestionsResult> {
+/** Depuis l'interface : régénère le cap et les gestes du jour. */
+export async function generateSuggestions(): Promise<SuggestionsResult> {
   await requireStaff();
-  return runSuggestions(force);
+  return runSuggestions(true);
 }
 
 /**
- * Génération proprement dite, sans contrôle de session : appelée aussi bien
- * depuis l'interface que depuis le cron, qui n'a pas d'utilisateur connecté.
+ * Génération sans contrôle de session : appelée aussi par le cron du matin.
+ * Sans `force`, ne refait pas ce qui existe déjà pour aujourd'hui.
  */
 export async function runSuggestions(force = false): Promise<SuggestionsResult> {
   if (!anthropicKey()) return { ok: false, error: MISSING_KEY_ERROR };
-
   const admin = createAdminClient();
   if (!admin) return { ok: false, error: "Clé SUPABASE_SERVICE_ROLE_KEY absente." };
 
-  const today = new Date().toISOString().slice(0, 10);
-
+  const aujourdhui = todayIso();
   if (!force) {
-    const { data: existing } = await admin
-      .from("daily_suggestions")
-      .select("id")
-      .eq("for_date", today)
-      .maybeSingle();
-    if (existing) return { ok: true };
+    const { data } = await admin.from("daily_suggestions").select("id").eq("for_date", aujourdhui).maybeSingle();
+    if (data) return { ok: true };
   }
 
-  const snapshot = await buildDailySnapshot();
-  const total =
-    snapshot.relances_dues.length +
-    snapshot.leads_a_rappeler.length +
-    snapshot.affaires_figees.length;
-  if (total === 0) return { ok: false, error: "Rien à suggérer : aucune action en attente." };
+  const [plan, { data: insight }] = await Promise.all([
+    chargerPlan(admin),
+    admin.from("pipeline_insights").select("headline").order("created_at", { ascending: false }).limit(1).maybeSingle(),
+  ]);
+  if (plan.affaires.length === 0) return { ok: false, error: "Aucune affaire à traiter aujourd'hui." };
+
+  const instantane = {
+    date: aujourdhui,
+    objectif: insight?.headline ?? null,
+    relances_leads_dues: plan.relances.length,
+    affaires: plan.affaires.slice(0, 30).map((a) => ({
+      cle: a.cle,
+      nom: a.nom,
+      etape: a.etapeLibelle,
+      montant: a.montant,
+      a_faire: a.action,
+      aussi: a.aussi,
+      retard_jours: a.retard || undefined,
+    })),
+  };
 
   try {
-    // Haiku : l'instantané est déjà trié et plafonné, le modèle n'a plus qu'à
-    // choisir et formuler. Un modèle de raisonnement coûterait dix fois plus
-    // pour un résultat que l'utilisateur ne distinguerait pas.
     const model = "claude-haiku-4-5";
     const response = await anthropicClient().messages.parse({
       model,
       max_tokens: 3000,
-      system: SYSTEM_PROMPT,
-      output_config: { format: zodOutputFormat(DailyPlan) },
-      messages: [{ role: "user", content: `État du CRM ce matin :\n${JSON.stringify(snapshot)}` }],
+      system: CONSIGNES,
+      output_config: { format: zodOutputFormat(Annotations) },
+      messages: [{ role: "user", content: JSON.stringify(instantane) }],
     });
+    const sortie = response.parsed_output;
+    if (!sortie) return { ok: false, error: "Le modèle n'a pas renvoyé d'annotations exploitables." };
 
-    const plan = response.parsed_output;
-    if (!plan) return { ok: false, error: "Le modèle n'a pas renvoyé de plan exploitable." };
-
+    const cles = new Set(plan.affaires.map((a) => a.cle));
     const { error } = await admin.from("daily_suggestions").upsert(
-      { for_date: today, focus: plan.focus, items: plan.items, model },
+      {
+        for_date: aujourdhui,
+        focus: sortie.cap,
+        items: sortie.gestes.filter((g) => cles.has(g.cle)),
+        model,
+      },
       { onConflict: "for_date" },
     );
     if (error) return { ok: false, error: error.message };
@@ -216,25 +118,20 @@ export async function runSuggestions(force = false): Promise<SuggestionsResult> 
   return { ok: true };
 }
 
-/** Coche ou décoche une suggestion, pour le seul utilisateur courant. */
-export async function toggleSuggestion(itemKey: string, done: boolean): Promise<SuggestionsResult> {
+/**
+ * Coche une ligne du plan pour aujourd'hui (ou la décoche). Pour une affaire,
+ * c'est `faireAvancer` qui enregistre aussi la suite ; ceci ne fait que
+ * sortir la ligne du plan de la personne.
+ */
+export async function cocherItem(cle: string, fait: boolean): Promise<SuggestionsResult> {
   const profile = await requireStaff();
   const supabase = await createClient();
-  const today = new Date().toISOString().slice(0, 10);
-
-  const { error } = done
-    ? await supabase
-        .from("suggestion_done")
-        .upsert({ suggestion_date: today, item_key: itemKey, user_id: profile.id })
-    : await supabase
-        .from("suggestion_done")
-        .delete()
-        .eq("suggestion_date", today)
-        .eq("item_key", itemKey)
-        .eq("user_id", profile.id);
-
+  const jour = todayIso();
+  const { error } = fait
+    ? await supabase.from("suggestion_done").upsert({ suggestion_date: jour, item_key: cle, user_id: profile.id })
+    : await supabase.from("suggestion_done").delete().eq("suggestion_date", jour).eq("item_key", cle).eq("user_id", profile.id);
   if (error) return { ok: false, error: error.message };
+  revalidatePath("/");
+  revalidatePath("/leads");
   return { ok: true };
 }
-
-export type SuggestionsView = { row: DailySuggestion | null; done: string[] };

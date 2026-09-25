@@ -3,7 +3,8 @@ import "server-only";
 import { agendaDe } from "@/lib/agenda";
 import { estOuvre, precedentOuvre } from "@/lib/echeances";
 import { composeHtmlRaw, refreshAccessToken, sendMessage } from "@/lib/google";
-import { chargerRadar, type Radar } from "@/lib/prochaines-actions";
+import { chargerPlan } from "@/lib/plan-du-jour";
+import { planDe, type ItemAffaire, type Niveau } from "@/lib/plan-logique";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { depuisSaisieParis, formatHeure, todayIso } from "@/lib/utils";
 
@@ -90,22 +91,20 @@ async function bilanVeille(admin: Admin, membres: Membre[], aujourdhui: string) 
 async function composer(admin: Admin, membres: Membre[]): Promise<{ sujet: string; html: string }> {
   const aujourdhui = todayIso();
   const prenomDe = (id: string | null) => membres.find((m) => m.id === id)?.prenom ?? "—";
-  const qui = (id: string | null) => `<span style="color:${GRIS}"> · ${esc(prenomDe(id))}</span>`;
 
-  const [radar, { data: suggestions }, veille, agendas, { data: ouvertes }] = await Promise.all([
-    chargerRadar(admin),
-    admin.from("daily_suggestions").select("focus, items").eq("for_date", aujourdhui).maybeSingle(),
+  const [plan, { data: todos }, veille, agendas, { data: ouvertes }] = await Promise.all([
+    chargerPlan(admin),
+    admin.from("todos").select("titre, categorie, statut, priorite, due_on, assignee_ids").neq("statut", "fait"),
     bilanVeille(admin, membres, aujourdhui),
     Promise.all(membres.map(async (m) => ({ m, agenda: await agendaDe(m.id, { jours: 0 }) }))),
     admin.from("deals").select("amount, probability").not("stage", "in", "(gagne,perdu,non_qualifie)"),
   ]);
 
-  const r: Radar = radar;
-  const retard = r.affaires.filter((a) => a.echeance === "retard");
-  const jour = r.affaires.filter((a) => a.echeance === "jour");
-  const prochain = r.affaires.filter((a) => a.echeance === "prochain");
   const rdv = agendas.flatMap(({ m, agenda }) => (agenda.ok ? agenda.rendezVous.map((x) => ({ m, x })) : []));
   rdv.sort((a, b) => (a.x.debut ?? "").localeCompare(b.x.debut ?? ""));
+  const taches = (todos ?? [])
+    .filter((t) => t.statut === "probleme" || t.priorite === 1 || (t.due_on !== null && t.due_on <= aujourdhui))
+    .sort((a, b) => (a.statut === "probleme" ? -1 : 0) - (b.statut === "probleme" ? -1 : 0) || (a.due_on ?? "9").localeCompare(b.due_on ?? "9"));
 
   const blocs: string[] = [];
 
@@ -123,96 +122,69 @@ async function composer(admin: Admin, membres: Membre[]): Promise<{ sujet: strin
     );
   }
 
-  // --- Tâches de l'équipe : bloquées, en retard, du jour, prioritaires
-  const taches = r.taches.filter((t) => t.echeance !== "prochain" || t.prio || t.probleme);
-  if (taches.length) {
-    const etat = (t: Radar["taches"][number]) =>
-      t.probleme
-        ? `<span style="color:${ROUGE}">problème</span>`
-        : t.echeance === "retard"
-          ? `<span style="color:${ROUGE}">en retard</span>`
-          : t.echeance === "jour"
-            ? "aujourd'hui"
-            : "prioritaire";
-    blocs.push(
-      titre("Tâches de l'équipe", taches.length) +
-        liste(
-          taches.slice(0, 15).map(
-            (t) =>
-              `${t.prio ? "<strong>P1</strong> " : ""}${lien("/taches", esc(t.titre))}${t.categorie ? ` <span style="color:${GRIS}">#${esc(t.categorie)}</span>` : ""} — ${etat(t)}<span style="color:${GRIS}"> · ${
-                t.assignees.map((id) => esc(prenomDe(id))).join(" + ") || "à attribuer"
-              }</span>`,
-          ),
-        ),
+  // --- Le cap du jour, puis le plan de chacun : la même source que l'accueil
+  if (plan.cap) {
+    blocs.push(`<p style="margin:22px 0 0;padding:10px 12px;background:#f4f1ec;border-radius:8px;font-size:14px;color:#26262c">${esc(plan.cap)}</p>`);
+  }
+  const TITRES: Record<Niveau, string> = { urgent: "Urgent", jour: "Aujourd'hui", avancer: "À faire avancer" };
+  const ligneAffaire = (a: ItemAffaire) => {
+    const geste = plan.gestes[a.cle];
+    return (
+      `${lien(`/affaires?affaire=${a.dealId}`, esc(a.action))}${a.retard ? ` <span style="color:${ROUGE}">${a.retard} j de retard</span>` : ""}` +
+      `<br><span style="color:${GRIS};font-size:13px">${esc(a.nom)} · ${esc(a.etapeLibelle)}${a.aussi.length ? ` · ${esc(a.aussi.join(" · "))}` : ""}</span>` +
+      (geste ? `<br><span style="font-size:13px;color:#4a4a52">→ ${esc(geste)}</span>` : "")
     );
-  }
-
-  // --- Priorités commerciales (les suggestions du jour)
-  const items = ((suggestions?.items ?? []) as Array<{ title: string; detail: string; href: string; urgency: string }>).slice(0, 8);
-  if (items.length) {
-    blocs.push(
-      titre("Priorités commerciales du jour") +
-        (suggestions?.focus ? `<p style="margin:0 0 6px;font-size:14px;color:#26262c"><em>${esc(suggestions.focus)}</em></p>` : "") +
-        liste(
-          items.map(
-            (i) =>
-              `${i.urgency === "haute" ? `<span style="color:${ROUGE}">●</span> ` : ""}${lien(i.href, esc(i.title))}<br><span style="color:${GRIS};font-size:13px">${esc(i.detail)}</span>`,
-          ),
-        ),
-    );
-  }
-
-  // --- Prochaines actions des affaires
-  const ligneAffaire = (a: Radar["affaires"][number]) =>
-    `${lien(`/affaires?affaire=${a.dealId}`, esc(a.action || "Prochaine étape à préciser"))} — ${esc(a.nom)} <span style="color:${GRIS}">(${esc(a.etape)})</span>${
-      a.retard ? ` <span style="color:${ROUGE}">${a.retard} j de retard</span>` : ""
-    }${qui(a.ownerId)}`;
-  if (retard.length || jour.length) {
-    blocs.push(titre("Prochaines actions du jour", retard.length + jour.length) + liste([...retard, ...jour].map(ligneAffaire)));
-  }
-  if (prochain.length) {
-    blocs.push(titre(`À anticiper pour ${r.nomProchain.toLowerCase()}`, prochain.length) + liste(prochain.map(ligneAffaire)));
-  }
-
-  // --- Relances de leads, par personne
-  if (r.relances.length) {
-    const groupes = new Map<string, Radar["relances"]>();
-    for (const l of r.relances) {
-      const cle = prenomDe(l.ownerId);
-      groupes.set(cle, [...(groupes.get(cle) ?? []), l]);
+  };
+  for (const m of membres) {
+    const sien = planDe(plan, m.id);
+    if (!sien.affaires.length && !sien.relances.length) continue;
+    let html = `<h2 style="margin:30px 0 4px;font-size:16px;color:#16161a">Plan de ${esc(m.prenom)}</h2>
+      <p style="margin:0;font-size:13px;color:${GRIS}">${sien.affaires.length} affaire${sien.affaires.length > 1 ? "s" : ""} puis ${sien.relances.length} relance${sien.relances.length > 1 ? "s" : ""}, avant toute prospection libre.</p>`;
+    for (const niveau of ["urgent", "jour", "avancer"] as Niveau[]) {
+      const items = sien.affaires.filter((a) => a.niveau === niveau);
+      if (!items.length) continue;
+      html += titre(`1 · Affaires — ${TITRES[niveau]}`, items.length) + liste(items.slice(0, niveau === "avancer" ? 5 : 12).map(ligneAffaire));
     }
-    const html = [...groupes.entries()]
-      .map(([prenom, leads]) => {
-        const enRetard = leads.filter((l) => l.retard > 0).length;
-        return (
-          `<p style="margin:8px 0 4px;font-size:14px;color:#26262c"><strong>${esc(prenom)}</strong> — ${leads.length} relance${leads.length > 1 ? "s" : ""}${
-            enRetard ? ` <span style="color:${ROUGE}">(dont ${enRetard} en retard)</span>` : ""
-          }</p>` +
-          liste(
-            leads.slice(0, 10).map(
-              (l) =>
-                `${lien(`/leads?lead=${l.leadId}`, esc(l.nom))}${l.entreprise ? ` — ${esc(l.entreprise)}` : ""} <span style="color:${GRIS}">(${esc(l.statut)}${l.retard ? `, ${l.retard} j de retard` : ""})</span>`,
-            ),
-          ) +
-          (leads.length > 10 ? `<p style="margin:4px 0 0;font-size:13px;color:${GRIS}">… et ${leads.length - 10} autres, dans le mode Prospection.</p>` : "")
-        );
-      })
-      .join("");
-    blocs.push(titre("Relances de leads du jour", r.relances.length) + html);
+    if (sien.relances.length) {
+      html +=
+        titre("2 · Leads à relancer", sien.relances.length) +
+        liste(
+          sien.relances.slice(0, 8).map(
+            (l) =>
+              `${lien(`/leads?lead=${l.leadId}`, esc(l.nom))}${l.entreprise ? ` — ${esc(l.entreprise)}` : ""} <span style="color:${GRIS}">(${esc(l.statutLibelle)}${l.retard ? `, ${l.retard} j de retard` : ""})</span>`,
+          ),
+        ) +
+        (sien.relances.length > 8 ? `<p style="margin:4px 0 0;font-size:13px;color:${GRIS}">… et ${sien.relances.length - 8} autres dans la file de relances.</p>` : "");
+    }
+    blocs.push(html);
+  }
+  // Les affaires sans responsable figurent dans le plan de chacun : on le dit une fois.
+  const orphelines = plan.affaires.filter((a) => a.ownerId === null).length;
+  if (orphelines) {
+    blocs.push(`<p style="margin:10px 0 0;font-size:13px;color:${GRIS}">${orphelines} affaire${orphelines > 1 ? "s" : ""} sans responsable, à attribuer.</p>`);
   }
 
-  // --- À ne pas laisser filer
-  const vigilance = [
-    ...r.recaps.map((x) => `Récap R2 prêt à envoyer — ${lien(`/affaires?affaire=${x.dealId}`, esc(x.nom))}${qui(x.ownerId)}`),
-    ...r.devis.map(
-      (x) =>
-        `${x.expire ? "Devis expiré" : "Devis à relancer"}${x.numero ? ` ${esc(x.numero)}` : ""} — ${lien(`/affaires?affaire=${x.dealId}`, esc(x.nom))}${qui(x.ownerId)}`,
-    ),
-    ...r.sansSuite.map(
-      (x) => `${esc(x.etape)} sans prochaine étape datée — ${lien(`/affaires?affaire=${x.dealId}`, esc(x.nom))}${qui(x.ownerId)}`,
-    ),
-  ];
-  if (vigilance.length) blocs.push(titre("À ne pas laisser filer", vigilance.length) + liste(vigilance));
+  // --- Production : les tâches d'équipe qui demandent un geste
+  if (taches.length) {
+    blocs.push(
+      `<h2 style="margin:30px 0 4px;font-size:16px;color:#16161a">Production &amp; équipe</h2>` +
+        titre("Tâches", taches.length) +
+        liste(
+          taches.slice(0, 12).map((t) => {
+            const etat =
+              t.statut === "probleme"
+                ? `<span style="color:${ROUGE}">problème</span>`
+                : t.due_on && t.due_on < aujourdhui
+                  ? `<span style="color:${ROUGE}">en retard</span>`
+                  : t.due_on === aujourdhui
+                    ? "aujourd'hui"
+                    : "priorité 1";
+            const qui = t.assignee_ids.map((id) => esc(prenomDe(id))).join(" + ") || "à attribuer";
+            return `${t.priorite === 1 ? "<strong>P1</strong> " : ""}${lien("/taches", esc(t.titre))}${t.categorie ? ` <span style="color:${GRIS}">#${esc(t.categorie)}</span>` : ""} — ${etat}<span style="color:${GRIS}"> · ${qui}</span>`;
+          }),
+        ),
+    );
+  }
 
   // --- La veille
   const bilan = [
@@ -232,8 +204,8 @@ async function composer(admin: Admin, membres: Membre[]): Promise<{ sujet: strin
   const pondere = pipe.reduce((s, d) => s + Number(d.amount ?? 0) * (Number(d.probability ?? 0) / 100), 0);
   const resume = [
     rdv.length ? `${rdv.length} rendez-vous` : null,
-    retard.length + jour.length ? `${retard.length + jour.length} action${retard.length + jour.length > 1 ? "s" : ""} affaires` : null,
-    r.relances.length ? `${r.relances.length} relance${r.relances.length > 1 ? "s" : ""} leads` : null,
+    plan.affaires.length ? `${plan.affaires.length} action${plan.affaires.length > 1 ? "s" : ""} affaires` : null,
+    plan.relances.length ? `${plan.relances.length} relance${plan.relances.length > 1 ? "s" : ""} leads` : null,
     taches.length ? `${taches.length} tâche${taches.length > 1 ? "s" : ""}` : null,
   ].filter(Boolean);
 
