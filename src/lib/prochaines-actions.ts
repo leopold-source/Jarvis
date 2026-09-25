@@ -87,7 +87,7 @@ export async function chargerRadar(client: SupabaseClient<Database>): Promise<Ra
       .limit(300),
     client
       .from("todos")
-      .select("id, titre, categorie, statut, prio, due_on, assignee_ids")
+      .select("id, titre, categorie, statut, priorite, due_on, assignee_ids")
       .neq("statut", "fait")
       .limit(500),
   ]);
@@ -149,7 +149,8 @@ export async function chargerRadar(client: SupabaseClient<Database>): Promise<Ra
         categorie: t.categorie,
         le: t.due_on,
         echeance: classerEcheance(t.due_on, aujourdhui),
-        prio: t.prio,
+        // Priorité 1 : celle qu'on ne laisse pas glisser.
+        prio: t.priorite === 1,
         probleme: t.statut === "probleme",
         assignees: t.assignee_ids,
       }))

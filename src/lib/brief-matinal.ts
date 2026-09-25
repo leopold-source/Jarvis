@@ -139,7 +139,7 @@ async function composer(admin: Admin, membres: Membre[]): Promise<{ sujet: strin
         liste(
           taches.slice(0, 15).map(
             (t) =>
-              `${t.prio ? "★ " : ""}${lien("/taches", esc(t.titre))}${t.categorie ? ` <span style="color:${GRIS}">#${esc(t.categorie)}</span>` : ""} — ${etat(t)}<span style="color:${GRIS}"> · ${
+              `${t.prio ? "<strong>P1</strong> " : ""}${lien("/taches", esc(t.titre))}${t.categorie ? ` <span style="color:${GRIS}">#${esc(t.categorie)}</span>` : ""} — ${etat(t)}<span style="color:${GRIS}"> · ${
                 t.assignees.map((id) => esc(prenomDe(id))).join(" + ") || "à attribuer"
               }</span>`,
           ),

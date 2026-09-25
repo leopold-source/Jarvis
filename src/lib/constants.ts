@@ -216,21 +216,27 @@ export const CHANTIER_STATUS: Record<ChantierStatus, { label: string; tone: Tone
 };
 
 /**
- * Les statuts d'une tâche d'équipe, dans l'ordre où on les traite : ce qui
- * bloque d'abord, puis ce qui avance, ce qui reste à faire, ce qui attend.
+ * Les statuts d'une tâche d'équipe, numérotés comme dans le Sheet d'origine :
+ * le numéro dit l'urgence de traitement, du problème au fait.
  */
 export const TODO_STATUT: Record<TodoStatut, { label: string; tone: Tone }> = {
-  probleme: { label: "Problème", tone: "red" },
-  en_cours: { label: "En cours", tone: "amber" },
-  a_faire: { label: "À faire", tone: "stone" },
-  en_attente: { label: "En attente", tone: "sky" },
-  fait: { label: "Fait", tone: "emerald" },
+  probleme: { label: "1. Problème", tone: "red" },
+  en_attente: { label: "2. En attente", tone: "sky" },
+  en_cours: { label: "3. En cours", tone: "amber" },
+  a_faire: { label: "4. À faire", tone: "stone" },
+  fait: { label: "5. Fait", tone: "emerald" },
 };
 
-export const TODO_STATUT_ORDER: TodoStatut[] = ["probleme", "en_cours", "a_faire", "en_attente", "fait"];
+export const TODO_STATUT_ORDER: TodoStatut[] = ["probleme", "en_attente", "en_cours", "a_faire", "fait"];
 
-/** Les catégories proposées d'office ; on peut en taper d'autres. */
-export const TODO_CATEGORIES = ["Webapp AC", "Prospection", "Organisation", "Production", "Finance"];
+/** Les catégories du Sheet, chacune avec sa couleur ; on peut en ajouter d'autres. */
+export const TODO_CATEGORIES: Record<string, Tone> = {
+  Organisation: "indigo",
+  Prospection: "amber",
+  Linkedin: "sky",
+  Produit: "violet",
+  "Webapp AC": "orange",
+};
 
 export const CHANTIER_STATUS_ORDER: ChantierStatus[] = ["actif", "en_pause", "termine"];
 

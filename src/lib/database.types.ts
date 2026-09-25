@@ -255,24 +255,19 @@ export type Todo = {
   details: string | null;
   categorie: string | null;
   statut: TodoStatut;
-  prio: boolean;
+  /** Rang de priorité : 1 la plus haute, 3 la plus basse, vide sans rang. */
+  priorite: 1 | 2 | 3 | null;
   assignee_ids: string[];
   due_on: string | null;
   deal_id: string | null;
   chantier_id: string | null;
   position: number;
+  /** Une colonne de commentaire par associé : { [id du profil]: texte }. */
+  commentaires: Record<string, string>;
   done_at: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
-};
-
-export type TodoComment = {
-  id: string;
-  todo_id: string;
-  author_id: string;
-  body: string;
-  created_at: string;
 };
 
 /** Les notes de rendez-vous et la synthèse d'une affaire, chargées à part. */
@@ -962,7 +957,6 @@ export type Database = {
       mail_runs: TableDef<MailRun, "user_id">;
       ai_feedback: TableDef<AiFeedback, "kind" | "utile" | "user_id">;
       todos: TableDef<Todo, "titre">;
-      todo_comments: TableDef<TodoComment, "todo_id" | "body">;
     };
     Views: {
       project_progress: { Row: ProjectProgress; Relationships: [] };

@@ -1,681 +1,514 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  CalendarDays,
-  ChevronDown,
-  CircleAlert,
-  Handshake,
-  Compass,
-  MessageSquare,
-  Plus,
-  Search,
-  Star,
-  Trash2,
-} from "lucide-react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Plus, Search, Trash2 } from "lucide-react";
 
-import { Badge, Button, Card, Drawer, Field, Input, Select, Textarea, useToast } from "@/components/ui";
-import { DateField } from "@/components/ui/date-field";
-import { TODO_CATEGORIES, TODO_STATUT, TODO_STATUT_ORDER, type Tone } from "@/lib/constants";
-import type { Todo, TodoComment, TodoStatut } from "@/lib/database.types";
-import { classerEcheance } from "@/lib/echeances";
-import { lireSaisie, type Membre } from "@/lib/taches-saisie";
-import { avatarGradient, cn, formatDate, formatDateHeure, initials, todayIso } from "@/lib/utils";
-import {
-  ajouterCommentaire,
-  creerTache,
-  fetchCommentaires,
-  majTache,
-  supprimerCommentaire,
-  supprimerTache,
-} from "@/app/(crm)/taches/actions";
+import { useToast } from "@/components/ui";
+import { TODO_CATEGORIES, TODO_STATUT, TODO_STATUT_ORDER, TONE_CLASSES, type Tone } from "@/lib/constants";
+import type { Todo, TodoStatut } from "@/lib/database.types";
+import { cn, todayIso } from "@/lib/utils";
+import { creerTache, majCommentaire, majTache, supprimerTache, type TacheModifiable } from "@/app/(crm)/taches/actions";
 
-type Lien = { id: string; nom: string };
+type Membre = { id: string; nom: string };
 
-const TONS_CATEGORIE: Tone[] = ["orange", "amber", "teal", "sky", "violet", "pink", "lime", "indigo", "cyan", "fuchsia"];
+const TONS_LIBRES: Tone[] = ["teal", "pink", "lime", "cyan", "fuchsia", "rose"];
 
-/** Une couleur stable par catégorie, sans rien stocker. */
+/** La couleur d'une catégorie : celle du Sheet, sinon une couleur stable dérivée du nom. */
 function toneCategorie(categorie: string): Tone {
-  const connue = TODO_CATEGORIES.indexOf(categorie);
-  if (connue >= 0) return TONS_CATEGORIE[connue]!;
+  if (TODO_CATEGORIES[categorie]) return TODO_CATEGORIES[categorie]!;
   let h = 0;
   for (const c of categorie) h = (h * 31 + c.charCodeAt(0)) >>> 0;
-  return TONS_CATEGORIE[h % TONS_CATEGORIE.length]!;
+  return TONS_LIBRES[h % TONS_LIBRES.length]!;
 }
 
-/** Dans un groupe : les prioritaires, puis par échéance, puis les plus anciennes. */
-function trier(a: Todo, b: Todo): number {
-  if (a.prio !== b.prio) return a.prio ? -1 : 1;
-  if (a.due_on !== b.due_on) return !a.due_on ? 1 : !b.due_on ? -1 : a.due_on < b.due_on ? -1 : 1;
-  return a.created_at < b.created_at ? -1 : 1;
-}
+const prenom = (nom: string) => nom.split(" ")[0] ?? nom;
 
 /**
- * La liste de tâches de l'équipe.
+ * Les tâches de l'équipe, en tableau — comme le Sheet qu'il remplace.
  *
- * Pensée comme le Sheet qu'elle remplace — une ligne par tâche, lisible d'un
- * coup d'œil — avec ce qu'un Sheet ne fait pas : l'ajout en une phrase, les
- * tâches rangées par statut, ce qui est en retard en rouge, et une discussion
- * par tâche à la place des colonnes « Com Léopold » et « Com Romain ».
+ * Mêmes colonnes, même ordre de lignes, cellules modifiables sur place : on
+ * clique, on tape, on sort de la cellule, c'est enregistré. Chaque associé a
+ * sa colonne de commentaire et n'écrit que dans la sienne. Une ligne vide en
+ * bas du tableau sert à en ajouter une nouvelle.
  */
 export function TachesWorkspace({
   initiales,
   membres,
   moi,
-  commentaires,
-  affaires,
-  chantiers,
 }: {
   initiales: Todo[];
   membres: Membre[];
   moi: string;
-  commentaires: Record<string, number>;
-  affaires: Lien[];
-  chantiers: Lien[];
 }) {
   const toast = useToast();
   const [taches, setTaches] = useState(initiales);
-  const [compteurs, setCompteurs] = useState(commentaires);
-  const [qui, setQui] = useState<string>("tous");
-  const [categorie, setCategorie] = useState<string | null>(null);
+  const [qui, setQui] = useState("tous");
+  const [categorie, setCategorie] = useState("toutes");
+  const [statut, setStatut] = useState("tous");
   const [recherche, setRecherche] = useState("");
-  const [faitesOuvertes, setFaitesOuvertes] = useState(false);
-  const [ouverte, setOuverte] = useState<string | null>(null);
 
   useEffect(() => setTaches(initiales), [initiales]);
 
-  const aujourdhui = todayIso();
   const categories = useMemo(
-    () => [...new Set([...TODO_CATEGORIES, ...taches.map((t) => t.categorie).filter((c): c is string => Boolean(c))])],
-    [taches],
-  );
-  const enUsage = useMemo(
-    () => [...new Set(taches.map((t) => t.categorie).filter((c): c is string => Boolean(c)))].sort(),
+    () => [...new Set([...Object.keys(TODO_CATEGORIES), ...taches.map((t) => t.categorie).filter((c): c is string => Boolean(c))])],
     [taches],
   );
 
   const visibles = taches.filter((t) => {
     if (qui === "moi" && !t.assignee_ids.includes(moi)) return false;
-    if (qui !== "moi" && qui !== "tous" && !t.assignee_ids.includes(qui)) return false;
-    if (categorie && t.categorie !== categorie) return false;
+    if (qui === "personne" && t.assignee_ids.length) return false;
+    if (!["tous", "moi", "personne"].includes(qui) && !t.assignee_ids.includes(qui)) return false;
+    if (categorie !== "toutes" && (t.categorie ?? "") !== (categorie === "aucune" ? "" : categorie)) return false;
+    if (statut === "ouvertes" && t.statut === "fait") return false;
+    if (!["tous", "ouvertes"].includes(statut) && t.statut !== statut) return false;
     if (recherche.trim()) {
       const q = recherche.trim().toLowerCase();
-      if (!t.titre.toLowerCase().includes(q) && !(t.details ?? "").toLowerCase().includes(q)) return false;
+      const texte = [t.titre, t.details, ...Object.values(t.commentaires ?? {})].join(" ").toLowerCase();
+      if (!texte.includes(q)) return false;
     }
     return true;
   });
 
-  async function maj(id: string, patch: Partial<Todo>) {
+  async function maj(id: string, patch: Partial<TacheModifiable>) {
     const avant = taches;
     setTaches((ts) => ts.map((t) => (t.id === id ? { ...t, ...patch } : t)));
     const r = await majTache(id, patch);
     if (!r.ok) {
       setTaches(avant);
-      toast(r.error, "error");
-      return;
+      return toast(r.error, "error");
     }
     setTaches((ts) => ts.map((t) => (t.id === id ? r.data! : t)));
   }
 
-  async function supprimer(id: string) {
-    if (!window.confirm("Supprimer cette tâche ?")) return;
-    const r = await supprimerTache(id);
+  async function commenter(id: string, texte: string) {
+    const r = await majCommentaire(id, texte);
     if (!r.ok) return toast(r.error, "error");
-    setTaches((ts) => ts.filter((t) => t.id !== id));
-    setOuverte(null);
+    setTaches((ts) => ts.map((t) => (t.id === id ? r.data! : t)));
   }
 
-  const detail = taches.find((t) => t.id === ouverte) ?? null;
-  const ouvertesVisibles = visibles.filter((t) => t.statut !== "fait").length;
-  const enRetard = visibles.filter((t) => t.statut !== "fait" && t.due_on && t.due_on < aujourdhui).length;
+  async function supprimer(t: Todo) {
+    if (!window.confirm(`Supprimer « ${t.titre} » ?`)) return;
+    const r = await supprimerTache(t.id);
+    if (!r.ok) return toast(r.error, "error");
+    setTaches((ts) => ts.filter((x) => x.id !== t.id));
+  }
 
-  return (
-    <>
-      <AjoutRapide
-        membres={membres}
-        categories={categories}
-        moi={moi}
-        categorieParDefaut={categorie}
-        onCree={(t) => setTaches((ts) => [...ts, t])}
-      />
-
-      {/* Filtres */}
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="flex rounded-lg bg-[var(--surface-hover)] p-0.5 text-[12px]">
-          {[{ id: "tous", nom: "Équipe" }, { id: "moi", nom: "Moi" }, ...membres.filter((m) => m.id !== moi)].map((m) => (
-            <button
-              key={m.id}
-              type="button"
-              onClick={() => setQui(m.id)}
-              className={cn(
-                "rounded-md px-2.5 py-1 font-medium transition-colors",
-                qui === m.id ? "bg-[var(--surface-overlay)] text-[var(--text-primary)] shadow-sm" : "text-[var(--text-muted)] hover:text-[var(--text-primary)]",
-              )}
-            >
-              {m.id === "tous" || m.id === "moi" ? m.nom : m.nom.split(" ")[0]}
-            </button>
-          ))}
-        </div>
-        <div className="flex flex-wrap gap-1">
-          {enUsage.map((c) => (
-            <button key={c} type="button" onClick={() => setCategorie(categorie === c ? null : c)}>
-              <Badge tone={categorie === c ? toneCategorie(c) : "stone"} className={cn(categorie && categorie !== c && "opacity-50")}>
-                {c}
-              </Badge>
-            </button>
-          ))}
-        </div>
-        <label className="relative ml-auto shrink-0">
-          <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-[var(--text-muted)]" />
-          <Input value={recherche} onChange={(e) => setRecherche(e.target.value)} placeholder="Rechercher" className="h-9 w-48 pl-8 sm:h-8" />
-        </label>
-      </div>
-
-      <p className="-mt-2 text-[12px] text-[var(--text-muted)]">
-        {ouvertesVisibles} tâche{ouvertesVisibles > 1 ? "s" : ""} ouverte{ouvertesVisibles > 1 ? "s" : ""}
-        {enRetard ? <span className="text-rose-500"> · {enRetard} en retard</span> : null}
-      </p>
-
-      {/* Groupes par statut */}
-      <div className="flex flex-col gap-4">
-        {TODO_STATUT_ORDER.map((statut) => {
-          const groupe = visibles.filter((t) => t.statut === statut).sort(statut === "fait" ? (a, b) => ((b.done_at ?? "") > (a.done_at ?? "") ? 1 : -1) : trier);
-          if (!groupe.length) return null;
-          const replie = statut === "fait" && !faitesOuvertes;
-          return (
-            <Card key={statut} className="overflow-hidden p-0">
-              <button
-                type="button"
-                onClick={() => statut === "fait" && setFaitesOuvertes((o) => !o)}
-                className={cn("flex w-full items-center gap-2 px-4 py-2.5 text-left", statut === "fait" && "cursor-pointer")}
-              >
-                <Badge tone={TODO_STATUT[statut].tone}>{TODO_STATUT[statut].label}</Badge>
-                <span className="text-[12px] text-[var(--text-muted)]">{groupe.length}</span>
-                {statut === "fait" ? (
-                  <ChevronDown className={cn("ml-auto size-4 text-[var(--text-muted)] transition-transform", !replie && "rotate-180")} />
-                ) : null}
-              </button>
-              {replie ? null : (
-                <ul className="divide-y divide-[var(--border-subtle)] border-t border-[var(--border-subtle)]">
-                  {groupe.map((t) => (
-                    <Ligne
-                      key={t.id}
-                      t={t}
-                      membres={membres}
-                      aujourdhui={aujourdhui}
-                      commentaires={compteurs[t.id] ?? 0}
-                      onMaj={(patch) => void maj(t.id, patch)}
-                      onOuvrir={() => setOuverte(t.id)}
-                    />
-                  ))}
-                </ul>
-              )}
-            </Card>
-          );
-        })}
-        {visibles.length === 0 ? (
-          <p className="py-10 text-center text-[13px] text-[var(--text-muted)]">Aucune tâche ici. Ajoutez-en une en une phrase, juste au-dessus.</p>
-        ) : null}
-      </div>
-
-      {detail ? (
-        <DetailTache
-          t={detail}
-          membres={membres}
-          categories={categories}
-          affaires={affaires}
-          chantiers={chantiers}
-          onClose={() => setOuverte(null)}
-          onMaj={(patch) => maj(detail.id, patch)}
-          onSupprimer={() => void supprimer(detail.id)}
-          onCommentaires={(n) => setCompteurs((c) => ({ ...c, [detail.id]: n }))}
-        />
-      ) : null}
-    </>
-  );
-}
-
-/* ------------------------------------------------------------ Ajout rapide */
-
-function AjoutRapide({
-  membres,
-  categories,
-  moi,
-  categorieParDefaut,
-  onCree,
-}: {
-  membres: Membre[];
-  categories: string[];
-  moi: string;
-  categorieParDefaut: string | null;
-  onCree: (t: Todo) => void;
-}) {
-  const toast = useToast();
-  const [texte, setTexte] = useState("");
-  const [envoi, setEnvoi] = useState(false);
-  const champ = useRef<HTMLInputElement>(null);
-  const lu = lireSaisie(texte, { membres, categories, aujourdhui: todayIso() });
-
-  async function ajouter() {
-    if (!lu.titre.trim()) return;
-    setEnvoi(true);
+  async function ajouter(titre: string) {
     const r = await creerTache({
-      titre: lu.titre,
-      categorie: lu.categorie ?? categorieParDefaut,
-      // Sans « @ », la tâche revient à qui l'écrit.
-      assignee_ids: lu.assignees.length ? lu.assignees : [moi],
-      due_on: lu.due_on,
-      prio: lu.prio,
+      titre,
+      assignee_ids: qui !== "tous" && qui !== "personne" ? [qui === "moi" ? moi : qui] : [moi],
+      categorie: categorie !== "toutes" && categorie !== "aucune" ? categorie : null,
+      statut: statut !== "tous" && statut !== "ouvertes" ? (statut as TodoStatut) : "a_faire",
     });
-    setEnvoi(false);
-    if (!r.ok) return toast(r.error, "error");
-    onCree(r.data!);
-    setTexte("");
-    champ.current?.focus();
+    if (!r.ok) {
+      toast(r.error, "error");
+      return false;
+    }
+    setTaches((ts) => [...ts, r.data!]);
+    return true;
   }
 
-  const nomDe = (id: string) => membres.find((m) => m.id === id)?.nom.split(" ")[0] ?? "?";
+  const aujourdhui = todayIso();
+  const ouvertes = visibles.filter((t) => t.statut !== "fait").length;
 
   return (
-    <Card className="p-3">
-      <div className="flex items-center gap-2">
-        <Plus className="ml-1 size-4 shrink-0 text-[var(--text-muted)]" />
-        <input
-          ref={champ}
-          value={texte}
-          onChange={(e) => setTexte(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && void ajouter()}
-          placeholder="Nouvelle tâche…  @Romain  #Prospection  demain  !"
-          aria-label="Nouvelle tâche"
-          className="h-9 min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-[var(--text-muted)] sm:text-sm"
-        />
-        <Button variant="primary" size="sm" loading={envoi} disabled={!lu.titre.trim()} onClick={() => void ajouter()}>
-          Ajouter
-        </Button>
+    <div className="flex flex-col gap-3">
+      {/* Filtres */}
+      <div className="flex flex-wrap items-center gap-2 text-[12.5px]">
+        <Filtre valeur={qui} onChange={setQui} label="Qui">
+          <option value="tous">Tout le monde</option>
+          <option value="moi">Moi</option>
+          {membres
+            .filter((m) => m.id !== moi)
+            .map((m) => (
+              <option key={m.id} value={m.id}>
+                {prenom(m.nom)}
+              </option>
+            ))}
+          <option value="personne">Personne</option>
+        </Filtre>
+        <Filtre valeur={categorie} onChange={setCategorie} label="Catégorie">
+          <option value="toutes">Toutes catégories</option>
+          {categories.map((c) => (
+            <option key={c} value={c}>
+              {c}
+            </option>
+          ))}
+          <option value="aucune">Sans catégorie</option>
+        </Filtre>
+        <Filtre valeur={statut} onChange={setStatut} label="Statut">
+          <option value="tous">Tous statuts</option>
+          <option value="ouvertes">Non faites</option>
+          {TODO_STATUT_ORDER.map((s) => (
+            <option key={s} value={s}>
+              {TODO_STATUT[s].label}
+            </option>
+          ))}
+        </Filtre>
+        <label className="relative">
+          <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-[var(--text-muted)]" />
+          <input
+            value={recherche}
+            onChange={(e) => setRecherche(e.target.value)}
+            placeholder="Rechercher"
+            className="h-8 w-44 rounded-lg bg-[var(--surface-input)] pr-2 pl-8 ring-1 ring-[var(--border-subtle)] outline-none focus:ring-brand-500/60"
+          />
+        </label>
+        <span className="ml-auto text-[12px] text-[var(--text-muted)]">
+          {visibles.length} ligne{visibles.length > 1 ? "s" : ""} · {ouvertes} non faite{ouvertes > 1 ? "s" : ""}
+        </span>
       </div>
-      {texte.trim() ? (
-        <div className="mt-2 flex flex-wrap items-center gap-1.5 pl-7 text-[11.5px] text-[var(--text-muted)]">
-          <span className="font-medium text-[var(--text-primary)]">{lu.titre || "…"}</span>
-          <span>· {(lu.assignees.length ? lu.assignees : [moi]).map(nomDe).join(" + ")}</span>
-          {lu.categorie ?? categorieParDefaut ? <Badge tone={toneCategorie((lu.categorie ?? categorieParDefaut)!)}>{lu.categorie ?? categorieParDefaut}</Badge> : null}
-          {lu.due_on ? <span>· pour le {formatDate(lu.due_on)}</span> : null}
-          {lu.prio ? <span className="text-amber-500">· prioritaire</span> : null}
-        </div>
-      ) : (
-        <p className="mt-1 pl-7 text-[11.5px] text-[var(--text-muted)]">
-          « @prénom » pour assigner (@tous pour les deux), « #catégorie », une date (demain, lundi, 12/10), « ! » pour prioritaire.
-        </p>
-      )}
-    </Card>
+
+      {/* Le tableau */}
+      <div className="overflow-x-auto rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-raised,var(--surface-base))]">
+        <table className="w-full min-w-[1400px] table-fixed border-collapse text-[13px]">
+          <colgroup>
+            <col className="w-[56px]" />
+            <col className="w-[300px]" />
+            <col className="w-[140px]" />
+            <col className="w-[130px]" />
+            <col className="w-[110px]" />
+            <col className="w-[280px]" />
+            <col className="w-[120px]" />
+            {membres.map((m) => (
+              <col key={m.id} className="w-[210px]" />
+            ))}
+            <col className="w-[36px]" />
+          </colgroup>
+          <thead className="sticky top-0 z-10 bg-[var(--surface-hover)] text-left text-[11.5px] font-semibold text-[var(--text-secondary)]">
+            <tr>
+              {["Prio", "Tâche", "Catégorie", "Statut", "Qui", "Détails", "Quand", ...membres.map((m) => `Com ${prenom(m.nom)}`), ""].map(
+                (t, i) => (
+                  <th key={`${t}${i}`} className="border-r border-b border-[var(--border-subtle)] px-2 py-2 last:border-r-0">
+                    {t}
+                  </th>
+                ),
+              )}
+            </tr>
+          </thead>
+          <tbody>
+            {visibles.map((t) => (
+              <Ligne
+                key={t.id}
+                t={t}
+                membres={membres}
+                moi={moi}
+                categories={categories}
+                aujourdhui={aujourdhui}
+                onMaj={(patch) => void maj(t.id, patch)}
+                onCommentaire={(texte) => void commenter(t.id, texte)}
+                onSupprimer={() => void supprimer(t)}
+              />
+            ))}
+            <NouvelleLigne colonnes={7 + membres.length} onAjouter={ajouter} />
+          </tbody>
+        </table>
+      </div>
+    </div>
   );
 }
 
-/* ------------------------------------------------------------ Une ligne */
-
-function Avatars({ ids, membres }: { ids: string[]; membres: Membre[] }) {
-  if (!ids.length) return <span className="text-[11px] text-[var(--text-muted)]">—</span>;
+function Filtre({
+  valeur,
+  onChange,
+  label,
+  children,
+}: {
+  valeur: string;
+  onChange: (v: string) => void;
+  label: string;
+  children: React.ReactNode;
+}) {
   return (
-    <span className="flex -space-x-1">
-      {ids.map((id) => {
-        const nom = membres.find((m) => m.id === id)?.nom ?? "?";
-        return (
-          <span
-            key={id}
-            title={nom}
-            className={cn(
-              "grid size-6 place-items-center rounded-full bg-linear-to-br text-[9.5px] font-semibold text-white ring-2 ring-[var(--surface-raised,var(--surface-base))]",
-              avatarGradient(id),
-            )}
-          >
-            {initials(nom)}
-          </span>
-        );
-      })}
-    </span>
+    <select
+      value={valeur}
+      onChange={(e) => onChange(e.target.value)}
+      aria-label={label}
+      className="h-8 rounded-lg bg-[var(--surface-input)] px-2 ring-1 ring-[var(--border-subtle)] outline-none focus:ring-brand-500/60"
+    >
+      {children}
+    </select>
+  );
+}
+
+/* ------------------------------------------------------------ Cellules */
+
+const CELLULE = "border-r border-b border-[var(--border-subtle)] align-top last:border-r-0";
+
+/**
+ * Un texte modifiable sur place, qui grandit avec son contenu — comme une
+ * cellule de tableur qui passe à la ligne. Entrée valide, Maj+Entrée ajoute
+ * une ligne, Échap annule.
+ */
+function Texte({
+  valeur,
+  onSave,
+  placeholder,
+  lectureSeule,
+  className,
+}: {
+  valeur: string;
+  onSave: (v: string) => void;
+  placeholder?: string;
+  lectureSeule?: boolean;
+  className?: string;
+}) {
+  const [texte, setTexte] = useState(valeur);
+  const ref = useRef<HTMLTextAreaElement>(null);
+  const focus = useRef(false);
+
+  useEffect(() => {
+    if (!focus.current) setTexte(valeur);
+  }, [valeur]);
+
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = "0px";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [texte]);
+
+  return (
+    <textarea
+      ref={ref}
+      rows={1}
+      value={texte}
+      readOnly={lectureSeule}
+      placeholder={placeholder}
+      onFocus={() => (focus.current = true)}
+      onChange={(e) => setTexte(e.target.value)}
+      onBlur={() => {
+        focus.current = false;
+        if (texte !== valeur) onSave(texte);
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" && !e.shiftKey) {
+          e.preventDefault();
+          e.currentTarget.blur();
+        } else if (e.key === "Escape") {
+          setTexte(valeur);
+          requestAnimationFrame(() => ref.current?.blur());
+        }
+      }}
+      className={cn(
+        "block w-full resize-none overflow-hidden bg-transparent px-2 py-1.5 leading-snug outline-none",
+        "placeholder:text-[var(--text-muted)]/60 focus:bg-[var(--surface-input)] focus:ring-2 focus:ring-brand-500/50 focus:ring-inset",
+        lectureSeule && "cursor-default focus:bg-transparent focus:ring-0",
+        className,
+      )}
+    />
+  );
+}
+
+/** Une liste déroulante en pastille colorée, comme les menus du Sheet. */
+function Pastille({
+  valeur,
+  tone,
+  onChange,
+  label,
+  children,
+}: {
+  valeur: string;
+  tone: Tone | null;
+  onChange: (v: string) => void;
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="px-1.5 py-1">
+      <select
+        value={valeur}
+        onChange={(e) => onChange(e.target.value)}
+        aria-label={label}
+        className={cn(
+          "w-full cursor-pointer appearance-none truncate rounded-full px-2.5 py-0.5 text-[12px] font-medium ring-1 outline-none",
+          tone ? TONE_CLASSES[tone] : "text-[var(--text-muted)] ring-[var(--border-subtle)]",
+        )}
+      >
+        {children}
+      </select>
+    </div>
   );
 }
 
 function Ligne({
   t,
   membres,
+  moi,
+  categories,
   aujourdhui,
-  commentaires,
   onMaj,
-  onOuvrir,
+  onCommentaire,
+  onSupprimer,
 }: {
   t: Todo;
   membres: Membre[];
+  moi: string;
+  categories: string[];
   aujourdhui: string;
-  commentaires: number;
-  onMaj: (patch: Partial<Todo>) => void;
-  onOuvrir: () => void;
+  onMaj: (patch: Partial<TacheModifiable>) => void;
+  onCommentaire: (texte: string) => void;
+  onSupprimer: () => void;
 }) {
   const fait = t.statut === "fait";
-  const echeance = fait ? null : classerEcheance(t.due_on, aujourdhui);
+  const enRetard = !fait && t.due_on !== null && t.due_on < aujourdhui;
+  // « Qui » comme dans le Sheet : un prénom, ou « L+R » quand c'est tout le monde.
+  const tous = membres.length > 1 && membres.every((m) => t.assignee_ids.includes(m.id));
+  const valeurQui = tous ? "tous" : (t.assignee_ids[0] ?? "");
+  const initialesEquipe = membres.map((m) => prenom(m.nom).charAt(0).toUpperCase()).join("+");
 
   return (
-    <li className="group flex items-center gap-2.5 px-3 py-2 transition-colors hover:bg-[var(--surface-hover)]/40 sm:px-4">
-      <input
-        type="checkbox"
-        checked={fait}
-        onChange={() => onMaj({ statut: fait ? "a_faire" : "fait" })}
-        aria-label={fait ? "Rouvrir" : "Marquer comme fait"}
-        className="size-4 shrink-0 cursor-pointer accent-emerald-600"
-      />
-      <button
-        type="button"
-        onClick={() => onMaj({ prio: !t.prio })}
-        aria-label={t.prio ? "Retirer la priorité" : "Rendre prioritaire"}
-        title="Prioritaire"
-        className={cn("shrink-0", t.prio ? "text-amber-500" : "text-[var(--text-muted)] opacity-30 hover:opacity-100 sm:opacity-0 sm:group-hover:opacity-60")}
-      >
-        <Star className={cn("size-3.5", t.prio && "fill-current")} />
-      </button>
-
-      <button type="button" onClick={onOuvrir} className="min-w-0 flex-1 text-left">
-        <p className={cn("truncate text-[13.5px]", fait && "text-[var(--text-muted)] line-through")}>{t.titre}</p>
-        {t.details ? <p className="truncate text-[11.5px] text-[var(--text-muted)]">{t.details.split("\n")[0]}</p> : null}
-      </button>
-
-      {commentaires ? (
-        <span className="flex shrink-0 items-center gap-0.5 text-[11px] text-[var(--text-muted)]" title={`${commentaires} commentaire(s)`}>
-          <MessageSquare className="size-3" />
-          {commentaires}
-        </span>
-      ) : null}
-      {t.categorie ? (
-        <Badge tone={toneCategorie(t.categorie)} className="hidden shrink-0 sm:inline-flex">
-          {t.categorie}
-        </Badge>
-      ) : null}
-      {t.due_on && !fait ? (
-        <span
+    <tr className="group hover:bg-[var(--surface-hover)]/30">
+      <td className={cn(CELLULE, "text-center")}>
+        <select
+          value={t.priorite ?? ""}
+          onChange={(e) => onMaj({ priorite: e.target.value ? (Number(e.target.value) as 1 | 2 | 3) : null })}
+          aria-label="Priorité"
           className={cn(
-            "flex w-[92px] shrink-0 items-center justify-end gap-1 text-[11.5px] tabular-nums",
-            echeance === "retard" ? "font-medium text-rose-500" : echeance === "jour" ? "font-medium text-brand-600 dark:text-brand-300" : "text-[var(--text-muted)]",
+            "mt-1 w-10 cursor-pointer appearance-none rounded bg-transparent py-0.5 text-center font-semibold outline-none hover:bg-[var(--surface-hover)]",
+            t.priorite === 1 && "text-rose-600 dark:text-rose-400",
+            t.priorite === 2 && "text-amber-600 dark:text-amber-400",
           )}
         >
-          <CalendarDays className="size-3" />
-          {echeance === "jour" ? "Aujourd'hui" : formatDate(t.due_on).slice(0, 5)}
-        </span>
-      ) : (
-        <span className="hidden w-[92px] shrink-0 sm:block" aria-hidden />
-      )}
-      <Select
-        value={t.statut}
-        onChange={(e) => onMaj({ statut: e.target.value as TodoStatut })}
-        aria-label="Statut"
-        className="hidden h-8 w-[118px] py-0 pr-7 text-[12px] sm:block sm:h-8 sm:text-[12px]"
-      >
-        {TODO_STATUT_ORDER.map((s) => (
-          <option key={s} value={s}>
-            {TODO_STATUT[s].label}
-          </option>
-        ))}
-      </Select>
-      <span className="flex w-11 shrink-0 justify-end">
-        <Avatars ids={t.assignee_ids} membres={membres} />
-      </span>
-    </li>
-  );
-}
-
-/* ------------------------------------------------------------ Détail */
-
-function DetailTache({
-  t,
-  membres,
-  categories,
-  affaires,
-  chantiers,
-  onClose,
-  onMaj,
-  onSupprimer,
-  onCommentaires,
-}: {
-  t: Todo;
-  membres: Membre[];
-  categories: string[];
-  affaires: Lien[];
-  chantiers: Lien[];
-  onClose: () => void;
-  onMaj: (patch: Partial<Todo>) => Promise<void>;
-  onSupprimer: () => void;
-  onCommentaires: (n: number) => void;
-}) {
-  const [titre, setTitre] = useState(t.titre);
-  const [details, setDetails] = useState(t.details ?? "");
-
-  useEffect(() => {
-    setTitre(t.titre);
-    setDetails(t.details ?? "");
-  }, [t.id]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  return (
-    <Drawer
-      open
-      onClose={onClose}
-      title={
-        <input
-          value={titre}
-          onChange={(e) => setTitre(e.target.value)}
-          onBlur={() => titre.trim() && titre !== t.titre && void onMaj({ titre })}
-          aria-label="Titre"
-          className="w-full bg-transparent outline-none"
+          <option value="">–</option>
+          <option value="1">1</option>
+          <option value="2">2</option>
+          <option value="3">3</option>
+        </select>
+      </td>
+      <td className={CELLULE}>
+        <Texte
+          valeur={t.titre}
+          onSave={(v) => (v.trim() ? onMaj({ titre: v }) : undefined)}
+          className={cn(fait && "text-[var(--text-muted)]")}
         />
-      }
-      subtitle={`Créée le ${formatDate(t.created_at)}${t.done_at ? ` · faite le ${formatDate(t.done_at)}` : ""}`}
-      footer={
-        <>
-          <Button variant="ghost" onClick={onSupprimer} className="mr-auto text-rose-500 hover:text-rose-400">
-            <Trash2 className="size-4" /> Supprimer
-          </Button>
-          <Button variant="ghost" onClick={onClose}>
-            Fermer
-          </Button>
-        </>
-      }
-    >
-      <div className="space-y-5">
-        <div className="grid gap-3.5 sm:grid-cols-2">
-          <Field label="Statut">
-            <Select value={t.statut} onChange={(e) => void onMaj({ statut: e.target.value as TodoStatut })}>
-              {TODO_STATUT_ORDER.map((s) => (
-                <option key={s} value={s}>
-                  {TODO_STATUT[s].label}
-                </option>
-              ))}
-            </Select>
-          </Field>
-          <Field label="Quand">
-            <DateField value={t.due_on} onChange={(v) => void onMaj({ due_on: v })} className="w-full" />
-          </Field>
-          <Field label="Catégorie">
-            <Input
-              list="categories-taches"
-              defaultValue={t.categorie ?? ""}
-              key={`${t.id}-${t.categorie}`}
-              onBlur={(e) => e.target.value !== (t.categorie ?? "") && void onMaj({ categorie: e.target.value })}
-              placeholder="Webapp AC, Prospection…"
-            />
-            <datalist id="categories-taches">
-              {categories.map((c) => (
-                <option key={c} value={c} />
-              ))}
-            </datalist>
-          </Field>
-          <Field label="Priorité">
-            <button
-              type="button"
-              onClick={() => void onMaj({ prio: !t.prio })}
-              className={cn(
-                "flex h-11 w-full items-center gap-2 rounded-[10px] px-3 text-sm ring-1 ring-[var(--border-subtle)] sm:h-9.5",
-                t.prio ? "bg-amber-500/12 text-amber-700 dark:text-amber-300" : "text-[var(--text-muted)]",
-              )}
-            >
-              <Star className={cn("size-4", t.prio && "fill-current")} />
-              {t.prio ? "Prioritaire" : "Normale"}
-            </button>
-          </Field>
-        </div>
-
-        <Field label="Qui">
-          <div className="flex flex-wrap gap-1.5">
-            {membres.map((m) => {
-              const actif = t.assignee_ids.includes(m.id);
-              return (
-                <button
-                  key={m.id}
-                  type="button"
-                  onClick={() =>
-                    void onMaj({ assignee_ids: actif ? t.assignee_ids.filter((x) => x !== m.id) : [...t.assignee_ids, m.id] })
-                  }
-                  className={cn(
-                    "flex items-center gap-1.5 rounded-full py-1 pr-3 pl-1 text-[12.5px] ring-1 transition-colors",
-                    actif ? "bg-brand-500/12 ring-brand-500/40" : "text-[var(--text-muted)] ring-[var(--border-subtle)] hover:text-[var(--text-primary)]",
-                  )}
-                >
-                  <span className={cn("grid size-5 place-items-center rounded-full bg-linear-to-br text-[9px] font-semibold text-white", avatarGradient(m.id), !actif && "opacity-40")}>
-                    {initials(m.nom)}
-                  </span>
-                  {m.nom.split(" ")[0]}
-                </button>
-              );
-            })}
-          </div>
-        </Field>
-
-        <Field label="Détails">
-          <Textarea
-            rows={4}
-            value={details}
-            onChange={(e) => setDetails(e.target.value)}
-            onBlur={() => details !== (t.details ?? "") && void onMaj({ details })}
-            placeholder="Contexte, liens, ce qu'on attend…"
+      </td>
+      <td className={CELLULE}>
+        <Pastille
+          valeur={t.categorie ?? ""}
+          tone={t.categorie ? toneCategorie(t.categorie) : null}
+          label="Catégorie"
+          onChange={(v) => {
+            if (v === "__nouvelle") {
+              const nom = window.prompt("Nouvelle catégorie");
+              if (nom?.trim()) onMaj({ categorie: nom.trim() });
+              return;
+            }
+            onMaj({ categorie: v || null });
+          }}
+        >
+          <option value="">—</option>
+          {categories.map((c) => (
+            <option key={c} value={c}>
+              {c}
+            </option>
+          ))}
+          <option value="__nouvelle">＋ Nouvelle…</option>
+        </Pastille>
+      </td>
+      <td className={CELLULE}>
+        <Pastille
+          valeur={t.statut}
+          tone={TODO_STATUT[t.statut].tone}
+          label="Statut"
+          onChange={(v) => onMaj({ statut: v as TodoStatut })}
+        >
+          {TODO_STATUT_ORDER.map((s) => (
+            <option key={s} value={s}>
+              {TODO_STATUT[s].label}
+            </option>
+          ))}
+        </Pastille>
+      </td>
+      <td className={CELLULE}>
+        <select
+          value={valeurQui}
+          onChange={(e) =>
+            onMaj({ assignee_ids: e.target.value === "tous" ? membres.map((m) => m.id) : e.target.value ? [e.target.value] : [] })
+          }
+          aria-label="Qui"
+          className="w-full cursor-pointer appearance-none bg-transparent px-2 py-1.5 outline-none hover:bg-[var(--surface-hover)]"
+        >
+          <option value="">—</option>
+          {membres.map((m) => (
+            <option key={m.id} value={m.id}>
+              {prenom(m.nom)}
+            </option>
+          ))}
+          {membres.length > 1 ? <option value="tous">{initialesEquipe}</option> : null}
+        </select>
+      </td>
+      <td className={CELLULE}>
+        <Texte valeur={t.details ?? ""} onSave={(v) => onMaj({ details: v })} className="text-[12.5px]" />
+      </td>
+      <td className={CELLULE}>
+        <input
+          type="date"
+          value={t.due_on ?? ""}
+          onChange={(e) => onMaj({ due_on: e.target.value || null })}
+          aria-label="Quand"
+          className={cn(
+            "w-full cursor-pointer bg-transparent px-2 py-1.5 text-[12.5px] tabular-nums outline-none hover:bg-[var(--surface-hover)]",
+            // Case vide : pas de « jj/mm/aaaa » gris sur chaque ligne, seulement l'icône.
+            !t.due_on && "text-transparent focus:text-[var(--text-muted)] [&::-webkit-calendar-picker-indicator]:opacity-30",
+            enRetard && "font-medium text-rose-600 dark:text-rose-400",
+          )}
+        />
+      </td>
+      {membres.map((m) => (
+        <td key={m.id} className={CELLULE}>
+          <Texte
+            valeur={t.commentaires?.[m.id] ?? ""}
+            onSave={onCommentaire}
+            lectureSeule={m.id !== moi}
+            className="text-[12.5px]"
           />
-        </Field>
-
-        <div className="grid gap-3.5 sm:grid-cols-2">
-          <Field label="Affaire liée">
-            <div className="relative">
-              <Handshake className="pointer-events-none absolute top-1/2 left-3 z-10 size-3.5 -translate-y-1/2 text-[var(--text-muted)]" />
-              <Select value={t.deal_id ?? ""} onChange={(e) => void onMaj({ deal_id: e.target.value || null })} className="pl-8">
-                <option value="">Aucune</option>
-                {affaires.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.nom}
-                  </option>
-                ))}
-              </Select>
-            </div>
-          </Field>
-          <Field label="Chantier lié">
-            <div className="relative">
-              <Compass className="pointer-events-none absolute top-1/2 left-3 z-10 size-3.5 -translate-y-1/2 text-[var(--text-muted)]" />
-              <Select value={t.chantier_id ?? ""} onChange={(e) => void onMaj({ chantier_id: e.target.value || null })} className="pl-8">
-                <option value="">Aucun</option>
-                {chantiers.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.nom}
-                  </option>
-                ))}
-              </Select>
-            </div>
-          </Field>
-        </div>
-
-        <Discussion todoId={t.id} membres={membres} onCompte={onCommentaires} />
-      </div>
-    </Drawer>
+        </td>
+      ))}
+      <td className={cn(CELLULE, "text-center")}>
+        <button
+          type="button"
+          onClick={onSupprimer}
+          aria-label="Supprimer la tâche"
+          className="mt-1 rounded p-1 text-[var(--text-muted)] opacity-0 transition-opacity group-hover:opacity-100 hover:text-rose-500 focus:opacity-100"
+        >
+          <Trash2 className="size-3.5" />
+        </button>
+      </td>
+    </tr>
   );
 }
 
-/** Les échanges sur une tâche : ce que faisaient les colonnes « Com » du Sheet. */
-function Discussion({ todoId, membres, onCompte }: { todoId: string; membres: Membre[]; onCompte: (n: number) => void }) {
-  const toast = useToast();
-  const [liste, setListe] = useState<TodoComment[] | null>(null);
-  const [texte, setTexte] = useState("");
+/** La ligne vide du bas : on tape la tâche, Entrée, et la suivante attend déjà. */
+function NouvelleLigne({ colonnes, onAjouter }: { colonnes: number; onAjouter: (titre: string) => Promise<boolean> }) {
+  const [titre, setTitre] = useState("");
   const [envoi, setEnvoi] = useState(false);
 
-  useEffect(() => {
-    setListe(null);
-    void fetchCommentaires(todoId).then((r) => setListe(r.ok ? r.data! : []));
-  }, [todoId]);
-
-  async function publier() {
-    if (!texte.trim()) return;
+  async function valider() {
+    if (!titre.trim() || envoi) return;
     setEnvoi(true);
-    const r = await ajouterCommentaire(todoId, texte);
+    const ok = await onAjouter(titre.trim());
     setEnvoi(false);
-    if (!r.ok) return toast(r.error, "error");
-    const suivante = [...(liste ?? []), r.data!];
-    setListe(suivante);
-    onCompte(suivante.length);
-    setTexte("");
-  }
-
-  async function retirer(id: string) {
-    const r = await supprimerCommentaire(id);
-    if (!r.ok) return toast(r.error, "error");
-    const suivante = (liste ?? []).filter((c) => c.id !== id);
-    setListe(suivante);
-    onCompte(suivante.length);
+    if (ok) setTitre("");
   }
 
   return (
-    <section>
-      <h3 className="mb-2 flex items-center gap-2 text-[12.5px] font-medium text-[var(--text-secondary)]">
-        <MessageSquare className="size-3.5" /> Discussion
-      </h3>
-      {liste === null ? null : liste.length === 0 ? (
-        <p className="mb-2 text-[12px] text-[var(--text-muted)]">Pas encore d&apos;échange sur cette tâche.</p>
-      ) : (
-        <ul className="mb-3 space-y-2.5">
-          {liste.map((c) => {
-            const nom = membres.find((m) => m.id === c.author_id)?.nom ?? "?";
-            return (
-              <li key={c.id} className="group flex gap-2.5">
-                <span className={cn("grid size-6 shrink-0 place-items-center rounded-full bg-linear-to-br text-[9.5px] font-semibold text-white", avatarGradient(c.author_id))}>
-                  {initials(nom)}
-                </span>
-                <div className="min-w-0 flex-1">
-                  <p className="text-[11.5px] text-[var(--text-muted)]">
-                    <span className="font-medium text-[var(--text-primary)]">{nom.split(" ")[0]}</span> · {formatDateHeure(c.created_at)}
-                    <button
-                      type="button"
-                      onClick={() => void retirer(c.id)}
-                      className="ml-2 opacity-0 transition-opacity group-hover:opacity-100 hover:text-rose-500"
-                    >
-                      retirer
-                    </button>
-                  </p>
-                  <p className="text-[13px] whitespace-pre-line">{c.body}</p>
-                </div>
-              </li>
-            );
-          })}
-        </ul>
-      )}
-      <div className="flex items-end gap-2">
-        <Textarea
-          rows={2}
-          value={texte}
-          onChange={(e) => setTexte(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void publier();
-          }}
-          placeholder="Un commentaire, une question à l'autre… (⌘⏎ pour publier)"
-          className="flex-1"
+    <tr>
+      <td className={cn(CELLULE, "text-center text-[var(--text-muted)]")}>
+        <Plus className="mx-auto mt-2 size-3.5" />
+      </td>
+      <td className={CELLULE} colSpan={colonnes}>
+        <input
+          value={titre}
+          disabled={envoi}
+          onChange={(e) => setTitre(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && void valider()}
+          onBlur={() => void valider()}
+          placeholder="Nouvelle tâche… (Entrée pour ajouter)"
+          aria-label="Nouvelle tâche"
+          className="w-full bg-transparent px-2 py-2 outline-none placeholder:text-[var(--text-muted)] focus:bg-[var(--surface-input)]"
         />
-        <Button variant="secondary" loading={envoi} disabled={!texte.trim()} onClick={() => void publier()}>
-          Publier
-        </Button>
-      </div>
-      {liste && liste.length === 0 ? null : (
-        <p className="mt-1.5 flex items-center gap-1 text-[11px] text-[var(--text-muted)]">
-          <CircleAlert className="size-3" /> Chacun ne peut retirer que ses propres commentaires.
-        </p>
-      )}
-    </section>
+      </td>
+    </tr>
   );
 }
