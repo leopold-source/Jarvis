@@ -17,6 +17,7 @@ import { AgendaDuJour } from "@/components/crm/agenda-du-jour";
 import { PipelineInsight } from "@/components/crm/pipeline-insight";
 import { PlanDuJour } from "@/components/crm/plan-du-jour";
 import { chargerPlan } from "@/lib/plan-du-jour";
+import { planDe } from "@/lib/plan-logique";
 import { Badge, Card, EmptyState, ProgressBar, SectionTitle } from "@/components/ui";
 import {
   CHANTIER_STATUS,
@@ -35,7 +36,14 @@ import { cn, daysUntil, formatDate, formatMoney, formatRelative, pluralize, toda
 
 export const metadata = { title: "Tableau de bord" };
 
-export default async function DashboardPage() {
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ onglet?: string }>;
+}) {
+  // Deux onglets plutôt qu'une longue page : on vient pour vendre ou pour produire.
+  const { onglet } = await searchParams;
+  const actif: "commercial" | "production" = onglet === "production" ? "production" : "commercial";
   const profile = await requireStaff();
   const supabase = await createClient();
   const [plan, { data: membres }, { data: todos }] = await Promise.all([
@@ -44,6 +52,11 @@ export default async function DashboardPage() {
     supabase.from("todos").select("id, titre, statut, priorite, due_on, assignee_ids").neq("statut", "fait"),
   ]);
   const today = todayIso();
+  // Le badge de l'onglet : ce que mon plan du jour attend encore de moi.
+  const aTraiter = (() => {
+    const mien = planDe(plan, profile.id);
+    return mien.affaires.length + mien.relances.length;
+  })();
   const inTwoWeeks = new Date(Date.now() + 14 * 86_400_000).toISOString().slice(0, 10);
 
   const [{ data: deals }, { data: health }, { data: projects }, { data: dueTasks }] = await Promise.all([
@@ -228,9 +241,50 @@ export default async function DashboardPage() {
     <div className="mx-auto flex max-w-7xl flex-col gap-7">
       <PageHeader
         title={`Bonjour ${profile.full_name?.split(" ")[0] ?? ""}`.trim()}
-        description="Le plan du jour d'abord, la production ensuite."
+        description={actif === "commercial" ? "Ton plan du jour, et ce qui l'éclaire." : "Tâches, échéances, chantiers et projets."}
       />
 
+      <nav className="flex gap-1 border-b border-[var(--border-subtle)]">
+        {[
+          { cle: "commercial", libelle: "Commercial", icone: Handshake, compte: aTraiter },
+          { cle: "production", libelle: "Production & équipe", icone: FolderKanban, compte: mesTaches.length },
+        ].map(({ cle, libelle, icone: Icone, compte }) => {
+          const courant = cle === actif;
+          return (
+            <Link
+              key={cle}
+              href={cle === "commercial" ? "/" : "/?onglet=production"}
+              scroll={false}
+              className={cn(
+                "relative flex items-center gap-2 rounded-t-lg px-3.5 py-2 text-[13.5px] font-medium transition-colors",
+                courant ? "text-[var(--text-primary)]" : "text-[var(--text-muted)] hover:text-[var(--text-secondary)]",
+              )}
+            >
+              <Icone className="size-4" />
+              {libelle}
+              {compte ? (
+                <span
+                  className={cn(
+                    "rounded-full px-1.5 text-[11px] tabular-nums",
+                    courant ? "bg-brand-500/15 text-brand-600 dark:text-brand-300" : "bg-[var(--surface-hover)]",
+                  )}
+                >
+                  {compte}
+                </span>
+              ) : null}
+              <span
+                className={cn(
+                  "absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-brand-500 transition-opacity",
+                  courant ? "opacity-100" : "opacity-0",
+                )}
+              />
+            </Link>
+          );
+        })}
+      </nav>
+
+      {actif === "commercial" ? (
+        <>
       <PipelineInsight insight={insight} />
 
       {/* ---------------------------------------------------- Commercial */}
@@ -241,7 +295,6 @@ export default async function DashboardPage() {
         mail éclairent la journée sans rien demander.
       */}
       <section className="flex flex-col gap-3">
-        <Titre>Commercial</Titre>
         <div className="grid items-start gap-4 lg:grid-cols-3">
           <div className="lg:col-span-2">
             <PlanDuJour
@@ -305,9 +358,63 @@ export default async function DashboardPage() {
         </div>
       </section>
 
+      {/* -------------------------------------------------- Le pipeline, en bas */}
+      {allDeals.length > 0 ? (
+        <Card className="p-5">
+          <SectionTitle
+            title="Répartition du pipeline"
+            description="La part ambrée n'a plus bougé depuis le délai fixé"
+            action={
+              <Link
+                href="/affaires"
+                className="inline-flex items-center gap-1 text-[12px] text-brand-400 hover:text-brand-300"
+              >
+                Ouvrir le Kanban <ArrowUpRight className="size-3.5" />
+              </Link>
+            }
+          />
+          <ul className="mt-4 space-y-2">
+            {byStage
+              .filter((entry) => entry.total > 0)
+              .map(({ stage, total, dormants, amount }, index) => (
+                <li
+                  key={stage}
+                  className="stagger grid grid-cols-[8.5rem_1fr_auto] items-center gap-3"
+                  style={{ ["--i" as string]: index }}
+                >
+                  <span className="truncate text-[12px] text-[var(--text-secondary)]">
+                    {DEAL_STAGE[stage].label}
+                  </span>
+                  {/* Une seule barre, deux teintes : la longueur dit le volume,
+                      la couleur dit ce qui est encore vivant. */}
+                  <span className="flex h-2 overflow-hidden rounded-full bg-[var(--surface-hover)]">
+                    <span
+                      className={cn(
+                        "block h-full bg-linear-to-r transition-[width] duration-700",
+                        TONE_GRADIENT[DEAL_STAGE[stage].tone],
+                      )}
+                      style={{ width: `${((total - dormants) / maxStageCount) * 100}%` }}
+                    />
+                    <span
+                      className="block h-full bg-linear-to-r from-amber-500/70 to-amber-400/50 transition-[width] duration-700"
+                      style={{ width: `${(dormants / maxStageCount) * 100}%` }}
+                    />
+                  </span>
+                  <span className="text-right text-[11.5px] tabular-nums text-[var(--text-muted)]">
+                    {total}
+                    {dormants > 0 ? ` · ${dormants} dorm.` : ""}
+                    {amount > 0 ? ` · ${formatMoney(amount, true)}` : ""}
+                  </span>
+                </li>
+              ))}
+          </ul>
+        </Card>
+      ) : null}
+        </>
+      ) : (
+        <>
       {/* ---------------------------------------------------- Production */}
       <section className="flex flex-col gap-3">
-        <Titre>Production &amp; équipe</Titre>
         <div className="grid gap-4 lg:grid-cols-2">
           {/* Tâches d'équipe */}
           <Card className="flex flex-col p-5">
@@ -491,73 +598,8 @@ export default async function DashboardPage() {
         </div>
       </section>
 
-      {/* -------------------------------------------------- Le pipeline, en bas */}
-      {allDeals.length > 0 ? (
-        <Card className="p-5">
-          <SectionTitle
-            title="Répartition du pipeline"
-            description="La part ambrée n'a plus bougé depuis le délai fixé"
-            action={
-              <Link
-                href="/affaires"
-                className="inline-flex items-center gap-1 text-[12px] text-brand-400 hover:text-brand-300"
-              >
-                Ouvrir le Kanban <ArrowUpRight className="size-3.5" />
-              </Link>
-            }
-          />
-          <ul className="mt-4 space-y-2">
-            {byStage
-              .filter((entry) => entry.total > 0)
-              .map(({ stage, total, dormants, amount }, index) => (
-                <li
-                  key={stage}
-                  className="stagger grid grid-cols-[8.5rem_1fr_auto] items-center gap-3"
-                  style={{ ["--i" as string]: index }}
-                >
-                  <span className="truncate text-[12px] text-[var(--text-secondary)]">
-                    {DEAL_STAGE[stage].label}
-                  </span>
-                  {/* Une seule barre, deux teintes : la longueur dit le volume,
-                      la couleur dit ce qui est encore vivant. */}
-                  <span className="flex h-2 overflow-hidden rounded-full bg-[var(--surface-hover)]">
-                    <span
-                      className={cn(
-                        "block h-full bg-linear-to-r transition-[width] duration-700",
-                        TONE_GRADIENT[DEAL_STAGE[stage].tone],
-                      )}
-                      style={{ width: `${((total - dormants) / maxStageCount) * 100}%` }}
-                    />
-                    <span
-                      className="block h-full bg-linear-to-r from-amber-500/70 to-amber-400/50 transition-[width] duration-700"
-                      style={{ width: `${(dormants / maxStageCount) * 100}%` }}
-                    />
-                  </span>
-                  <span className="text-right text-[11.5px] tabular-nums text-[var(--text-muted)]">
-                    {total}
-                    {dormants > 0 ? ` · ${dormants} dorm.` : ""}
-                    {amount > 0 ? ` · ${formatMoney(amount, true)}` : ""}
-                  </span>
-                </li>
-              ))}
-          </ul>
-        </Card>
-      ) : null}
+        </>
+      )}
     </div>
-  );
-}
-
-/**
- * Le titre d'une zone.
- *
- * Quatre intertitres suffisent à remplacer la lecture de neuf cartes empilées :
- * l'œil saute d'une zone à l'autre au lieu de parcourir la page en entier pour
- * retrouver ce qu'il cherche.
- */
-function Titre({ children }: { children: React.ReactNode }) {
-  return (
-    <h2 className="text-[11px] font-medium tracking-[0.08em] text-[var(--text-muted)] uppercase">
-      {children}
-    </h2>
   );
 }
