@@ -5,6 +5,8 @@ import { trierToutesLesBoites } from "@/lib/mail-triage";
 import { envoyerBriefs } from "@/lib/brief-matinal";
 import { synchroniserDevis } from "@/lib/devis-pennylane";
 import { runSuggestions } from "@/app/(crm)/suggestions-actions";
+import { estOuvre } from "@/lib/echeances";
+import { todayIso } from "@/lib/utils";
 
 /**
  * Routine du matin, une fois par jour (voir vercel.json) : synchronisation
@@ -61,7 +63,9 @@ export async function GET(request: NextRequest) {
     error: caught instanceof Error ? caught.message : "Synchro des devis impossible.",
   }));
 
-  const suggestions = await runSuggestions(true);
+  // Les suggestions ne servent qu'au récap et à la journée de travail : le
+  // week-end, on n'appelle pas le modèle pour rien.
+  const suggestions = estOuvre(todayIso()) ? await runSuggestions(true) : { ok: false as const, error: "week-end" };
 
   // Le brief part en dernier : il résume tout ce qui précède, y compris les
   // suggestions du jour, et ne serait qu'à moitié juste s'il partait avant.

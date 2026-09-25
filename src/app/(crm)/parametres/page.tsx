@@ -18,6 +18,7 @@ import {
 } from "@/app/(crm)/parametres/dormancy-actions";
 import { fetchClaapSettings } from "@/app/(crm)/parametres/claap-actions";
 import { requireStaff } from "@/lib/auth";
+import { BriefSetting } from "@/components/crm/brief-setting";
 import { googleCredentials } from "@/lib/google";
 import { createClient } from "@/lib/supabase/server";
 import { cn } from "@/lib/utils";
@@ -172,6 +173,7 @@ async function PipelinePanel({ isAdmin }: { isAdmin: boolean }) {
         isAdmin={isAdmin}
       />
       <OrgCooldownSetting days={reglages.org_cooldown_days} isAdmin={isAdmin} />
+      <BriefSetting isAdmin={isAdmin} />
     </>
   );
 }

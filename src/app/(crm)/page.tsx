@@ -15,6 +15,8 @@ import { PageHeader } from "@/components/layout/page-header";
 import { AgendaDuJour } from "@/components/crm/agenda-du-jour";
 import { PipelineInsight } from "@/components/crm/pipeline-insight";
 import { DailySuggestions } from "@/components/crm/daily-suggestions";
+import { ProchainesActions } from "@/components/crm/prochaines-actions";
+import { chargerRadar } from "@/lib/prochaines-actions";
 import type { SuggestionItemType } from "@/app/(crm)/suggestions-actions";
 import { Badge, Card, EmptyState, ProgressBar, SectionTitle } from "@/components/ui";
 import {
@@ -36,6 +38,10 @@ export const metadata = { title: "Tableau de bord" };
 export default async function DashboardPage() {
   const profile = await requireStaff();
   const supabase = await createClient();
+  const [radar, { data: membres }] = await Promise.all([
+    chargerRadar(supabase),
+    supabase.from("profiles").select("id, full_name, email").neq("role", "client"),
+  ]);
   const today = new Date().toISOString().slice(0, 10);
   const inTwoWeeks = new Date(Date.now() + 14 * 86_400_000).toISOString().slice(0, 10);
 
@@ -254,6 +260,12 @@ export default async function DashboardPage() {
       {/* ---------------------------------------------------- Aujourd'hui */}
       <section className="flex flex-col gap-3">
         <Titre>Aujourd&apos;hui</Titre>
+        {/* En tête de journée : ce qu'une affaire chaude attend de nous. */}
+        <ProchainesActions
+          radar={radar}
+          membres={(membres ?? []).map((m) => ({ id: m.id, nom: m.full_name ?? m.email }))}
+          moi={profile.id}
+        />
         {/*
           Deux panneaux de même hauteur, chacun défilant dans son cadre.
           L'agenda et la liste du jour se lisent ensemble — ce qui est déjà pris

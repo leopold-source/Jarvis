@@ -1,198 +1,320 @@
+import "server-only";
+
 import { agendaDe } from "@/lib/agenda";
+import { estOuvre, precedentOuvre } from "@/lib/echeances";
+import { composeHtmlRaw, refreshAccessToken, sendMessage } from "@/lib/google";
+import { chargerRadar, type Radar } from "@/lib/prochaines-actions";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { formatHeure } from "@/lib/utils";
+import { depuisSaisieParis, formatHeure, todayIso } from "@/lib/utils";
 
 /**
- * Le récapitulatif du matin, envoyé à chacun sur sa propre adresse.
+ * Le récap commercial du matin, un seul pour toute l'équipe.
  *
- * Tant que rien ne sort de l'application, elle ne sert qu'à ceux qui pensent à
- * l'ouvrir — et le tri des mails de sept heures reste invisible jusqu'à ce
- * qu'on aille le chercher. Ce message inverse le sens : c'est lui qui va
- * chercher la personne.
+ * Commun plutôt qu'individuel : à deux, chacun doit voir ce que l'autre a sur
+ * le feu — c'est comme ça qu'on se passe une relance ou qu'on repère une
+ * affaire qui dort. Chaque ligne dit à qui elle revient.
  *
- * Chacun reçoit le sien, à l'adresse de son compte. Un brief est une revue de
- * ce qui attend *quelqu'un* : mutualiser l'envoi reviendrait à donner à Romain
- * les relances de Léopold.
+ * Les jours ouvrés seulement. Il part de la boîte Gmail d'un associé vers
+ * toute l'équipe ; faute de Gmail branché, par Resend si la clé existe.
  */
 
-const FROM = process.env.NOTIFY_FROM?.trim() || "Jarvis <jarvis@antichaos.dev>";
 const BASE = "https://antichaos.dev";
+const FROM_RESEND = process.env.NOTIFY_FROM?.trim() || "Jarvis <jarvis@antichaos.dev>";
 
 export type BriefOutcome = { email: string; envoye: boolean; detail: string };
 
 type Admin = NonNullable<ReturnType<typeof createAdminClient>>;
+type Membre = { id: string; email: string; prenom: string; role: string };
 
-function ligne(valeur: number, singulier: string, pluriel: string): string | null {
-  if (valeur <= 0) return null;
-  return `${valeur} ${valeur > 1 ? pluriel : singulier}`;
+function esc(texte: string | null | undefined): string {
+  return (texte ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
-async function corps(admin: Admin, userId: string, prenom: string): Promise<string | null> {
-  const jour = new Date().toISOString().slice(0, 10);
-  const dans7 = new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 10);
+const GRIS = "#8b8b93";
+const ROUGE = "#c2410c";
 
-  const [{ data: tri }, mailsEnAttente, { data: leads }, { data: taches }, { data: sante }, agenda] =
-    await Promise.all([
-      admin
-        .from("mail_runs")
-        .select("*")
-        .eq("user_id", userId)
-        .order("started_at", { ascending: false })
-        .limit(1),
-      admin
-        .from("mail_triage")
-        .select("id", { count: "exact", head: true })
-        .eq("user_id", userId)
-        .eq("review", "en_attente"),
-      admin.from("leads").select("full_name, company_name, follow_up_on").not("follow_up_on", "is", null).lte("follow_up_on", jour).order("follow_up_on").limit(5),
-      admin.from("tasks").select("title, due_on").neq("status", "termine").not("due_on", "is", null).lte("due_on", dans7).order("due_on").limit(5),
-      admin.from("deal_health").select("sante"),
-      agendaDe(userId, { jours: 0 }),
-    ]);
+function titre(t: string, compte?: number): string {
+  return `<h3 style="margin:26px 0 8px;font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:${GRIS}">${t}${
+    compte != null ? ` · ${compte}` : ""
+  }</h3>`;
+}
 
-  const passage = (tri ?? [])[0];
-  const attente = mailsEnAttente.count ?? 0;
-  const relances = leads ?? [];
-  const echeances = taches ?? [];
-  const dormantes = (sante ?? []).filter((d) => d.sante === "dormant").length;
+function liste(items: string[]): string {
+  return `<ul style="margin:0;padding-left:18px;color:#26262c;font-size:14px;line-height:1.65">${items
+    .map((i) => `<li style="margin:2px 0">${i}</li>`)
+    .join("")}</ul>`;
+}
 
-  // L'agenda passe en premier dans le message : ce qui est déjà pris décide de
-  // ce qu'il reste de la journée.
-  const rendezVous = agenda.ok ? agenda.rendezVous : [];
+function lien(href: string, texte: string): string {
+  return `<a href="${BASE}${href}" style="color:#26262c;text-decoration:none;font-weight:600">${texte}</a>`;
+}
 
-  // Un brief qui n'annonce rien ne doit pas partir : le courrier quotidien
-  // qu'on apprend à ignorer est pire que pas de courrier du tout.
-  const rienASignaler =
-    attente === 0 &&
-    relances.length === 0 &&
-    echeances.length === 0 &&
-    rendezVous.length === 0 &&
-    !passage?.lus;
-  if (rienASignaler) return null;
+const JOUR_LONG = new Intl.DateTimeFormat("fr-FR", { timeZone: "Europe/Paris", weekday: "long", day: "numeric", month: "long" });
 
+/** Ce qui s'est passé depuis la veille travaillée, par personne. */
+async function bilanVeille(admin: Admin, membres: Membre[], aujourdhui: string) {
+  const debut = depuisSaisieParis(`${precedentOuvre(aujourdhui)}T00:00`)!;
+  const fin = depuisSaisieParis(`${aujourdhui}T00:00`)!;
+
+  const [{ data: evenements }, { data: gagnees }, { data: signes }] = await Promise.all([
+    admin
+      .from("lead_events")
+      .select("lead_id, to_status, actor_id")
+      .eq("kind", "statut")
+      .gte("created_at", debut)
+      .lt("created_at", fin)
+      .limit(2000),
+    admin.from("deals").select("name, amount").gte("won_at", debut).lt("won_at", fin),
+    admin
+      .from("devis_pennylane")
+      .select("numero, montant_ht")
+      .eq("statut", "accepte")
+      .gte("statut_change_le", debut)
+      .lt("statut_change_le", fin),
+  ]);
+
+  const parPersonne = membres
+    .map((m) => {
+      const siens = (evenements ?? []).filter((e) => e.actor_id === m.id);
+      return {
+        prenom: m.prenom,
+        appels: new Set(siens.map((e) => e.lead_id)).size,
+        callsPris: siens.filter((e) => e.to_status === "call_pris").length,
+      };
+    })
+    .filter((p) => p.appels > 0);
+
+  return { parPersonne, gagnees: gagnees ?? [], signes: signes ?? [] };
+}
+
+async function composer(admin: Admin, membres: Membre[]): Promise<{ sujet: string; html: string }> {
+  const aujourdhui = todayIso();
+  const prenomDe = (id: string | null) => membres.find((m) => m.id === id)?.prenom ?? "—";
+  const qui = (id: string | null) => `<span style="color:${GRIS}"> · ${esc(prenomDe(id))}</span>`;
+
+  const [radar, { data: suggestions }, veille, agendas, { data: ouvertes }] = await Promise.all([
+    chargerRadar(admin),
+    admin.from("daily_suggestions").select("focus, items").eq("for_date", aujourdhui).maybeSingle(),
+    bilanVeille(admin, membres, aujourdhui),
+    Promise.all(membres.map(async (m) => ({ m, agenda: await agendaDe(m.id, { jours: 0 }) }))),
+    admin.from("deals").select("amount, probability").not("stage", "in", "(gagne,perdu,non_qualifie)"),
+  ]);
+
+  const r: Radar = radar;
+  const retard = r.affaires.filter((a) => a.echeance === "retard");
+  const jour = r.affaires.filter((a) => a.echeance === "jour");
+  const prochain = r.affaires.filter((a) => a.echeance === "prochain");
+  const rdv = agendas.flatMap(({ m, agenda }) => (agenda.ok ? agenda.rendezVous.map((x) => ({ m, x })) : []));
+  rdv.sort((a, b) => (a.x.debut ?? "").localeCompare(b.x.debut ?? ""));
+
+  const blocs: string[] = [];
+
+  // --- Rendez-vous
+  if (rdv.length) {
+    blocs.push(
+      titre("Rendez-vous du jour", rdv.length) +
+        liste(
+          rdv.map(({ m, x }) => {
+            const heure = x.journee_entiere ? "journée" : x.debut ? formatHeure(x.debut) : "";
+            const avec = x.participants.length ? ` — avec ${esc(x.participants.join(", "))}` : "";
+            return `<strong>${heure}</strong> ${esc(x.titre)}<span style="color:${GRIS}">${avec} · ${esc(m.prenom)}</span>`;
+          }),
+        ),
+    );
+  }
+
+  // --- Tâches prioritaires (les suggestions du jour)
+  const items = ((suggestions?.items ?? []) as Array<{ title: string; detail: string; href: string; urgency: string }>).slice(0, 8);
+  if (items.length) {
+    blocs.push(
+      titre("Tâches commerciales prioritaires") +
+        (suggestions?.focus ? `<p style="margin:0 0 6px;font-size:14px;color:#26262c"><em>${esc(suggestions.focus)}</em></p>` : "") +
+        liste(
+          items.map(
+            (i) =>
+              `${i.urgency === "haute" ? `<span style="color:${ROUGE}">●</span> ` : ""}${lien(i.href, esc(i.title))}<br><span style="color:${GRIS};font-size:13px">${esc(i.detail)}</span>`,
+          ),
+        ),
+    );
+  }
+
+  // --- Prochaines actions des affaires
+  const ligneAffaire = (a: Radar["affaires"][number]) =>
+    `${lien(`/affaires?affaire=${a.dealId}`, esc(a.action || "Prochaine étape à préciser"))} — ${esc(a.nom)} <span style="color:${GRIS}">(${esc(a.etape)})</span>${
+      a.retard ? ` <span style="color:${ROUGE}">${a.retard} j de retard</span>` : ""
+    }${qui(a.ownerId)}`;
+  if (retard.length || jour.length) {
+    blocs.push(titre("Prochaines actions du jour", retard.length + jour.length) + liste([...retard, ...jour].map(ligneAffaire)));
+  }
+  if (prochain.length) {
+    blocs.push(titre(`À anticiper pour ${r.nomProchain.toLowerCase()}`, prochain.length) + liste(prochain.map(ligneAffaire)));
+  }
+
+  // --- Relances de leads, par personne
+  if (r.relances.length) {
+    const groupes = new Map<string, Radar["relances"]>();
+    for (const l of r.relances) {
+      const cle = prenomDe(l.ownerId);
+      groupes.set(cle, [...(groupes.get(cle) ?? []), l]);
+    }
+    const html = [...groupes.entries()]
+      .map(([prenom, leads]) => {
+        const enRetard = leads.filter((l) => l.retard > 0).length;
+        return (
+          `<p style="margin:8px 0 4px;font-size:14px;color:#26262c"><strong>${esc(prenom)}</strong> — ${leads.length} relance${leads.length > 1 ? "s" : ""}${
+            enRetard ? ` <span style="color:${ROUGE}">(dont ${enRetard} en retard)</span>` : ""
+          }</p>` +
+          liste(
+            leads.slice(0, 10).map(
+              (l) =>
+                `${lien(`/leads?lead=${l.leadId}`, esc(l.nom))}${l.entreprise ? ` — ${esc(l.entreprise)}` : ""} <span style="color:${GRIS}">(${esc(l.statut)}${l.retard ? `, ${l.retard} j de retard` : ""})</span>`,
+            ),
+          ) +
+          (leads.length > 10 ? `<p style="margin:4px 0 0;font-size:13px;color:${GRIS}">… et ${leads.length - 10} autres, dans le mode Prospection.</p>` : "")
+        );
+      })
+      .join("");
+    blocs.push(titre("Relances de leads du jour", r.relances.length) + html);
+  }
+
+  // --- À ne pas laisser filer
+  const vigilance = [
+    ...r.recaps.map((x) => `Récap R2 prêt à envoyer — ${lien(`/affaires?affaire=${x.dealId}`, esc(x.nom))}${qui(x.ownerId)}`),
+    ...r.devis.map(
+      (x) =>
+        `${x.expire ? "Devis expiré" : "Devis à relancer"}${x.numero ? ` ${esc(x.numero)}` : ""} — ${lien(`/affaires?affaire=${x.dealId}`, esc(x.nom))}${qui(x.ownerId)}`,
+    ),
+    ...r.sansSuite.map(
+      (x) => `${esc(x.etape)} sans prochaine étape datée — ${lien(`/affaires?affaire=${x.dealId}`, esc(x.nom))}${qui(x.ownerId)}`,
+    ),
+  ];
+  if (vigilance.length) blocs.push(titre("À ne pas laisser filer", vigilance.length) + liste(vigilance));
+
+  // --- La veille
+  const bilan = [
+    ...veille.parPersonne.map(
+      (p) => `${esc(p.prenom)} : ${p.appels} lead${p.appels > 1 ? "s" : ""} travaillé${p.appels > 1 ? "s" : ""}${
+        p.callsPris ? `, <strong>${p.callsPris} call${p.callsPris > 1 ? "s" : ""} pris</strong>` : ""
+      }`,
+    ),
+    ...veille.gagnees.map((g) => `🏆 Affaire gagnée : <strong>${esc(g.name)}</strong>${g.amount ? ` (${Math.round(g.amount).toLocaleString("fr-FR")} € HT)` : ""}`),
+    ...veille.signes.map((d) => `Devis signé${d.numero ? ` ${esc(d.numero)}` : ""}${d.montant_ht ? ` — ${Math.round(d.montant_ht).toLocaleString("fr-FR")} € HT` : ""}`),
+  ];
+  if (bilan.length) blocs.push(titre("Depuis le dernier récap") + liste(bilan));
+
+  // --- Pipeline
+  const pipe = ouvertes ?? [];
+  const total = pipe.reduce((s, d) => s + Number(d.amount ?? 0), 0);
+  const pondere = pipe.reduce((s, d) => s + Number(d.amount ?? 0) * (Number(d.probability ?? 0) / 100), 0);
   const resume = [
-    rendezVous.length ? ligne(rendezVous.length, "rendez-vous", "rendez-vous") : null,
-    passage?.lus ? ligne(passage.lus, "mail trié", "mails triés") : null,
-    passage?.spams ? ligne(passage.spams, "spam écarté", "spams écartés") : null,
-    attente ? `${attente} en attente de ta décision` : null,
-    relances.length ? ligne(relances.length, "relance due", "relances dues") : null,
-    dormantes ? ligne(dormantes, "affaire en sommeil", "affaires en sommeil") : null,
+    rdv.length ? `${rdv.length} rendez-vous` : null,
+    retard.length + jour.length ? `${retard.length + jour.length} action${retard.length + jour.length > 1 ? "s" : ""} affaires` : null,
+    r.relances.length ? `${r.relances.length} relance${r.relances.length > 1 ? "s" : ""} leads` : null,
   ].filter(Boolean);
 
-  const bloc = (titre: string, items: string[]) =>
-    items.length === 0
-      ? ""
-      : `<h3 style="margin:22px 0 8px;font-size:13px;text-transform:uppercase;letter-spacing:.04em;color:#8b8b93">${titre}</h3>
-         <ul style="margin:0;padding-left:18px;color:#2a2a31;font-size:14px;line-height:1.65">
-           ${items.map((i) => `<li>${i}</li>`).join("")}
-         </ul>`;
-
-  return `
-  <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:560px;margin:0 auto;padding:28px 24px">
-    <p style="margin:0;font-size:20px;font-weight:600;color:#16161a">Bonjour ${prenom},</p>
-    <p style="margin:6px 0 0;font-size:14px;color:#6b6b75">${resume.join(" · ") || "Rien de neuf ce matin."}</p>
-
-    ${bloc(
-      "Ton agenda",
-      rendezVous.map((rdv) => {
-        const heure = rdv.journee_entiere
-          ? "journée"
-          : rdv.debut
-            ? formatHeure(rdv.debut)
-            : "";
-        const avec = rdv.participants.length ? ` — avec ${rdv.participants.join(", ")}` : "";
-        return `<strong>${heure}</strong> ${rdv.titre}<span style="color:#8b8b93">${avec}</span>`;
-      }),
-    )}
-
-    ${bloc(
-      "À rappeler",
-      relances.map(
-        (l) =>
-          `<strong>${l.full_name ?? "Sans nom"}</strong>${l.company_name ? ` — ${l.company_name}` : ""} <span style="color:#8b8b93">(prévu le ${l.follow_up_on})</span>`,
-      ),
-    )}
-
-    ${bloc(
-      "Échéances de la semaine",
-      echeances.map((t) => `${t.title} <span style="color:#8b8b93">— ${t.due_on}</span>`),
-    )}
-
-    ${
-      attente > 0
-        ? `<h3 style="margin:22px 0 8px;font-size:13px;text-transform:uppercase;letter-spacing:.04em;color:#8b8b93">Boîte mail</h3>
-           <p style="margin:0;font-size:14px;color:#2a2a31;line-height:1.65">
-             ${attente} message${attente > 1 ? "s attendent" : " attend"} ta décision — réponses préparées ou classements que je n'ai pas su trancher.
-           </p>`
-        : ""
-    }
-
-    <p style="margin:26px 0 0">
-      <a href="${BASE}" style="display:inline-block;background:#5b5bd6;color:#fff;text-decoration:none;padding:10px 18px;border-radius:9px;font-size:14px;font-weight:500">Ouvrir Antichaos</a>
+  const date = JOUR_LONG.format(new Date());
+  const html = `
+  <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:600px;margin:0 auto;padding:28px 22px">
+    <p style="margin:0;font-size:20px;font-weight:600;color:#16161a">Récap commercial — ${esc(date)}</p>
+    <p style="margin:6px 0 0;font-size:14px;color:#6b6b75">${resume.join(" · ") || "Journée calme : rien d'échu."}</p>
+    ${blocs.join("\n")}
+    <p style="margin:26px 0 0;font-size:13px;color:${GRIS}">Pipeline ouvert : ${pipe.length} affaire${pipe.length > 1 ? "s" : ""} · ${Math.round(total).toLocaleString("fr-FR")} € HT · pondéré ${Math.round(pondere).toLocaleString("fr-FR")} €</p>
+    <p style="margin:18px 0 0">
+      <a href="${BASE}" style="display:inline-block;background:#26262c;color:#fff;text-decoration:none;padding:10px 18px;border-radius:9px;font-size:14px;font-weight:500">Ouvrir Jarvis</a>
     </p>
-    <p style="margin:18px 0 0;font-size:11.5px;color:#a0a0a8">
-      Récapitulatif automatique, envoyé après le tri de la boîte mail. Rien n'a été envoyé à qui que ce soit en ton nom.
-    </p>
+    <p style="margin:18px 0 0;font-size:11.5px;color:#a0a0a8">Récap automatique des jours ouvrés, envoyé à toute l'équipe. Rien n'a été envoyé à un client.</p>
   </div>`;
+
+  return { sujet: `Récap commercial — ${date}`, html };
 }
 
-/** Envoie son brief à chaque compte interne. Silencieux s'il n'y a rien à dire. */
-export async function envoyerBriefs(): Promise<BriefOutcome[]> {
+/** Le texte brut qui accompagne le HTML, pour les clients mail qui n'en veulent pas. */
+function versTexte(html: string): string {
+  return html
+    .replace(/<(br|\/p|\/li|\/h3)>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/\n\s*\n\s*\n+/g, "\n\n")
+    .trim();
+}
+
+/**
+ * Envoie le récap du jour à toute l'équipe, une fois par jour ouvré.
+ * `force` l'envoie même le week-end ou s'il est déjà parti — pour un essai.
+ */
+export async function envoyerBriefs(options: { force?: boolean } = {}): Promise<BriefOutcome[]> {
   const admin = createAdminClient();
   if (!admin) return [];
 
-  const cle = process.env.RESEND_API_KEY?.trim();
+  const aujourdhui = todayIso();
+  if (!options.force && !estOuvre(aujourdhui)) return [{ email: "équipe", envoye: false, detail: "Week-end : pas de récap." }];
 
-  const { data: comptes } = await admin
+  const { data: deja } = await admin.from("app_settings").select("value").eq("key", "brief_commercial").maybeSingle();
+  if (!options.force && (deja?.value as { jour?: string } | null)?.jour === aujourdhui) {
+    return [{ email: "équipe", envoye: false, detail: "Déjà envoyé aujourd'hui." }];
+  }
+
+  const { data: profils } = await admin
     .from("profiles")
-    .select("id, email, full_name")
+    .select("id, email, full_name, role")
     .neq("role", "client")
     .eq("is_active", true);
+  const membres: Membre[] = (profils ?? []).map((p) => ({
+    id: p.id,
+    email: p.email,
+    prenom: p.full_name?.split(" ")[0] ?? p.email.split("@")[0]!,
+    role: p.role,
+  }));
+  if (!membres.length) return [];
+  const destinataires = membres.map((m) => m.email);
 
-  const resultats: BriefOutcome[] = [];
+  const { sujet, html } = await composer(admin, membres);
 
-  for (const compte of comptes ?? []) {
-    const prenom = compte.full_name?.split(" ")[0] ?? compte.email.split("@")[0];
-    const html = await corps(admin, compte.id, prenom);
+  // Gmail d'abord : depuis la boîte d'un associé, de préférence un admin.
+  const { data: comptes } = await admin.from("google_accounts").select("user_id, email, refresh_token");
+  const ordre = [...(comptes ?? [])].sort(
+    (a, b) =>
+      Number(membres.find((m) => m.id === b.user_id)?.role === "admin") -
+      Number(membres.find((m) => m.id === a.user_id)?.role === "admin"),
+  );
 
-    if (!html) {
-      resultats.push({ email: compte.email, envoye: false, detail: "Rien à signaler." });
-      continue;
+  let resultat: BriefOutcome | null = null;
+  for (const compte of ordre) {
+    if (!compte.refresh_token || !membres.some((m) => m.id === compte.user_id)) continue;
+    try {
+      const { access_token } = await refreshAccessToken(compte.refresh_token);
+      await sendMessage(access_token, composeHtmlRaw({ to: destinataires, cc: [], subject: sujet, text: versTexte(html), html }));
+      resultat = { email: destinataires.join(", "), envoye: true, detail: `Envoyé depuis ${compte.email}.` };
+      break;
+    } catch (caught) {
+      resultat = { email: compte.email, envoye: false, detail: caught instanceof Error ? caught.message : "Gmail indisponible." };
     }
-    if (!cle) {
-      resultats.push({ email: compte.email, envoye: false, detail: "RESEND_API_KEY absente." });
-      continue;
-    }
+  }
 
+  const cle = process.env.RESEND_API_KEY?.trim();
+  if (!resultat?.envoye && cle) {
     try {
       const reponse = await fetch("https://api.resend.com/emails", {
         method: "POST",
         headers: { Authorization: `Bearer ${cle}`, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          from: FROM,
-          to: [compte.email],
-          subject: `Antichaos — ton point du matin`,
-          html,
-        }),
+        body: JSON.stringify({ from: FROM_RESEND, to: destinataires, subject: sujet, html }),
       });
-
-      resultats.push(
-        reponse.ok
-          ? { email: compte.email, envoye: true, detail: "Envoyé." }
-          : {
-              email: compte.email,
-              envoye: false,
-              detail: `Resend ${reponse.status} : ${(await reponse.text()).slice(0, 160)}`,
-            },
-      );
+      resultat = reponse.ok
+        ? { email: destinataires.join(", "), envoye: true, detail: "Envoyé par Resend." }
+        : { email: "resend", envoye: false, detail: `Resend ${reponse.status} : ${(await reponse.text()).slice(0, 160)}` };
     } catch (caught) {
-      resultats.push({
-        email: compte.email,
-        envoye: false,
-        detail: caught instanceof Error ? caught.message : "Envoi impossible.",
-      });
+      resultat = { email: "resend", envoye: false, detail: caught instanceof Error ? caught.message : "Resend indisponible." };
     }
   }
 
-  return resultats;
+  resultat ??= { email: "équipe", envoye: false, detail: "Aucun compte Gmail connecté ni RESEND_API_KEY." };
+  if (resultat.envoye) {
+    await admin
+      .from("app_settings")
+      .upsert({ key: "brief_commercial", value: { jour: aujourdhui, at: new Date().toISOString() } as never }, { onConflict: "key" });
+  }
+  return [resultat];
 }

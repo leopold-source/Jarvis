@@ -19,7 +19,9 @@
     "test:recap": "npx --yes tsx src/lib/__tests__/claap-recap.test.ts",
     "test:bruit": "npx --yes tsx src/lib/__tests__/mail-bruit.test.ts",
     "test:devis": "npx --yes tsx src/lib/__tests__/devis.test.ts",
-    "test:rdv": "npx --yes tsx src/lib/__tests__/rdv.test.ts"
+    "test:rdv": "npx --yes tsx src/lib/__tests__/rdv.test.ts",
+    "test:notes": "npx --yes tsx src/lib/__tests__/notes.test.ts",
+    "test:echeances": "npx --yes tsx src/lib/__tests__/echeances.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.122.0",
@@ -28,6 +30,13 @@
     "@dnd-kit/utilities": "^3.2.2",
     "@supabase/ssr": "^0.12.5",
     "@supabase/supabase-js": "^2.49.4",
+    "@tiptap/core": "^3.31.3",
+    "@tiptap/extension-highlight": "^3.31.3",
+    "@tiptap/extension-list": "^3.31.3",
+    "@tiptap/extensions": "^3.31.3",
+    "@tiptap/pm": "^3.31.3",
+    "@tiptap/react": "^3.31.3",
+    "@tiptap/starter-kit": "^3.31.3",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
     "lucide-react": "^0.544.0",

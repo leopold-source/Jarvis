@@ -614,3 +614,55 @@ body {
 :root:not([data-charte="atelier"]) .seulement-atelier {
   display: none !important;
 }
+
+/* --- Notes de rendez-vous (éditeur riche) --------------------------------------
+  Des règles écrites à la main plutôt qu'un plugin de typographie : l'éditeur
+  n'a que huit sortes de blocs, et chacune doit se lire d'un coup d'œil pendant
+  un call — titres serrés, listes compactes, cases alignées.
+*/
+@layer components {
+  .note-riche {
+    outline: none;
+    font-size: 13.5px;
+    line-height: 1.6;
+    color: var(--text-primary);
+    min-height: 8rem;
+  }
+  .note-riche > * + * { margin-top: 0.45em; }
+  .note-riche h2 { font-size: 15.5px; font-weight: 600; letter-spacing: -0.01em; margin-top: 1em; }
+  .note-riche h3 {
+    font-size: 11.5px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-secondary);
+    margin-top: 1.1em;
+  }
+  .note-riche > :first-child { margin-top: 0; }
+  .note-riche ul { list-style: disc; padding-left: 1.25rem; }
+  .note-riche ol { list-style: decimal; padding-left: 1.4rem; }
+  .note-riche li > p { margin: 0; }
+  .note-riche li + li { margin-top: 0.15em; }
+  .note-riche blockquote {
+    border-left: 2px solid var(--color-brand-500);
+    padding-left: 0.75rem;
+    color: var(--text-secondary);
+  }
+  .note-riche mark { background: color-mix(in oklab, var(--color-amber-400) 40%, transparent); color: inherit; border-radius: 3px; padding: 0 2px; }
+  .note-riche a { color: var(--color-brand-500); text-decoration: underline; text-underline-offset: 2px; }
+  .note-riche code { font-family: var(--font-mono, monospace); font-size: 0.92em; background: var(--surface-hover); padding: 0 4px; border-radius: 4px; }
+  .note-riche hr { border: 0; border-top: 1px solid var(--border-subtle); margin: 1em 0; }
+  .note-riche ul[data-type="taskList"] { list-style: none; padding-left: 0.1rem; }
+  .note-riche ul[data-type="taskList"] li { display: flex; align-items: flex-start; gap: 0.5rem; }
+  .note-riche ul[data-type="taskList"] li > label { margin-top: 0.3em; flex-shrink: 0; }
+  .note-riche ul[data-type="taskList"] li > label input { accent-color: var(--color-brand-500); width: 14px; height: 14px; cursor: pointer; }
+  .note-riche ul[data-type="taskList"] li > div { flex: 1; }
+  .note-riche ul[data-type="taskList"] li[data-checked="true"] > div { color: var(--text-muted); text-decoration: line-through; }
+  .note-riche p.is-editor-empty:first-child::before {
+    content: attr(data-placeholder);
+    float: left;
+    height: 0;
+    pointer-events: none;
+    color: var(--text-muted);
+  }
+}

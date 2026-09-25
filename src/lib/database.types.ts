@@ -246,6 +246,16 @@ export type LeadListe = Omit<
   | "converted_company_id"
 >;
 
+/** Les notes de rendez-vous et la synthèse d'une affaire, chargées à part. */
+export type DealNotes = {
+  note_r1: string | null;
+  note_r2: string | null;
+  notes_updated_at: string | null;
+  synthese_ia: Json | null;
+  synthese_ia_at: string | null;
+  synthese_ia_model: string | null;
+};
+
 export type Deal = {
   id: string;
   name: string;
@@ -891,7 +901,7 @@ export type Database = {
       companies: TableDef<Company, "name">;
       contacts: TableDef<Contact>;
       leads: TableDef<Lead>;
-      deals: TableDef<Deal, "name">;
+      deals: TableDef<Deal & DealNotes, "name">;
       deal_contacts: TableDef<DealContact, "deal_id" | "contact_id">;
       deal_recaps: TableDef<DealRecap, "deal_id">;
       devis_pennylane: TableDef<DevisPennylane, "pennylane_id">;

@@ -28,6 +28,7 @@ import { DealEmails } from "@/components/crm/deal-emails";
 import { DealCalls } from "@/components/crm/deal-calls";
 import { DealDossier } from "@/components/crm/deal-dossier";
 import { ConfirmationModal } from "@/components/crm/confirmation-modal";
+import { DealSuivi } from "@/components/crm/deal-suivi";
 
 type CompanyLite = { id: string; name: string; sector: string | null; region: string | null };
 type ContactLite = { id: string; full_name: string | null; email: string | null; company_id: string | null };
@@ -294,7 +295,9 @@ export function DealDrawer({
           </Field>
         ) : null}
 
-        <Field label="Notes">
+        {deal ? <DealSuivi dealId={deal.id} stage={deal.stage} /> : null}
+
+        <Field label="Notes libres">
           <Textarea
             rows={6}
             value={form.description}

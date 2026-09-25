@@ -25,7 +25,14 @@ export default async function DealsPage() {
 
   const [{ data: deals }, { data: companies }, { data: contacts }, { data: members }, { data: projects }] =
     await Promise.all([
-      supabase.from("deals").select("*").order("position", { ascending: true }),
+      // Colonnes nommées : les notes et la synthèse se chargent à l'ouverture
+      // d'une affaire, pas avec le tableau entier.
+      supabase
+        .from("deals")
+        .select(
+          "id, name, company_id, contact_id, stage, amount, probability, owner_id, expected_close_on, next_step, next_step_on, description, lost_reason, source_lead_id, position, stage_changed_at, won_at, lost_at, created_by, created_at, updated_at",
+        )
+        .order("position", { ascending: true }),
       supabase.from("companies").select("id, name, sector, region").order("name"),
       supabase.from("contacts").select("id, full_name, email, company_id").order("full_name"),
       supabase.from("profiles").select("id, full_name, email, role").neq("role", "client"),

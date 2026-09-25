@@ -174,7 +174,7 @@ export function LeadsWorkspace({
   const [region, setRegion] = useState("toutes");
   const [segment, setSegment] = useState("tous");
   const [owner, setOwner] = useState("tous");
-  const [view, setView] = useState<ViewMode>("lecture");
+  const [view, setView] = useState<ViewMode>(() => (params.get("vue") === "prospection" ? "prospection" : "lecture"));
   const [showOverdue, setShowOverdue] = useState(true);
   const [onlyGrouped, setOnlyGrouped] = useState(false);
   const [phoneFilter, setPhoneFilter] = useState<PhoneFilter>("tous");
