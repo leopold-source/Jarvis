@@ -137,13 +137,13 @@ type PhoneFilter = keyof typeof PHONE_FILTERS;
  * noieraient les quelques rappels réellement dus.
  */
 function prospectionRank(lead: LeadListe, today: string): number {
-  // Les leads sans responsable passent en tête : ils ne figurent pas dans le
-  // plan du jour, c'est ici qu'on les traite, relances comprises.
-  const base = lead.owner_id ? 10 : 0;
-  if (lead.follow_up_on && lead.follow_up_on < today) return base;
-  if (lead.follow_up_on === today) return base + 1;
-  if (JAMAIS_APPELE.includes(lead.status)) return base + 3;
-  return base + 2;
+  // En tête : les leads sans responsable dont la relance est en retard. Ils
+  // ne figurent pas dans le plan du jour ; c'est ici qu'on les rattrape.
+  if (!lead.owner_id && lead.follow_up_on && lead.follow_up_on < today) return 0;
+  if (lead.follow_up_on && lead.follow_up_on < today) return 1;
+  if (lead.follow_up_on === today) return 2;
+  if (JAMAIS_APPELE.includes(lead.status)) return 4;
+  return 3;
 }
 
 
